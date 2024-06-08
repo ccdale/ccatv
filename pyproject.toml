@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ccatv"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = ["ccdale <chris.charles.allison+ccatv@gmail.com>"]
 readme = "README.md"
