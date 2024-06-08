@@ -1,7 +1,7 @@
 import sys
 
-from ccaerrors import errorExit, errorNotify, errorRaise
 import ccalogging
+from ccaerrors import errorExit, errorNotify, errorRaise
 
 import ccatv
 from ccatv import __appname__, __version__

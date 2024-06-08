@@ -1,7 +1,7 @@
 # Description: Makefile for managing Python projects with Poetry.
 # Author: https://github.com/hackersandslackers
 # License: MIT
-PROJECT_NAME := $(shell basename $CURDIR)
+PROJECT_NAME := $(shell basename $(CURDIR))
 VIRTUAL_ENV := $(CURDIR)/.venv
 LOCAL_PYTHON := $(VIRTUAL_ENV)/bin/python3
 
