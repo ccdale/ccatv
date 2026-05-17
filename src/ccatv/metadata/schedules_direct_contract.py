@@ -47,7 +47,7 @@ class GuideDataSource(str, Enum):
     SCHEDULES_DIRECT = "schedules_direct"
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class SDCredentials:
     """Authentication credentials for Schedules Direct."""
 
@@ -55,7 +55,7 @@ class SDCredentials:
     password: str
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class SDAccountStatus:
     """Account and service health details returned by Schedules Direct."""
 
@@ -64,7 +64,7 @@ class SDAccountStatus:
     provider_message: str | None = None
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class SDLineup:
     """Lineup metadata used to select and sync channel listings."""
 
@@ -75,7 +75,7 @@ class SDLineup:
     postal_code: str | None = None
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class SDStation:
     """Station metadata from an active lineup."""
 
@@ -85,7 +85,7 @@ class SDStation:
     channel: str | None = None
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class SDProgram:
     """Program metadata referenced by schedule entries."""
 
@@ -98,7 +98,7 @@ class SDProgram:
     artwork_urls: tuple[str, ...] = ()
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class SDScheduleEntry:
     """A single station program timeslot."""
 
@@ -113,7 +113,7 @@ class SDScheduleEntry:
     video_properties: tuple[str, ...] = ()
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class GuideSyncWindow:
     """Time window used for incremental schedule synchronization."""
 
@@ -121,7 +121,7 @@ class GuideSyncWindow:
     end_utc: datetime
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class SDGuideSnapshot:
     """Provider payload normalized into app-level sync units."""
 

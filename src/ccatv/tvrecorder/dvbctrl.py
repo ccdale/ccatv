@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import shlex
 import subprocess
+from dataclasses import dataclass
 
 
 class DvbCtrlError(Exception):
@@ -21,7 +21,7 @@ class DvbCtrlCommandError(DvbCtrlError):
     """Raised when dvbctrl returns a non-zero exit code."""
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class DvbCtrlResult:
     """Structured subprocess result for dvbctrl command execution."""
 

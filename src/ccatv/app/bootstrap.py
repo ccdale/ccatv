@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 
 from ccatv.logging_config import configure_logging
 from ccatv.settings import AppSettings
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True, slots=True)
 class AppContext:
     """Bootstrapped runtime context shared by top-level app components."""
 
