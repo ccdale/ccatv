@@ -200,6 +200,7 @@ tests/
   integration/
 docs/
   architecture-proposal.md
+  error-handling.md
 ```
 
 ## Package Choices
@@ -265,6 +266,13 @@ Recovery behaviors:
 - Detect process exit and transition to recoverable error state.
 - Attempt bounded restart with exponential backoff.
 - Surface user-visible errors in UI with actionable text.
+
+Exception handling policy:
+
+- Catch at module boundaries (entrypoint, worker loops, external I/O).
+- Avoid blanket try/except in internal pure logic functions.
+- Use notify/raise/exit semantics consistently by boundary type.
+- See docs/error-handling.md and src/ccatv/errors.py for the project standard.
 
 ## Recording Lifecycle
 
