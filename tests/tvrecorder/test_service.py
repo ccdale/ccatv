@@ -7,7 +7,6 @@ from ccatv.tvrecorder.commands import DvbCtrlCommand
 from ccatv.tvrecorder.dvbctrl import DvbCtrlResult
 from ccatv.tvrecorder.service import TvRecorderService
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
