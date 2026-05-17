@@ -1,0 +1,4 @@
+Status: Locked
+Signal: 78%
+SNR: 34
+BER: 0

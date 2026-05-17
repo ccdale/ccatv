@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from ccatv.tvrecorder.commands import DvbCtrlCommand
 from ccatv.tvrecorder.dvbctrl import DvbCtrlResult
-from ccatv.tvrecorder.service import DvbCtrlCommand, TvRecorderService
+from ccatv.tvrecorder.service import TvRecorderService
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 @dataclass(slots=True)
@@ -25,6 +30,10 @@ def _result(command: str, stdout: str) -> DvbCtrlResult:
     )
 
 
+def _fixture(name: str) -> str:
+    return (FIXTURES / name).read_text(encoding="utf-8")
+
+
 def test_typed_command_render_quotes_arguments() -> None:
     cmd = DvbCtrlCommand(name="select", args=("BBC ONE HD",))
     assert cmd.render() == "select 'BBC ONE HD'"
@@ -33,7 +42,7 @@ def test_typed_command_render_quotes_arguments() -> None:
 def test_current_status_prefers_kv_service_field() -> None:
     client = StubDvbCtrlClient(
         responses={
-            "current": _result("current", "Service: BBC TWO HD\n"),
+            "current": _result("current", _fixture("current_output.txt")),
         }
     )
     service = TvRecorderService(client)
@@ -47,7 +56,7 @@ def test_current_status_prefers_kv_service_field() -> None:
 def test_stats_snapshot_coerces_numeric_values() -> None:
     client = StubDvbCtrlClient(
         responses={
-            "stats": _result("stats", "Packets: 12345\nRate: 5.5\nState: good\n"),
+            "stats": _result("stats", _fixture("stats_output.txt")),
         }
     )
     service = TvRecorderService(client)
@@ -55,6 +64,7 @@ def test_stats_snapshot_coerces_numeric_values() -> None:
     snapshot = service.stats_snapshot()
 
     assert snapshot.metrics["packets"] == 12345
+    assert snapshot.metrics["dropped packets"] == 12
     assert snapshot.metrics["rate"] == 5.5
     assert snapshot.metrics["state"] == "good"
 
@@ -64,7 +74,7 @@ def test_frontend_status_extracts_lock_and_signal_fields() -> None:
         responses={
             "festatus": _result(
                 "festatus",
-                "Lock: YES\nSignal: 78%\nSNR: 34\nBER: 0\n",
+                _fixture("festatus_output.txt"),
             )
         }
     )

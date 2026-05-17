@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-import shlex
 from dataclasses import dataclass
 
+from ccatv.tvrecorder.commands import (
+    DvbCtrlCommand,
+    current_command,
+    festatus_command,
+    select_command,
+    stats_command,
+)
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient, DvbCtrlResult
-
-
-@dataclass(frozen=True, slots=True)
-class DvbCtrlCommand:
-    """Typed dvbctrl command representation."""
-
-    name: str
-    args: tuple[str, ...] = ()
-
-    def render(self) -> str:
-        """Render as a shell-safe dvbctrl command string."""
-        parts = [self.name, *self.args]
-        return " ".join(shlex.quote(part) for part in parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +54,11 @@ class TvRecorderService:
 
     def select_service(self, service_name: str) -> DvbCtrlResult:
         """Select a primary service by name."""
-        return self.run(DvbCtrlCommand(name="select", args=(service_name,)))
+        return self.run(select_command(service_name))
 
     def current(self) -> DvbCtrlResult:
         """Return currently selected service output."""
-        return self.run(DvbCtrlCommand(name="current"))
+        return self.run(current_command())
 
     def current_status(self) -> CurrentServiceStatus:
         """Return parsed status from the current service output."""
@@ -76,7 +69,7 @@ class TvRecorderService:
 
     def stats(self) -> DvbCtrlResult:
         """Return current dvbstreamer statistics output."""
-        return self.run(DvbCtrlCommand(name="stats"))
+        return self.run(stats_command())
 
     def stats_snapshot(self) -> StatsSnapshot:
         """Return parsed numeric/string metrics from stats output."""
@@ -89,7 +82,7 @@ class TvRecorderService:
 
     def festatus(self) -> DvbCtrlResult:
         """Return frontend status output."""
-        return self.run(DvbCtrlCommand(name="festatus"))
+        return self.run(festatus_command())
 
     def frontend_status(self) -> FrontendStatus:
         """Return parsed lock/signal fields from frontend status output."""
