@@ -53,4 +53,9 @@ Current runtime file shape:
 You can override these with CLI setup flags:
 - `uv run ccatv setup --host druidmedia --adapter-count 4 --username your-user`
 
+Runtime precedence for host and adapter count is:
+1. Environment variables (`CCATV_DVBSTREAMER_HOST`, `CCATV_DVB_ADAPTER_COUNT`)
+2. Local runtime config (`runtime.json`)
+3. Built-in defaults (`localhost`, `1`)
+
 See docs/architecture-proposal.md for the proposed architecture and phased implementation plan.

@@ -7,7 +7,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
-from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
+from ccatv.runtime_config import (
+    RuntimeConfig,
+    RuntimeConfigError,
+    RuntimeConfigStore,
+)
 from ccatv.tvrecorder.config import (
     DvbCtrlCredentials,
     TvRecorderConfig,
@@ -67,6 +71,11 @@ def setup_main(
 
 def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
     """Prompt for dvbctrl credentials and persist them in userconfig.json."""
+    try:
+        runtime_defaults = deps.runtime_store.load()
+    except RuntimeConfigError:
+        runtime_defaults = RuntimeConfig()
+
     username = (args.username or deps.input_fn("Dvbctrl username: ")).strip()
     if not username:
         print("Username is required.", file=deps.stderr)
@@ -82,14 +91,18 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
         print("Passwords did not match.", file=deps.stderr)
         return 2
 
-    host = str(getattr(args, "host", None) or "localhost").strip()
-    if not host:
-        print("Host is required.", file=deps.stderr)
-        return 2
+    host_arg = getattr(args, "host", None)
+    if host_arg is None:
+        host = runtime_defaults.dvbstreamer_host
+    else:
+        host = str(host_arg).strip()
+        if not host:
+            print("Host cannot be empty.", file=deps.stderr)
+            return 2
 
     adapter_count = getattr(args, "adapter_count", None)
     if adapter_count is None:
-        adapter_count = 1
+        adapter_count = runtime_defaults.dvb_adapter_count
     if adapter_count < 1:
         print("Adapter count must be greater than 0.", file=deps.stderr)
         return 2

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from ccatv.cli import CliDependencies, main, run_setup, setup_main
-from ccatv.runtime_config import RuntimeConfigStore
+from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
 from ccatv.tvrecorder.config import TvRecorderConfigStore
 
 
@@ -105,6 +105,58 @@ def test_run_setup_rejects_invalid_adapter_count(tmp_path: Path) -> None:
 
     assert exit_code == 2
     assert "Adapter count must be greater than 0." in stderr.getvalue()
+
+
+def test_run_setup_rejects_whitespace_host(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    prompts = iter(["secret", "secret"])
+    deps = CliDependencies(
+        input_fn=lambda prompt: "alice",
+        password_fn=lambda prompt: next(prompts),
+        runtime_store=RuntimeConfigStore(config_dir=tmp_path),
+        stderr=stderr,
+        stdout=stdout,
+        store=TvRecorderConfigStore(config_dir=tmp_path),
+    )
+
+    exit_code = run_setup(
+        Namespace(adapter_count=1, host="   ", username="alice"),
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert "Host cannot be empty." in stderr.getvalue()
+
+
+def test_run_setup_preserves_runtime_defaults_when_host_not_provided(
+    tmp_path: Path,
+) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    prompts = iter(["secret", "secret"])
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    runtime_store.save(
+        RuntimeConfig(
+            dvb_adapter_count=4,
+            dvbstreamer_host="druidmedia",
+        )
+    )
+    deps = CliDependencies(
+        input_fn=lambda prompt: "alice",
+        password_fn=lambda prompt: next(prompts),
+        runtime_store=runtime_store,
+        stderr=stderr,
+        stdout=stdout,
+        store=TvRecorderConfigStore(config_dir=tmp_path),
+    )
+
+    exit_code = run_setup(Namespace(adapter_count=None, host=None, username=None), deps=deps)
+
+    assert exit_code == 0
+    runtime = RuntimeConfigStore(config_dir=tmp_path).load()
+    assert runtime.dvbstreamer_host == "druidmedia"
+    assert runtime.dvb_adapter_count == 4
 
 
 def test_setup_main_uses_process_argv_when_no_args_provided(monkeypatch) -> None:
