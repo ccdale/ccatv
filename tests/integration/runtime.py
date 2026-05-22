@@ -19,7 +19,7 @@ class IntegrationTestConfig:
     remote_host: str = "druidmedia"
     remote_user: str = "chris"
     remote_port: int = 22
-    remote_workdir: str | None = "$HOME"
+    remote_workdir: str | None = None
     dvbstreamer_host: str = "druidmedia"
     dvb_adapter_count: int = 1
     dvb_adapter_index: int = 0
@@ -29,12 +29,12 @@ class IntegrationTestConfig:
     readiness_attempts: int = 10
     readiness_delay_seconds: float = 1.0
     start_timeout_seconds: float = 20.0
-    start_command: str = (
-        "nohup dvbstreamer -a {adapter_index} -i 0.0.0.0 -o null:// "
-        ">/tmp/ccatv-dvbstreamer.log 2>&1 &"
+    start_command: str = "dvbstreamer -Dd -a {adapter_index}"
+    stop_command: str = (
+        "pgrep -f '[d]vbstreamer -Dd -a {adapter_index}' "
+        "&& pkill -f '[d]vbstreamer -Dd -a {adapter_index}' || true"
     )
-    stop_command: str = "pkill -f 'dvbstreamer -a {adapter_index}' || true"
-    status_command: str = "pgrep -f 'dvbstreamer -a {adapter_index}'"
+    status_command: str = "pgrep -f '[d]vbstreamer -Dd -a {adapter_index}'"
 
     @classmethod
     def load(cls, path: Path | None = None) -> IntegrationTestConfig:
@@ -123,7 +123,7 @@ class SshCommandExecutor(CommandExecutor):
                 "-p",
                 str(self.port),
                 target,
-                f"bash -lc {shlex.quote(remote_command)}",
+                remote_command,
             ],
             capture_output=True,
             check=False,

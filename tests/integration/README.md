@@ -14,7 +14,7 @@ Example config for your remote host:
   "remote_host": "druidmedia",
   "remote_user": "chris",
   "remote_port": 22,
-  "remote_workdir": "$HOME",
+  "remote_workdir": null,
   "dvbstreamer_host": "druidmedia",
   "dvb_adapter_count": 1,
   "dvb_adapter_index": 0,
@@ -24,9 +24,9 @@ Example config for your remote host:
   "readiness_attempts": 10,
   "readiness_delay_seconds": 1.0,
   "start_timeout_seconds": 20.0,
-  "start_command": "nohup dvbstreamer -a {adapter_index} -i 0.0.0.0 -o null:// >/tmp/ccatv-dvbstreamer.log 2>&1 &",
-  "stop_command": "pkill -f 'dvbstreamer -a {adapter_index}' || true",
-  "status_command": "pgrep -f 'dvbstreamer -a {adapter_index}'"
+  "start_command": "dvbstreamer -Dd -a {adapter_index}",
+  "stop_command": "pgrep -f '[d]vbstreamer -Dd -a {adapter_index}' && pkill -f '[d]vbstreamer -Dd -a {adapter_index}' || true",
+  "status_command": "pgrep -f '[d]vbstreamer -Dd -a {adapter_index}'"
 }
 ```
 
