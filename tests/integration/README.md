@@ -25,7 +25,8 @@ Example config for your remote host:
   "readiness_delay_seconds": 1.0,
   "start_timeout_seconds": 20.0,
   "start_command": "nohup dvbstreamer -a {adapter_index} -i 0.0.0.0 -o null:// >/tmp/ccatv-dvbstreamer.log 2>&1 &",
-  "stop_command": "pkill -f 'dvbstreamer -a {adapter_index}' || true"
+  "stop_command": "pkill -f 'dvbstreamer -a {adapter_index}' || true",
+  "status_command": "pgrep -f 'dvbstreamer -a {adapter_index}'"
 }
 ```
 

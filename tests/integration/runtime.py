@@ -34,6 +34,7 @@ class IntegrationTestConfig:
         ">/tmp/ccatv-dvbstreamer.log 2>&1 &"
     )
     stop_command: str = "pkill -f 'dvbstreamer -a {adapter_index}' || true"
+    status_command: str = "pgrep -f 'dvbstreamer -a {adapter_index}'"
 
     @classmethod
     def load(cls, path: Path | None = None) -> IntegrationTestConfig:
@@ -56,6 +57,9 @@ class IntegrationTestConfig:
 
     def render_stop_command(self) -> str:
         return self._render_command(self.stop_command)
+
+    def render_status_command(self) -> str:
+        return self._render_command(self.status_command)
 
     def _render_command(self, template: str) -> str:
         try:

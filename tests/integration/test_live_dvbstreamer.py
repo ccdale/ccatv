@@ -36,13 +36,23 @@ def test_live_dvbstreamer_lifecycle_smoke() -> None:
 
     executor = build_executor(config)
     stop_timeout_seconds = 10.0
+    connectivity_timeout_seconds = 5.0
 
     if config.mode == "ssh":
-        connectivity = executor.run("true", stop_timeout_seconds)
+        connectivity = executor.run("true", connectivity_timeout_seconds)
         _assert_command_ok(connectivity, operation="ssh connectivity check")
 
     stop_result = executor.run(config.render_stop_command(), stop_timeout_seconds)
     _assert_command_ok(stop_result, operation="pre-test stop")
+    pre_start_status = executor.run(
+        config.render_status_command(), stop_timeout_seconds
+    )
+    if pre_start_status.returncode == 0:
+        raise AssertionError(
+            "dvbstreamer still running after pre-test stop.\n"
+            f"stdout:\n{pre_start_status.stdout.strip()}\n"
+            f"stderr:\n{pre_start_status.stderr.strip()}"
+        )
 
     try:
         start_result = executor.run(
@@ -59,18 +69,20 @@ def test_live_dvbstreamer_lifecycle_smoke() -> None:
         )
 
         last_error = "no readiness attempt executed"
-        for _ in range(config.readiness_attempts):
+        for attempt in range(config.readiness_attempts):
             try:
                 probe = client.run_command(config.readiness_command)
             except DvbCtrlError as exc:
                 last_error = str(exc)
-                time.sleep(config.readiness_delay_seconds)
+                sleep_seconds = min(config.readiness_delay_seconds * (2**attempt), 5.0)
+                time.sleep(sleep_seconds)
                 continue
             if probe.returncode != 0:
                 last_error = (
                     f"returncode={probe.returncode}, stderr={probe.stderr.strip()}"
                 )
-                time.sleep(config.readiness_delay_seconds)
+                sleep_seconds = min(config.readiness_delay_seconds * (2**attempt), 5.0)
+                time.sleep(sleep_seconds)
                 continue
             break
         else:
@@ -81,3 +93,12 @@ def test_live_dvbstreamer_lifecycle_smoke() -> None:
     finally:
         stop_result = executor.run(config.render_stop_command(), stop_timeout_seconds)
         _assert_command_ok(stop_result, operation="stop")
+        stopped_status = executor.run(
+            config.render_status_command(), stop_timeout_seconds
+        )
+        if stopped_status.returncode == 0:
+            raise AssertionError(
+                "dvbstreamer still running after stop.\n"
+                f"stdout:\n{stopped_status.stdout.strip()}\n"
+                f"stderr:\n{stopped_status.stderr.strip()}"
+            )
