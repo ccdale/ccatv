@@ -58,6 +58,7 @@ def apply_migrations(connection: sqlite3.Connection) -> int:
         )
         """
     )
+    connection.commit()
 
     rows = connection.execute("SELECT version FROM schema_migrations")
     applied_versions = {row[0] for row in rows.fetchall()}
