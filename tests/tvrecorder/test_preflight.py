@@ -363,3 +363,76 @@ def test_check_uses_default_client_factory_with_preferred_zero(
             _dvbctrl_init_default("transient_retry_delay_seconds"),
         ),
     ]
+
+
+def test_check_default_factory_falls_back_when_preferred_zero_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
+
+    captured: list[tuple[str, str, int, float, int, float]] = []
+
+    class _DefaultClientStub:
+        def __init__(
+            self,
+            executable_path: str,
+            host: str,
+            adapter_index: int,
+            timeout_seconds: float,
+            transient_retry_count: int = _dvbctrl_init_default("transient_retry_count"),
+            transient_retry_delay_seconds: float = _dvbctrl_init_default(
+                "transient_retry_delay_seconds"
+            ),
+            **_: object,
+        ) -> None:
+            self.adapter_index = adapter_index
+            captured.append(
+                (
+                    executable_path,
+                    host,
+                    adapter_index,
+                    timeout_seconds,
+                    transient_retry_count,
+                    transient_retry_delay_seconds,
+                )
+            )
+
+        def run_command(self, command: str):
+            if self.adapter_index == 0:
+                raise DvbCtrlCommandError("offline")
+            return object()
+
+    import ccatv.tvrecorder.preflight as preflight_module
+
+    monkeypatch.setattr(preflight_module, "DvbCtrlClient", _DefaultClientStub)
+
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=2,
+        preferred_adapter_index=0,
+    )
+
+    result = checker.check()
+
+    assert result.online_adapters == (1,)
+    assert result.selected_adapter == 1
+    assert _dvbctrl_init_default("transient_retry_count") == 2
+    assert _dvbctrl_init_default("transient_retry_delay_seconds") == 0.2
+    assert captured == [
+        (
+            "dvbctrl",
+            "druidmedia",
+            0,
+            10.0,
+            _dvbctrl_init_default("transient_retry_count"),
+            _dvbctrl_init_default("transient_retry_delay_seconds"),
+        ),
+        (
+            "dvbctrl",
+            "druidmedia",
+            1,
+            10.0,
+            _dvbctrl_init_default("transient_retry_count"),
+            _dvbctrl_init_default("transient_retry_delay_seconds"),
+        ),
+    ]
