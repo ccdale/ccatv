@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from inspect import signature
+
 import ccatv.app.bootstrap as bootstrap_module
+import pytest
 from ccatv.app.bootstrap import bootstrap_app
+from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.settings import AppSettings
+
+
+def _dvbctrl_init_default(param_name: str):
+    return signature(DvbCtrlClient.__init__).parameters[param_name].default
 
 
 def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
@@ -30,8 +38,14 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     assert context.dvbctrl.host == "10.0.0.5"
     assert context.dvbctrl.adapter_index == 2
     assert context.dvbctrl.timeout_seconds == 4.25
-    assert context.dvbctrl.transient_retry_count == 2
-    assert context.dvbctrl.transient_retry_delay_seconds == 0.2
+    assert (
+        context.dvbctrl.transient_retry_count
+        == _dvbctrl_init_default("transient_retry_count")
+    )
+    assert (
+        context.dvbctrl.transient_retry_delay_seconds
+        == _dvbctrl_init_default("transient_retry_delay_seconds")
+    )
     assert context.dvbstreamer.config.adapter_index == 2
     assert context.dvbstreamer.config.bind_address == "0.0.0.0"
     assert context.dvbstreamer.config.output_mrl == "udp://239.10.10.10:1234"
@@ -50,8 +64,14 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
         context.write_preflight.transient_retry_delay_seconds
         == context.dvbctrl.transient_retry_delay_seconds
     )
-    assert context.write_preflight.transient_retry_count == 2
-    assert context.write_preflight.transient_retry_delay_seconds == 0.2
+    assert (
+        context.write_preflight.transient_retry_count
+        == _dvbctrl_init_default("transient_retry_count")
+    )
+    assert (
+        context.write_preflight.transient_retry_delay_seconds
+        == _dvbctrl_init_default("transient_retry_delay_seconds")
+    )
 
 
 def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None:
@@ -106,3 +126,31 @@ def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None
     )
     assert context.write_preflight.transient_retry_count == 5
     assert context.write_preflight.transient_retry_delay_seconds == 0.75
+
+
+def test_bootstrap_propagates_dvbctrl_init_failure(monkeypatch) -> None:
+    class _FailingDvbCtrlClient:
+        def __init__(self, *args, **kwargs) -> None:
+            raise RuntimeError("dvbctrl init failed")
+
+    monkeypatch.setattr(bootstrap_module, "DvbCtrlClient", _FailingDvbCtrlClient)
+    monkeypatch.setattr(
+        AppSettings,
+        "from_env",
+        classmethod(
+            lambda cls: AppSettings(
+                dvb_adapter_count=1,
+                dvb_adapter_index=0,
+                dvbctrl_path="dvbctrl",
+                dvbctrl_timeout_seconds=3.0,
+                dvbstreamer_bind_address="0.0.0.0",
+                dvbstreamer_host="10.0.0.7",
+                dvbstreamer_output_mrl="udp://239.10.10.12:1234",
+                dvbstreamer_path="/opt/bin/dvbstreamer",
+                dvbstreamer_stop_timeout_seconds=8.0,
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="dvbctrl init failed"):
+        bootstrap_app()

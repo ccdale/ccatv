@@ -220,7 +220,8 @@ def test_check_handles_client_factory_failure(monkeypatch: pytest.MonkeyPatch) -
     )
 
     with pytest.raises(
-        WritePreflightError, match="No writable tuner path is available"
+        WritePreflightError,
+        match="No writable tuner path is available.*client build failed: factory exploded for 0",
     ):
         checker.check()
 
