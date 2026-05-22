@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
+from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
 from ccatv.tvrecorder.config import (
     DvbCtrlCredentials,
     TvRecorderConfig,
@@ -24,6 +25,7 @@ class CliDependencies:
     password_fn: PromptFn = getpass.getpass
     stderr: TextIO = sys.stderr
     stdout: TextIO = sys.stdout
+    runtime_store: RuntimeConfigStore = RuntimeConfigStore()
     store: TvRecorderConfigStore = TvRecorderConfigStore()
 
 
@@ -36,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
         "setup",
         help="Store local dvbstreamer/dvbctrl credentials",
     )
+    setup_parser.add_argument("--adapter-count", type=int, help="number of adapters")
+    setup_parser.add_argument("--host", help="dvbstreamer/dvbctrl host")
     setup_parser.add_argument("--username", help="dvbctrl username")
     setup_parser.set_defaults(handler=run_setup)
     return parser
@@ -78,6 +82,18 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
         print("Passwords did not match.", file=deps.stderr)
         return 2
 
+    host = str(getattr(args, "host", None) or "localhost").strip()
+    if not host:
+        print("Host is required.", file=deps.stderr)
+        return 2
+
+    adapter_count = getattr(args, "adapter_count", None)
+    if adapter_count is None:
+        adapter_count = 1
+    if adapter_count < 1:
+        print("Adapter count must be greater than 0.", file=deps.stderr)
+        return 2
+
     path = deps.store.save(
         TvRecorderConfig(
             dvbctrl_credentials=DvbCtrlCredentials(
@@ -86,7 +102,14 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
             )
         )
     )
+    runtime_path = deps.runtime_store.save(
+        RuntimeConfig(
+            dvb_adapter_count=adapter_count,
+            dvbstreamer_host=host,
+        )
+    )
     print(f"Saved dvbstreamer credentials to {path}", file=deps.stdout)
+    print(f"Saved ccatv runtime config to {runtime_path}", file=deps.stdout)
     return 0
 
 

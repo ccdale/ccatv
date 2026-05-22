@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from ccatv.cli import CliDependencies, main, run_setup, setup_main
+from ccatv.runtime_config import RuntimeConfigStore
 from ccatv.tvrecorder.config import TvRecorderConfigStore
 
 
@@ -18,12 +19,15 @@ def test_run_setup_persists_credentials(tmp_path: Path) -> None:
     deps = CliDependencies(
         input_fn=lambda prompt: "alice",
         password_fn=lambda prompt: next(prompts),
+        runtime_store=RuntimeConfigStore(config_dir=tmp_path),
         stderr=stderr,
         stdout=stdout,
         store=TvRecorderConfigStore(config_dir=tmp_path),
     )
 
-    exit_code = run_setup(Namespace(username=None), deps=deps)
+    exit_code = run_setup(
+        Namespace(adapter_count=None, host=None, username=None), deps=deps
+    )
 
     assert exit_code == 0
     assert stderr.getvalue() == ""
@@ -32,6 +36,9 @@ def test_run_setup_persists_credentials(tmp_path: Path) -> None:
     assert saved.dvbctrl_credentials is not None
     assert saved.dvbctrl_credentials.username == "alice"
     assert saved.dvbctrl_credentials.password == "secret"
+    runtime = RuntimeConfigStore(config_dir=tmp_path).load()
+    assert runtime.dvbstreamer_host == "localhost"
+    assert runtime.dvb_adapter_count == 1
 
 
 def test_run_setup_rejects_mismatched_passwords(tmp_path: Path) -> None:
@@ -41,12 +48,15 @@ def test_run_setup_rejects_mismatched_passwords(tmp_path: Path) -> None:
     deps = CliDependencies(
         input_fn=lambda prompt: "alice",
         password_fn=lambda prompt: next(prompts),
+        runtime_store=RuntimeConfigStore(config_dir=tmp_path),
         stderr=stderr,
         stdout=stdout,
         store=TvRecorderConfigStore(config_dir=tmp_path),
     )
 
-    exit_code = run_setup(Namespace(username=None), deps=deps)
+    exit_code = run_setup(
+        Namespace(adapter_count=None, host=None, username=None), deps=deps
+    )
 
     assert exit_code == 2
     assert stdout.getvalue() == ""
@@ -61,6 +71,7 @@ def test_setup_main_routes_to_setup_command(tmp_path: Path) -> None:
     deps = CliDependencies(
         input_fn=lambda prompt: "ignored",
         password_fn=lambda prompt: next(prompts),
+        runtime_store=RuntimeConfigStore(config_dir=tmp_path),
         stderr=stderr,
         stdout=stdout,
         store=TvRecorderConfigStore(config_dir=tmp_path),
@@ -72,6 +83,28 @@ def test_setup_main_routes_to_setup_command(tmp_path: Path) -> None:
     saved = TvRecorderConfigStore(config_dir=tmp_path).load()
     assert saved.dvbctrl_credentials is not None
     assert saved.dvbctrl_credentials.username == "alice"
+
+
+def test_run_setup_rejects_invalid_adapter_count(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    prompts = iter(["secret", "secret"])
+    deps = CliDependencies(
+        input_fn=lambda prompt: "alice",
+        password_fn=lambda prompt: next(prompts),
+        runtime_store=RuntimeConfigStore(config_dir=tmp_path),
+        stderr=stderr,
+        stdout=stdout,
+        store=TvRecorderConfigStore(config_dir=tmp_path),
+    )
+
+    exit_code = run_setup(
+        Namespace(adapter_count=0, host="druidmedia", username="alice"),
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert "Adapter count must be greater than 0." in stderr.getvalue()
 
 
 def test_setup_main_uses_process_argv_when_no_args_provided(monkeypatch) -> None:

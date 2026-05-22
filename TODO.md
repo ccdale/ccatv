@@ -14,6 +14,8 @@ Implemented and validated:
 - dvbctrl subprocess adapter with typed result and typed exceptions.
 - Shared dvbstreamer/dvbctrl auth config via
 	`$XDG_CONFIG_HOME/dvbstreamer/userconfig.json` with flat `username/password`.
+- Local ccatv runtime config via
+	`$XDG_CONFIG_HOME/ccatv/runtime.json` for `dvbstreamer_host` and `dvb_adapter_count`.
 - ccatv no longer passes dvbctrl credentials with `-u/-p`; auth is read by
 	dvbctrl directly from userconfig.
 - Typed dvbctrl command catalog for current, stats, festatus, and select.

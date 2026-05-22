@@ -38,4 +38,19 @@ To create or update the local file interactively, run `uv run ccatv-setup`.
 
 You can also use the shared CLI entrypoint with `uv run ccatv setup`.
 
+ccatv runtime connection settings are stored separately in:
+`$XDG_CONFIG_HOME/ccatv/runtime.json` (fallback `$HOME/.config/ccatv/runtime.json`).
+
+Current runtime file shape:
+
+```json
+{
+	"dvb_adapter_count": 1,
+	"dvbstreamer_host": "localhost"
+}
+```
+
+You can override these with CLI setup flags:
+- `uv run ccatv setup --host druidmedia --adapter-count 4 --username your-user`
+
 See docs/architecture-proposal.md for the proposed architecture and phased implementation plan.
