@@ -48,6 +48,8 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
         context.write_preflight.transient_retry_delay_seconds
         == context.dvbctrl.transient_retry_delay_seconds
     )
+    assert context.write_preflight.transient_retry_count == 2
+    assert context.write_preflight.transient_retry_delay_seconds == 0.2
 
 
 def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None:
@@ -99,3 +101,5 @@ def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None
         context.write_preflight.transient_retry_delay_seconds
         == context.dvbctrl.transient_retry_delay_seconds
     )
+    assert context.write_preflight.transient_retry_count == 5
+    assert context.write_preflight.transient_retry_delay_seconds == 0.75
