@@ -1,9 +1,9 @@
 [project]
 name = "ccatv"
-version = "0.1.60"
+version = "0.1.61"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = []
 
 [build-system]
