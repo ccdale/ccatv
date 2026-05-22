@@ -75,6 +75,14 @@ def apply_migrations(connection: sqlite3.Connection) -> int:
 
 
 def initialize_database(path: Path) -> sqlite3.Connection:
+    """Initialize schema and return an open connection.
+
+    Caller is responsible for closing the returned connection.
+    """
     connection = open_database(path)
-    apply_migrations(connection)
+    try:
+        apply_migrations(connection)
+    except Exception:
+        connection.close()
+        raise
     return connection
