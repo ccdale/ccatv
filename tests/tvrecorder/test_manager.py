@@ -208,6 +208,65 @@ def test_health_check_preserves_failed_state_after_stop_failure(
     assert status.last_error is not None
 
 
+def test_health_check_returns_stopped_when_no_process() -> None:
+    manager = DvbStreamerManager(config=DvbStreamerConfig())
+
+    status = manager.health_check()
+
+    assert status.state == DvbStreamerState.STOPPED
+    assert status.pid is None
+
+
+def test_health_check_marks_stopped_on_clean_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(poll_value=None)
+
+    def _popen(*args, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig())
+    manager.start()
+    fake_process._poll_value = 0
+
+    status = manager.health_check()
+
+    assert status.state == DvbStreamerState.STOPPED
+    assert status.last_error is None
+    assert status.pid is None
+
+
+def test_health_check_refreshes_failed_error_after_process_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(
+        poll_value=None,
+        wait_raises_timeout=True,
+    )
+
+    def _popen(*args, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig(), stop_timeout_seconds=1.0)
+    manager.start()
+
+    with pytest.raises(DvbStreamerStopTimeout):
+        manager.stop(force_kill=False)
+
+    fake_process._poll_value = 5
+    fake_process._wait_raises_timeout = False
+
+    status = manager.health_check()
+
+    assert status.state == DvbStreamerState.FAILED
+    assert status.last_error == "dvbstreamer exited with returncode 5"
+    assert status.pid is None
+
+
 def test_health_check_marks_failed_on_non_zero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -83,9 +83,8 @@ class DvbCtrlClient:
             )
             if result.returncode == 0:
                 return result
-            if (
-                attempt < self.transient_retry_count
-                and _is_transient_command_failure(result.stderr)
+            if attempt < self.transient_retry_count and _is_transient_command_failure(
+                result.stderr
             ):
                 self._sleep_before_retry(attempt)
                 continue

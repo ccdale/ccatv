@@ -23,6 +23,7 @@ Implemented and validated:
 - TvRecorderService parser layer for current/stats/festatus outputs.
 - Fixture-based unit tests for parser behavior.
 - DvbStreamerManager lifecycle scaffold (start/stop/health/status) with bootstrap wiring.
+- Manager health-check edge-case tests now cover no-process, clean-exit, and failed-state refresh paths.
 
 Quality baseline:
 - Ruff linting configured and used in workflow.
@@ -55,7 +56,6 @@ Required before integration work:
 
 1. Harden process lifecycle and command reliability for runtime use:
 	- handle force-kill timeout path in manager stop() consistently
-	- add manager health-check edge-case tests
 	- add preflight status checks before write operations (recording/scheduling):
 	  - verify host reachability
 	  - verify at least one adapter is online even when configured adapter count is higher
