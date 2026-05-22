@@ -53,7 +53,7 @@ class WritePreflightChecker:
                 client.run_command(self.probe_command)
             except DvbCtrlError as exc:
                 probe_errors[adapter_index] = str(exc)
-            except Exception as exc:  # pragma: no cover - defensive adapter isolation
+            except Exception as exc:
                 probe_errors[adapter_index] = f"client build failed: {exc}"
             else:
                 online_adapters.append(adapter_index)

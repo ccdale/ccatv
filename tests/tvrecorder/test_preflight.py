@@ -63,6 +63,17 @@ def test_check_raises_for_preferred_adapter_out_of_bounds() -> None:
         checker.check()
 
 
+def test_check_raises_for_negative_preferred_adapter_index() -> None:
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=2,
+        preferred_adapter_index=-1,
+    )
+
+    with pytest.raises(WritePreflightError, match="out of range"):
+        checker.check()
+
+
 def test_check_selects_preferred_online_adapter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
