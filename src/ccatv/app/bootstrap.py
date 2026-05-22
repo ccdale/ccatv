@@ -47,6 +47,8 @@ def bootstrap_app() -> AppContext:
         preferred_adapter_index=settings.dvb_adapter_index,
         executable_path=settings.dvbctrl_path,
         timeout_seconds=settings.dvbctrl_timeout_seconds,
+        transient_retry_count=dvbctrl.transient_retry_count,
+        transient_retry_delay_seconds=dvbctrl.transient_retry_delay_seconds,
     )
     return AppContext(
         settings=settings,

@@ -38,3 +38,6 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     assert context.write_preflight.adapter_count == 4
     assert context.write_preflight.preferred_adapter_index == 2
     assert context.write_preflight.executable_path == "dvbctrl"
+    assert context.write_preflight.timeout_seconds == 4.25
+    assert context.write_preflight.transient_retry_count == 2
+    assert context.write_preflight.transient_retry_delay_seconds == 0.2
