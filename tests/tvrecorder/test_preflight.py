@@ -100,6 +100,32 @@ def test_check_selects_preferred_online_adapter(
     assert result.selected_adapter == 2
 
 
+def test_check_prefers_adapter_zero_when_online(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
+
+    def _factory(adapter_index: int):
+        if adapter_index == 0:
+            return _StubClient(should_succeed=True)
+        return _StubClient(
+            should_succeed=False,
+            error=DvbCtrlCommandError("offline"),
+        )
+
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=2,
+        preferred_adapter_index=0,
+        client_factory=_factory,
+    )
+
+    result = checker.check()
+
+    assert result.online_adapters == (0,)
+    assert result.selected_adapter == 0
+
+
 def test_check_falls_back_to_first_online_adapter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -165,3 +191,43 @@ def test_check_handles_client_factory_failure(monkeypatch: pytest.MonkeyPatch) -
         WritePreflightError, match="No writable tuner path is available"
     ):
         checker.check()
+
+
+def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
+
+    captured: list[tuple[str, str, int, float]] = []
+
+    class _DefaultClientStub:
+        def __init__(
+            self,
+            executable_path: str,
+            host: str,
+            adapter_index: int,
+            timeout_seconds: float,
+        ) -> None:
+            captured.append((executable_path, host, adapter_index, timeout_seconds))
+
+        def run_command(self, command: str):
+            return object()
+
+    import ccatv.tvrecorder.preflight as preflight_module
+
+    monkeypatch.setattr(preflight_module, "DvbCtrlClient", _DefaultClientStub)
+
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=2,
+        preferred_adapter_index=1,
+        executable_path="/opt/bin/dvbctrl",
+        timeout_seconds=3.5,
+    )
+
+    result = checker.check()
+
+    assert result.online_adapters == (0, 1)
+    assert result.selected_adapter == 1
+    assert captured == [
+        ("/opt/bin/dvbctrl", "druidmedia", 0, 3.5),
+        ("/opt/bin/dvbctrl", "druidmedia", 1, 3.5),
+    ]
