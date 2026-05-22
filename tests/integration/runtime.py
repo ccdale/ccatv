@@ -62,12 +62,13 @@ class IntegrationTestConfig:
         return self._render_command(self.status_command)
 
     def _render_command(self, template: str) -> str:
+        values = {
+            "adapter_count": shlex.quote(str(self.dvb_adapter_count)),
+            "adapter_index": shlex.quote(str(self.dvb_adapter_index)),
+            "host": shlex.quote(self.dvbstreamer_host),
+        }
         try:
-            return template.format(
-                adapter_count=self.dvb_adapter_count,
-                adapter_index=self.dvb_adapter_index,
-                host=self.dvbstreamer_host,
-            )
+            return template.format(**values)
         except KeyError as exc:
             missing_key = exc.args[0]
             raise ValueError(
