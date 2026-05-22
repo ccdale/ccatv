@@ -176,6 +176,32 @@ def test_stop_force_kill_timeout_raises_typed_error(
     assert status.pid is None
 
 
+def test_health_check_preserves_failed_state_after_stop_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(
+        poll_value=None,
+        kill_clears_timeout=False,
+        wait_raises_timeout=True,
+    )
+
+    def _popen(*args, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig(), stop_timeout_seconds=1.0)
+    manager.start()
+
+    with pytest.raises(DvbStreamerStopTimeout):
+        manager.stop(force_kill=True)
+
+    status = manager.health_check()
+
+    assert status.state == DvbStreamerState.FAILED
+    assert status.last_error is not None
+
+
 def test_health_check_marks_failed_on_non_zero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

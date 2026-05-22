@@ -153,7 +153,8 @@ class DvbStreamerManager:
     def health_check(self) -> DvbStreamerStatus:
         """Evaluate process state and map it to manager lifecycle status."""
         if self._process is None:
-            self._state = DvbStreamerState.STOPPED
+            if self._state != DvbStreamerState.FAILED:
+                self._state = DvbStreamerState.STOPPED
             return self.status()
 
         returncode = self._process.poll()
