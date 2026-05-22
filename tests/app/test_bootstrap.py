@@ -30,6 +30,8 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     assert context.dvbctrl.host == "10.0.0.5"
     assert context.dvbctrl.adapter_index == 2
     assert context.dvbctrl.timeout_seconds == 4.25
+    assert context.dvbctrl.transient_retry_count == 2
+    assert context.dvbctrl.transient_retry_delay_seconds == 0.2
     assert context.dvbstreamer.config.adapter_index == 2
     assert context.dvbstreamer.config.bind_address == "0.0.0.0"
     assert context.dvbstreamer.config.output_mrl == "udp://239.10.10.10:1234"
@@ -53,6 +55,7 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
 
 
 def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None:
+    # Non-default retry values verify bootstrap propagates custom client settings.
     class _CustomRetryDvbCtrlClient:
         def __init__(
             self,
