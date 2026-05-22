@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import socket
+from inspect import signature
 
 import pytest
 
-from ccatv.tvrecorder.dvbctrl import DvbCtrlCommandError
+from ccatv.tvrecorder.dvbctrl import DvbCtrlClient, DvbCtrlCommandError
 from ccatv.tvrecorder.preflight import WritePreflightChecker, WritePreflightError
 
 
@@ -15,9 +16,14 @@ class _StubClient:
 
     def run_command(self, command: str):
         if not self.should_succeed:
-            assert self.error is not None
+            if self.error is None:
+                raise RuntimeError("Stub client failed without a configured error")
             raise self.error
         return object()
+
+
+def _dvbctrl_init_default(param_name: str):
+    return signature(DvbCtrlClient.__init__).parameters[param_name].default
 
 
 def test_check_raises_for_invalid_adapter_count() -> None:
@@ -231,8 +237,11 @@ def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> N
             host: str,
             adapter_index: int,
             timeout_seconds: float,
-            transient_retry_count: int = 2,
-            transient_retry_delay_seconds: float = 0.2,
+            transient_retry_count: int = _dvbctrl_init_default("transient_retry_count"),
+            transient_retry_delay_seconds: float = _dvbctrl_init_default(
+                "transient_retry_delay_seconds"
+            ),
+            **_: object,
         ) -> None:
             captured.append(
                 (
@@ -265,8 +274,22 @@ def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.online_adapters == (0, 1)
     assert result.selected_adapter == 1
     assert captured == [
-        ("/opt/bin/dvbctrl", "druidmedia", 0, 3.5, 2, 0.2),
-        ("/opt/bin/dvbctrl", "druidmedia", 1, 3.5, 2, 0.2),
+        (
+            "/opt/bin/dvbctrl",
+            "druidmedia",
+            0,
+            3.5,
+            _dvbctrl_init_default("transient_retry_count"),
+            _dvbctrl_init_default("transient_retry_delay_seconds"),
+        ),
+        (
+            "/opt/bin/dvbctrl",
+            "druidmedia",
+            1,
+            3.5,
+            _dvbctrl_init_default("transient_retry_count"),
+            _dvbctrl_init_default("transient_retry_delay_seconds"),
+        ),
     ]
 
 
@@ -284,8 +307,11 @@ def test_check_uses_default_client_factory_with_preferred_zero(
             host: str,
             adapter_index: int,
             timeout_seconds: float,
-            transient_retry_count: int = 2,
-            transient_retry_delay_seconds: float = 0.2,
+            transient_retry_count: int = _dvbctrl_init_default("transient_retry_count"),
+            transient_retry_delay_seconds: float = _dvbctrl_init_default(
+                "transient_retry_delay_seconds"
+            ),
+            **_: object,
         ) -> None:
             captured.append(
                 (
@@ -316,6 +342,20 @@ def test_check_uses_default_client_factory_with_preferred_zero(
     assert result.online_adapters == (0, 1)
     assert result.selected_adapter == 0
     assert captured == [
-        ("dvbctrl", "druidmedia", 0, 10.0, 2, 0.2),
-        ("dvbctrl", "druidmedia", 1, 10.0, 2, 0.2),
+        (
+            "dvbctrl",
+            "druidmedia",
+            0,
+            10.0,
+            _dvbctrl_init_default("transient_retry_count"),
+            _dvbctrl_init_default("transient_retry_delay_seconds"),
+        ),
+        (
+            "dvbctrl",
+            "druidmedia",
+            1,
+            10.0,
+            _dvbctrl_init_default("transient_retry_count"),
+            _dvbctrl_init_default("transient_retry_delay_seconds"),
+        ),
     ]
