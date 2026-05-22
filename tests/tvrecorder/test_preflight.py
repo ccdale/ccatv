@@ -152,6 +152,32 @@ def test_check_falls_back_to_first_online_adapter(
     assert result.selected_adapter == 1
 
 
+def test_check_falls_back_when_preferred_zero_is_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
+
+    def _factory(adapter_index: int):
+        if adapter_index == 1:
+            return _StubClient(should_succeed=True)
+        return _StubClient(
+            should_succeed=False,
+            error=DvbCtrlCommandError("offline"),
+        )
+
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=3,
+        preferred_adapter_index=0,
+        client_factory=_factory,
+    )
+
+    result = checker.check()
+
+    assert result.online_adapters == (1,)
+    assert result.selected_adapter == 1
+
+
 def test_check_raises_when_no_adapters_online(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
 
@@ -231,3 +257,37 @@ def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> N
         ("/opt/bin/dvbctrl", "druidmedia", 0, 3.5),
         ("/opt/bin/dvbctrl", "druidmedia", 1, 3.5),
     ]
+
+
+def test_check_uses_default_client_factory_with_preferred_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
+
+    class _DefaultClientStub:
+        def __init__(
+            self,
+            executable_path: str,
+            host: str,
+            adapter_index: int,
+            timeout_seconds: float,
+        ) -> None:
+            self.adapter_index = adapter_index
+
+        def run_command(self, command: str):
+            return object()
+
+    import ccatv.tvrecorder.preflight as preflight_module
+
+    monkeypatch.setattr(preflight_module, "DvbCtrlClient", _DefaultClientStub)
+
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=2,
+        preferred_adapter_index=0,
+    )
+
+    result = checker.check()
+
+    assert result.online_adapters == (0, 1)
+    assert result.selected_adapter == 0
