@@ -24,6 +24,7 @@ Implemented and validated:
 - Fixture-based unit tests for parser behavior.
 - DvbStreamerManager lifecycle scaffold (start/stop/health/status) with bootstrap wiring.
 - Manager health-check edge-case tests now cover no-process, clean-exit, and failed-state refresh paths.
+- Write preflight checker now validates host resolution and online adapters before write paths are used.
 
 Quality baseline:
 - Ruff linting configured and used in workflow.
@@ -56,10 +57,7 @@ Required before integration work:
 
 1. Harden process lifecycle and command reliability for runtime use:
 	- handle force-kill timeout path in manager stop() consistently
-	- add preflight status checks before write operations (recording/scheduling):
-	  - verify host reachability
-	  - verify at least one adapter is online even when configured adapter count is higher
-	  - fail safely with actionable error when no writable tuner path is available
+	- wire preflight checker into write operations (recording/scheduling) once those paths exist
 2. Add integration tests or scripted checks against a live dvbstreamer process.
 3. Validate end-to-end select/current/stats/festatus flow against real command output.
 4. Start persistence foundation (schema + migration scaffold) for recording/scheduler state.

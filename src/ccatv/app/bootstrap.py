@@ -7,6 +7,7 @@ from ccatv.logging_config import configure_logging
 from ccatv.settings import AppSettings
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.tvrecorder.manager import DvbStreamerConfig, DvbStreamerManager
+from ccatv.tvrecorder.preflight import WritePreflightChecker
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +18,7 @@ class AppContext:
     logger: logging.Logger
     dvbctrl: DvbCtrlClient
     dvbstreamer: DvbStreamerManager
+    write_preflight: WritePreflightChecker
 
 
 def bootstrap_app() -> AppContext:
@@ -39,9 +41,17 @@ def bootstrap_app() -> AppContext:
         ),
         stop_timeout_seconds=settings.dvbstreamer_stop_timeout_seconds,
     )
+    write_preflight = WritePreflightChecker(
+        host=settings.dvbstreamer_host,
+        adapter_count=settings.dvb_adapter_count,
+        preferred_adapter_index=settings.dvb_adapter_index,
+        executable_path=settings.dvbctrl_path,
+        timeout_seconds=settings.dvbctrl_timeout_seconds,
+    )
     return AppContext(
         settings=settings,
         logger=logger,
         dvbctrl=dvbctrl,
         dvbstreamer=dvbstreamer,
+        write_preflight=write_preflight,
     )

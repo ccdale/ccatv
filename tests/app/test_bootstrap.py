@@ -10,6 +10,7 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
         "from_env",
         classmethod(
             lambda cls: AppSettings(
+                dvb_adapter_count=4,
                 dvb_adapter_index=2,
                 dvbctrl_path="dvbctrl",
                 dvbctrl_timeout_seconds=4.25,
@@ -33,3 +34,7 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     assert context.dvbstreamer.config.output_mrl == "udp://239.10.10.10:1234"
     assert context.dvbstreamer.config.executable_path == "/opt/bin/dvbstreamer"
     assert context.dvbstreamer.stop_timeout_seconds == 7.5
+    assert context.write_preflight.host == "10.0.0.5"
+    assert context.write_preflight.adapter_count == 4
+    assert context.write_preflight.preferred_adapter_index == 2
+    assert context.write_preflight.executable_path == "dvbctrl"
