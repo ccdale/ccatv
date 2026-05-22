@@ -112,7 +112,7 @@ class SshCommandExecutor(CommandExecutor):
     ) -> subprocess.CompletedProcess[str]:
         remote_command = command
         if self.workdir:
-            remote_command = f"cd {self.workdir} && {command}"
+            remote_command = f"cd {shlex.quote(self.workdir)} && {command}"
 
         target = f"{self.user}@{self.host}"
         return subprocess.run(
