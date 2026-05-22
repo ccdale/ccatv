@@ -18,7 +18,7 @@ class IntegrationTestConfig:
     remote_host: str = "druidmedia"
     remote_user: str = "chris"
     remote_port: int = 22
-    remote_workdir: str = "~"
+    remote_workdir: str | None = "~"
     dvbstreamer_host: str = "druidmedia"
     dvb_adapter_count: int = 1
     dvb_adapter_index: int = 0
