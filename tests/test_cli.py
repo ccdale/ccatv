@@ -151,7 +151,9 @@ def test_run_setup_preserves_runtime_defaults_when_host_not_provided(
         store=TvRecorderConfigStore(config_dir=tmp_path),
     )
 
-    exit_code = run_setup(Namespace(adapter_count=None, host=None, username=None), deps=deps)
+    exit_code = run_setup(
+        Namespace(adapter_count=None, host=None, username=None), deps=deps
+    )
 
     assert exit_code == 0
     runtime = RuntimeConfigStore(config_dir=tmp_path).load()

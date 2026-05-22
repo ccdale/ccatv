@@ -19,6 +19,7 @@ Implemented and validated:
 - ccatv no longer passes dvbctrl credentials with `-u/-p`; auth is read by
 	dvbctrl directly from userconfig.
 - Typed dvbctrl command catalog for current, stats, festatus, and select.
+- DvbCtrlClient now retries transient timeout/network command failures with backoff.
 - TvRecorderService parser layer for current/stats/festatus outputs.
 - Fixture-based unit tests for parser behavior.
 - DvbStreamerManager lifecycle scaffold (start/stop/health/status) with bootstrap wiring.
@@ -55,7 +56,6 @@ Required before integration work:
 1. Harden process lifecycle and command reliability for runtime use:
 	- handle force-kill timeout path in manager stop() consistently
 	- add manager health-check edge-case tests
-	- add retry/backoff policy for transient command failures
 	- add preflight status checks before write operations (recording/scheduling):
 	  - verify host reachability
 	  - verify at least one adapter is online even when configured adapter count is higher
