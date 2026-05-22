@@ -273,6 +273,8 @@ def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert result.online_adapters == (0, 1)
     assert result.selected_adapter == 1
+    assert _dvbctrl_init_default("transient_retry_count") == 2
+    assert _dvbctrl_init_default("transient_retry_delay_seconds") == 0.2
     assert captured == [
         (
             "/opt/bin/dvbctrl",
@@ -341,6 +343,8 @@ def test_check_uses_default_client_factory_with_preferred_zero(
 
     assert result.online_adapters == (0, 1)
     assert result.selected_adapter == 0
+    assert _dvbctrl_init_default("transient_retry_count") == 2
+    assert _dvbctrl_init_default("transient_retry_delay_seconds") == 0.2
     assert captured == [
         (
             "dvbctrl",
