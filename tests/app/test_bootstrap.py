@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from inspect import signature
 
-import ccatv.app.bootstrap as bootstrap_module
 import pytest
+
+import ccatv.app.bootstrap as bootstrap_module
 from ccatv.app.bootstrap import bootstrap_app
-from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.settings import AppSettings
+from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 
 
 def _dvbctrl_init_default(param_name: str):
@@ -38,13 +39,11 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     assert context.dvbctrl.host == "10.0.0.5"
     assert context.dvbctrl.adapter_index == 2
     assert context.dvbctrl.timeout_seconds == 4.25
-    assert (
-        context.dvbctrl.transient_retry_count
-        == _dvbctrl_init_default("transient_retry_count")
+    assert context.dvbctrl.transient_retry_count == _dvbctrl_init_default(
+        "transient_retry_count"
     )
-    assert (
-        context.dvbctrl.transient_retry_delay_seconds
-        == _dvbctrl_init_default("transient_retry_delay_seconds")
+    assert context.dvbctrl.transient_retry_delay_seconds == _dvbctrl_init_default(
+        "transient_retry_delay_seconds"
     )
     assert context.dvbstreamer.config.adapter_index == 2
     assert context.dvbstreamer.config.bind_address == "0.0.0.0"
@@ -64,9 +63,8 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
         context.write_preflight.transient_retry_delay_seconds
         == context.dvbctrl.transient_retry_delay_seconds
     )
-    assert (
-        context.write_preflight.transient_retry_count
-        == _dvbctrl_init_default("transient_retry_count")
+    assert context.write_preflight.transient_retry_count == _dvbctrl_init_default(
+        "transient_retry_count"
     )
     assert (
         context.write_preflight.transient_retry_delay_seconds
@@ -114,6 +112,12 @@ def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None
 
     context = bootstrap_app()
 
+    assert context.dvbctrl.transient_retry_count != _dvbctrl_init_default(
+        "transient_retry_count"
+    )
+    assert context.dvbctrl.transient_retry_delay_seconds != _dvbctrl_init_default(
+        "transient_retry_delay_seconds"
+    )
     assert context.dvbctrl.transient_retry_count == 5
     assert context.dvbctrl.transient_retry_delay_seconds == 0.75
     assert (

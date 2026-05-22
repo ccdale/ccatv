@@ -26,6 +26,46 @@ def _dvbctrl_init_default(param_name: str):
     return signature(DvbCtrlClient.__init__).parameters[param_name].default
 
 
+def _make_default_client_stub(
+    captured: list[tuple[str, str, int, float, int, float]],
+    *,
+    offline_adapter_indexes: tuple[int, ...] = (),
+):
+    offline_set = set(offline_adapter_indexes)
+
+    class _DefaultClientStub:
+        def __init__(
+            self,
+            executable_path: str,
+            host: str,
+            adapter_index: int,
+            timeout_seconds: float,
+            transient_retry_count: int = _dvbctrl_init_default("transient_retry_count"),
+            transient_retry_delay_seconds: float = _dvbctrl_init_default(
+                "transient_retry_delay_seconds"
+            ),
+            **_: object,
+        ) -> None:
+            self.adapter_index = adapter_index
+            captured.append(
+                (
+                    executable_path,
+                    host,
+                    adapter_index,
+                    timeout_seconds,
+                    transient_retry_count,
+                    transient_retry_delay_seconds,
+                )
+            )
+
+        def run_command(self, command: str):
+            if self.adapter_index in offline_set:
+                raise DvbCtrlCommandError("offline")
+            return object()
+
+    return _DefaultClientStub
+
+
 def test_check_raises_for_invalid_adapter_count() -> None:
     checker = WritePreflightChecker(
         host="druidmedia",
@@ -219,11 +259,12 @@ def test_check_handles_client_factory_failure(monkeypatch: pytest.MonkeyPatch) -
         client_factory=_factory,
     )
 
-    with pytest.raises(
-        WritePreflightError,
-        match="No writable tuner path is available.*client build failed: factory exploded for 0",
-    ):
+    with pytest.raises(WritePreflightError) as exc_info:
         checker.check()
+
+    message = str(exc_info.value)
+    assert "No writable tuner path is available" in message
+    assert "client build failed: factory exploded for 0" in message
 
 
 def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -231,36 +272,11 @@ def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> N
 
     captured: list[tuple[str, str, int, float, int, float]] = []
 
-    class _DefaultClientStub:
-        def __init__(
-            self,
-            executable_path: str,
-            host: str,
-            adapter_index: int,
-            timeout_seconds: float,
-            transient_retry_count: int = _dvbctrl_init_default("transient_retry_count"),
-            transient_retry_delay_seconds: float = _dvbctrl_init_default(
-                "transient_retry_delay_seconds"
-            ),
-            **_: object,
-        ) -> None:
-            captured.append(
-                (
-                    executable_path,
-                    host,
-                    adapter_index,
-                    timeout_seconds,
-                    transient_retry_count,
-                    transient_retry_delay_seconds,
-                )
-            )
-
-        def run_command(self, command: str):
-            return object()
-
     import ccatv.tvrecorder.preflight as preflight_module
 
-    monkeypatch.setattr(preflight_module, "DvbCtrlClient", _DefaultClientStub)
+    monkeypatch.setattr(
+        preflight_module, "DvbCtrlClient", _make_default_client_stub(captured)
+    )
 
     checker = WritePreflightChecker(
         host="druidmedia",
@@ -303,36 +319,11 @@ def test_check_uses_default_client_factory_with_preferred_zero(
 
     captured: list[tuple[str, str, int, float, int, float]] = []
 
-    class _DefaultClientStub:
-        def __init__(
-            self,
-            executable_path: str,
-            host: str,
-            adapter_index: int,
-            timeout_seconds: float,
-            transient_retry_count: int = _dvbctrl_init_default("transient_retry_count"),
-            transient_retry_delay_seconds: float = _dvbctrl_init_default(
-                "transient_retry_delay_seconds"
-            ),
-            **_: object,
-        ) -> None:
-            captured.append(
-                (
-                    executable_path,
-                    host,
-                    adapter_index,
-                    timeout_seconds,
-                    transient_retry_count,
-                    transient_retry_delay_seconds,
-                )
-            )
-
-        def run_command(self, command: str):
-            return object()
-
     import ccatv.tvrecorder.preflight as preflight_module
 
-    monkeypatch.setattr(preflight_module, "DvbCtrlClient", _DefaultClientStub)
+    monkeypatch.setattr(
+        preflight_module, "DvbCtrlClient", _make_default_client_stub(captured)
+    )
 
     checker = WritePreflightChecker(
         host="druidmedia",
@@ -373,39 +364,13 @@ def test_check_default_factory_falls_back_when_preferred_zero_offline(
 
     captured: list[tuple[str, str, int, float, int, float]] = []
 
-    class _DefaultClientStub:
-        def __init__(
-            self,
-            executable_path: str,
-            host: str,
-            adapter_index: int,
-            timeout_seconds: float,
-            transient_retry_count: int = _dvbctrl_init_default("transient_retry_count"),
-            transient_retry_delay_seconds: float = _dvbctrl_init_default(
-                "transient_retry_delay_seconds"
-            ),
-            **_: object,
-        ) -> None:
-            self.adapter_index = adapter_index
-            captured.append(
-                (
-                    executable_path,
-                    host,
-                    adapter_index,
-                    timeout_seconds,
-                    transient_retry_count,
-                    transient_retry_delay_seconds,
-                )
-            )
-
-        def run_command(self, command: str):
-            if self.adapter_index == 0:
-                raise DvbCtrlCommandError("offline")
-            return object()
-
     import ccatv.tvrecorder.preflight as preflight_module
 
-    monkeypatch.setattr(preflight_module, "DvbCtrlClient", _DefaultClientStub)
+    monkeypatch.setattr(
+        preflight_module,
+        "DvbCtrlClient",
+        _make_default_client_stub(captured, offline_adapter_indexes=(0,)),
+    )
 
     checker = WritePreflightChecker(
         host="druidmedia",
