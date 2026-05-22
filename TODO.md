@@ -50,12 +50,13 @@ Required before integration work:
 
 ## Next Milestones
 
-1. Add integration tests or scripted checks against a live dvbstreamer process.
-2. Validate end-to-end select/current/stats/festatus flow against real command output.
-3. Harden process lifecycle and command reliability for runtime use:
+1. Harden process lifecycle and command reliability for runtime use:
+	- handle force-kill timeout path in manager stop() consistently
 	- add manager health-check edge-case tests
 	- add retry/backoff policy for transient command failures
 	- decide startup-timeout behavior (implement or remove dead config)
+2. Add integration tests or scripted checks against a live dvbstreamer process.
+3. Validate end-to-end select/current/stats/festatus flow against real command output.
 4. Start persistence foundation (schema + migration scaffold) for recording/scheduler state.
 5. Start scheduler skeleton and recording lifecycle state model.
 6. Begin Schedules Direct client implementation behind existing contracts.
