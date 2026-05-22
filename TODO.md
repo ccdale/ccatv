@@ -27,7 +27,6 @@ Quality baseline:
 ## Scaffolded but Not Yet Integrated
 
 These pieces exist but are not yet wired to a live runtime flow:
-- DvbStreamerManager is scaffolded but not integrated into end-to-end app startup/shutdown orchestration.
 - TvRecorderService command path is test-covered but not yet validated against a live dvbstreamer instance.
 
 ## Not Started Yet
@@ -49,11 +48,10 @@ Required before integration work:
 
 ## Next Milestones
 
-1. Integrate DvbStreamerManager into bootstrap/runtime lifecycle.
-2. Add integration tests or scripted checks against a live dvbstreamer process.
-3. Validate end-to-end select/current/stats/festatus flow.
-4. Start scheduler skeleton and recording lifecycle state model.
-5. Begin Schedules Direct client implementation behind existing contracts.
+1. Add integration tests or scripted checks against a live dvbstreamer process.
+2. Validate end-to-end select/current/stats/festatus flow.
+3. Start scheduler skeleton and recording lifecycle state model.
+4. Begin Schedules Direct client implementation behind existing contracts.
 
 ## Contributor Notes
 
