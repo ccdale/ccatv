@@ -35,10 +35,12 @@ class DvbCtrlResult:
 class DvbCtrlClient:
     """Subprocess-backed adapter for invoking dvbctrl commands."""
 
+    password: str | None = None
     executable_path: str = "dvbctrl"
     host: str = "localhost"
     adapter_index: int = 0
     timeout_seconds: float = 10.0
+    username: str | None = None
 
     def run_command(self, command: str) -> DvbCtrlResult:
         """Execute a dvbctrl command string and return process output."""
@@ -49,8 +51,12 @@ class DvbCtrlClient:
             self.host,
             "-a",
             str(self.adapter_index),
-            *command_parts,
         ]
+        if self.username:
+            args.extend(["-u", self.username])
+        if self.password:
+            args.extend(["-p", self.password])
+        args.extend(command_parts)
 
         try:
             completed = subprocess.run(

@@ -15,4 +15,25 @@ Current project direction:
 - Jellyfin integration for media library access on the local network
 - GPLv3 project licensing intent
 
+## TvRecorder Configuration
+
+TvRecorder persists local dvbctrl credentials under `$HOME/.config/ccatv/tvrecorder.json`.
+
+Current file shape:
+
+```json
+{
+	"dvbctrl": {
+		"password": "your-password",
+		"username": "your-username"
+	}
+}
+```
+
+`CCATV_DVBCTRL_USERNAME` and `CCATV_DVBCTRL_PASSWORD` still override the file when set.
+
+To create or update the local file interactively, run `uv run ccatv-setup`.
+
+You can also use the shared CLI entrypoint with `uv run ccatv setup`.
+
 See docs/architecture-proposal.md for the proposed architecture and phased implementation plan.

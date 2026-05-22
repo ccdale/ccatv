@@ -71,3 +71,35 @@ def test_run_command_missing_executable(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(DvbCtrlExecutableNotFound):
         client.run_command("current")
+
+
+def test_run_command_includes_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = DvbCtrlClient(
+        password="secret",
+        username="alice",
+    )
+
+    def _run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="ok\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", _run)
+
+    result = client.run_command("current")
+
+    assert result.command == (
+        "dvbctrl",
+        "-h",
+        "localhost",
+        "-a",
+        "0",
+        "-u",
+        "alice",
+        "-p",
+        "secret",
+        "current",
+    )
