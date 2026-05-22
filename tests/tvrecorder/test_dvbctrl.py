@@ -51,7 +51,7 @@ def test_run_command_non_zero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_run_command_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = DvbCtrlClient(timeout_seconds=0.01)
+    client = DvbCtrlClient(timeout_seconds=0.01, transient_retry_count=0)
 
     def _run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
@@ -95,6 +95,30 @@ def test_run_command_retries_timeout_then_succeeds(
     assert sleep_calls == [0.01]
 
 
+def test_run_command_timeout_exhausts_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = DvbCtrlClient(
+        timeout_seconds=0.01,
+        transient_retry_count=2,
+        transient_retry_delay_seconds=0.1,
+    )
+    calls = {"count": 0}
+
+    def _run(*args, **kwargs):
+        calls["count"] += 1
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
+
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    monkeypatch.setattr(time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    with pytest.raises(DvbCtrlTimeoutError):
+        client.run_command("stats")
+
+    assert calls["count"] == 3
+    assert sleep_calls == [0.1, 0.2]
+
+
 def test_run_command_retries_transient_command_error_then_succeeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -127,6 +151,33 @@ def test_run_command_retries_transient_command_error_then_succeeds(
     assert result.returncode == 0
     assert calls["count"] == 2
     assert sleep_calls == [0.01]
+
+
+def test_run_command_transient_error_exhausts_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = DvbCtrlClient(transient_retry_count=2, transient_retry_delay_seconds=0.1)
+    calls = {"count": 0}
+
+    def _run(*args, **kwargs):
+        calls["count"] += 1
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=1,
+            stdout="",
+            stderr="connection refused",
+        )
+
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    monkeypatch.setattr(time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    with pytest.raises(DvbCtrlCommandError, match="returncode=1"):
+        client.run_command("stats")
+
+    assert calls["count"] == 3
+    assert sleep_calls == [0.1, 0.2]
 
 
 def test_run_command_does_not_retry_non_transient_command_error(

@@ -94,8 +94,6 @@ class DvbCtrlClient:
                 f"(returncode={result.returncode}): {result.stderr.strip()}"
             )
 
-        raise DvbCtrlCommandError("dvbctrl command failed after retries")
-
     def _sleep_before_retry(self, attempt: int) -> None:
         if self.transient_retry_delay_seconds <= 0:
             return

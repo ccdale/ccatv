@@ -4,7 +4,7 @@ requires-python = ">=3.14"
 
 [[package]]
 name = "ccatv"
-version = "0.1.26"
+version = "0.1.27"
 source = { editable = "." }
 
 [package.dev-dependencies]
