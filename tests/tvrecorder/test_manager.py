@@ -149,6 +149,12 @@ def test_stop_timeout_without_force_raises(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(DvbStreamerStopTimeout):
         manager.stop(force_kill=False)
 
+    status = manager.health_check()
+
+    assert status.state == DvbStreamerState.FAILED
+    assert status.pid == 1234
+    assert status.last_error is not None
+
 
 def test_stop_force_kill_timeout_raises_typed_error(
     monkeypatch: pytest.MonkeyPatch,

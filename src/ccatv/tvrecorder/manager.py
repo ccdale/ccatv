@@ -157,6 +157,9 @@ class DvbStreamerManager:
                 self._state = DvbStreamerState.STOPPED
             return self.status()
 
+        if self._state == DvbStreamerState.FAILED:
+            return self.status()
+
         returncode = self._process.poll()
         if returncode is None:
             self._state = DvbStreamerState.RUNNING
