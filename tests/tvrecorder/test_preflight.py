@@ -222,7 +222,7 @@ def test_check_handles_client_factory_failure(monkeypatch: pytest.MonkeyPatch) -
 def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
 
-    captured: list[tuple[str, str, int, float]] = []
+    captured: list[tuple[str, str, int, float, int, float]] = []
 
     class _DefaultClientStub:
         def __init__(
@@ -231,8 +231,19 @@ def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> N
             host: str,
             adapter_index: int,
             timeout_seconds: float,
+            transient_retry_count: int = 2,
+            transient_retry_delay_seconds: float = 0.2,
         ) -> None:
-            captured.append((executable_path, host, adapter_index, timeout_seconds))
+            captured.append(
+                (
+                    executable_path,
+                    host,
+                    adapter_index,
+                    timeout_seconds,
+                    transient_retry_count,
+                    transient_retry_delay_seconds,
+                )
+            )
 
         def run_command(self, command: str):
             return object()
@@ -254,8 +265,8 @@ def test_check_uses_default_client_factory(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.online_adapters == (0, 1)
     assert result.selected_adapter == 1
     assert captured == [
-        ("/opt/bin/dvbctrl", "druidmedia", 0, 3.5),
-        ("/opt/bin/dvbctrl", "druidmedia", 1, 3.5),
+        ("/opt/bin/dvbctrl", "druidmedia", 0, 3.5, 2, 0.2),
+        ("/opt/bin/dvbctrl", "druidmedia", 1, 3.5, 2, 0.2),
     ]
 
 
@@ -264,7 +275,7 @@ def test_check_uses_default_client_factory_with_preferred_zero(
 ) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
 
-    captured: list[tuple[str, str, int, float]] = []
+    captured: list[tuple[str, str, int, float, int, float]] = []
 
     class _DefaultClientStub:
         def __init__(
@@ -273,8 +284,19 @@ def test_check_uses_default_client_factory_with_preferred_zero(
             host: str,
             adapter_index: int,
             timeout_seconds: float,
+            transient_retry_count: int = 2,
+            transient_retry_delay_seconds: float = 0.2,
         ) -> None:
-            captured.append((executable_path, host, adapter_index, timeout_seconds))
+            captured.append(
+                (
+                    executable_path,
+                    host,
+                    adapter_index,
+                    timeout_seconds,
+                    transient_retry_count,
+                    transient_retry_delay_seconds,
+                )
+            )
 
         def run_command(self, command: str):
             return object()
@@ -294,6 +316,6 @@ def test_check_uses_default_client_factory_with_preferred_zero(
     assert result.online_adapters == (0, 1)
     assert result.selected_adapter == 0
     assert captured == [
-        ("dvbctrl", "druidmedia", 0, 10.0),
-        ("dvbctrl", "druidmedia", 1, 10.0),
+        ("dvbctrl", "druidmedia", 0, 10.0, 2, 0.2),
+        ("dvbctrl", "druidmedia", 1, 10.0, 2, 0.2),
     ]
