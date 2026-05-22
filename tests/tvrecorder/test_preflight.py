@@ -27,7 +27,9 @@ def test_check_raises_for_invalid_adapter_count() -> None:
         preferred_adapter_index=0,
     )
 
-    with pytest.raises(WritePreflightError, match="Adapter count must be greater than 0"):
+    with pytest.raises(
+        WritePreflightError, match="Adapter count must be greater than 0"
+    ):
         checker.check()
 
 
@@ -43,11 +45,27 @@ def test_check_raises_when_host_cannot_resolve(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(socket, "getaddrinfo", _bad_getaddrinfo)
 
-    with pytest.raises(WritePreflightError, match="Host 'bad-host' is not reachable"):
+    with pytest.raises(
+        WritePreflightError,
+        match="Host 'bad-host' cannot be resolved",
+    ):
         checker.check()
 
 
-def test_check_selects_preferred_online_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_raises_for_preferred_adapter_out_of_bounds() -> None:
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=2,
+        preferred_adapter_index=3,
+    )
+
+    with pytest.raises(WritePreflightError, match="out of range"):
+        checker.check()
+
+
+def test_check_selects_preferred_online_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
 
     def _factory(adapter_index: int):
@@ -71,7 +89,9 @@ def test_check_selects_preferred_online_adapter(monkeypatch: pytest.MonkeyPatch)
     assert result.selected_adapter == 2
 
 
-def test_check_falls_back_to_first_online_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_falls_back_to_first_online_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
 
     def _factory(adapter_index: int):
@@ -111,5 +131,26 @@ def test_check_raises_when_no_adapters_online(monkeypatch: pytest.MonkeyPatch) -
         client_factory=_factory,
     )
 
-    with pytest.raises(WritePreflightError, match="No writable tuner path is available"):
+    with pytest.raises(
+        WritePreflightError, match="No writable tuner path is available"
+    ):
+        checker.check()
+
+
+def test_check_handles_client_factory_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
+
+    def _factory(adapter_index: int):
+        raise RuntimeError(f"factory exploded for {adapter_index}")
+
+    checker = WritePreflightChecker(
+        host="druidmedia",
+        adapter_count=2,
+        preferred_adapter_index=0,
+        client_factory=_factory,
+    )
+
+    with pytest.raises(
+        WritePreflightError, match="No writable tuner path is available"
+    ):
         checker.check()

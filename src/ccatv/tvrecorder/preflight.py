@@ -37,6 +37,11 @@ class WritePreflightChecker:
         """Validate host resolution and available adapters for writes."""
         if self.adapter_count < 1:
             raise WritePreflightError("Adapter count must be greater than 0.")
+        if not (0 <= self.preferred_adapter_index < self.adapter_count):
+            raise WritePreflightError(
+                f"preferred_adapter_index {self.preferred_adapter_index} "
+                f"out of range [0, {self.adapter_count})"
+            )
 
         self._ensure_host_resolves()
 
@@ -48,6 +53,8 @@ class WritePreflightChecker:
                 client.run_command(self.probe_command)
             except DvbCtrlError as exc:
                 probe_errors[adapter_index] = str(exc)
+            except Exception as exc:  # pragma: no cover - defensive adapter isolation
+                probe_errors[adapter_index] = f"client build failed: {exc}"
             else:
                 online_adapters.append(adapter_index)
 
@@ -87,7 +94,7 @@ class WritePreflightChecker:
             socket.getaddrinfo(self.host, None)
         except socket.gaierror as exc:
             raise WritePreflightError(
-                f"Host '{self.host}' is not reachable: {exc}"
+                f"Host '{self.host}' cannot be resolved: {exc}"
             ) from exc
 
 
