@@ -39,11 +39,13 @@ def test_live_dvbstreamer_lifecycle_smoke() -> None:
         _assert_command_ok(connectivity, operation="ssh connectivity check")
 
     stop_result = executor.run(config.render_stop_command(), stop_timeout_seconds)
-    if stop_result.returncode not in (0, 1):
-        _assert_command_ok(stop_result, operation="pre-test stop")
+    _assert_command_ok(stop_result, operation="pre-test stop")
 
     try:
-        start_result = executor.run(config.render_start_command(), stop_timeout_seconds)
+        start_result = executor.run(
+            config.render_start_command(),
+            config.start_timeout_seconds,
+        )
         _assert_command_ok(start_result, operation="start")
 
         client = DvbCtrlClient(

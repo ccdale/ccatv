@@ -27,6 +27,7 @@ class IntegrationTestConfig:
     readiness_command: str = "lsmuxes"
     readiness_attempts: int = 10
     readiness_delay_seconds: float = 1.0
+    start_timeout_seconds: float = 20.0
     start_command: str = (
         "nohup dvbstreamer -a {adapter_index} -i 0.0.0.0 -o null:// "
         ">/tmp/ccatv-dvbstreamer.log 2>&1 &"
@@ -50,18 +51,25 @@ class IntegrationTestConfig:
         return cls(**values)
 
     def render_start_command(self) -> str:
-        return self.start_command.format(
-            adapter_count=self.dvb_adapter_count,
-            adapter_index=self.dvb_adapter_index,
-            host=self.dvbstreamer_host,
-        )
+        return self._render_command(self.start_command)
 
     def render_stop_command(self) -> str:
-        return self.stop_command.format(
-            adapter_count=self.dvb_adapter_count,
-            adapter_index=self.dvb_adapter_index,
-            host=self.dvbstreamer_host,
-        )
+        return self._render_command(self.stop_command)
+
+    def _render_command(self, template: str) -> str:
+        try:
+            return template.format(
+                adapter_count=self.dvb_adapter_count,
+                adapter_index=self.dvb_adapter_index,
+                host=self.dvbstreamer_host,
+            )
+        except KeyError as exc:
+            missing_key = exc.args[0]
+            raise ValueError(
+                "Unsupported placeholder in integration command template: "
+                f"{missing_key}. Supported placeholders are "
+                "adapter_count, adapter_index, host."
+            ) from exc
 
 
 class CommandExecutor:
