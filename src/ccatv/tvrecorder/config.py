@@ -31,7 +31,8 @@ class TvRecorderConfigStore:
 
     config_dir: Path = field(
         default_factory=lambda: (
-            Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config")) / "dvbstreamer"
+            Path(os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+            / "dvbstreamer"
         )
     )
     file_name: str = "userconfig.json"

@@ -65,3 +65,11 @@ def test_store_defaults_to_xdg_dvbstreamer_userconfig(monkeypatch) -> None:
     store = TvRecorderConfigStore()
 
     assert store.path == Path("/tmp/xdg-home/dvbstreamer/userconfig.json")
+
+
+def test_store_defaults_to_home_config_when_xdg_unset(monkeypatch) -> None:
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+    store = TvRecorderConfigStore()
+
+    assert store.path == Path.home() / ".config" / "dvbstreamer" / "userconfig.json"
