@@ -8,6 +8,7 @@ The project is in early foundation stage.
 
 Implemented and validated:
 - Python package bootstrap with app context, settings, and logging wiring.
+- App bootstrap now constructs both DvbCtrlClient and DvbStreamerManager from settings.
 - Project metadata access from pyproject.toml via package helpers.
 - Error handling policy docs and reusable error helpers.
 - dvbctrl subprocess adapter with typed result and typed exceptions.
@@ -18,7 +19,7 @@ Implemented and validated:
 - Typed dvbctrl command catalog for current, stats, festatus, and select.
 - TvRecorderService parser layer for current/stats/festatus outputs.
 - Fixture-based unit tests for parser behavior.
-- DvbStreamerManager lifecycle scaffold (start/stop/health/status).
+- DvbStreamerManager lifecycle scaffold (start/stop/health/status) with bootstrap wiring.
 
 Quality baseline:
 - Ruff linting configured and used in workflow.
@@ -28,6 +29,7 @@ Quality baseline:
 
 These pieces exist but are not yet wired to a live runtime flow:
 - TvRecorderService command path is test-covered but not yet validated against a live dvbstreamer instance.
+- DvbStreamerManager lifecycle is unit-tested but not yet exercised in a real process integration path.
 
 ## Not Started Yet
 
@@ -49,9 +51,21 @@ Required before integration work:
 ## Next Milestones
 
 1. Add integration tests or scripted checks against a live dvbstreamer process.
-2. Validate end-to-end select/current/stats/festatus flow.
-3. Start scheduler skeleton and recording lifecycle state model.
-4. Begin Schedules Direct client implementation behind existing contracts.
+2. Validate end-to-end select/current/stats/festatus flow against real command output.
+3. Harden process lifecycle and command reliability for runtime use:
+	- add manager health-check edge-case tests
+	- add retry/backoff policy for transient command failures
+	- decide startup-timeout behavior (implement or remove dead config)
+4. Start persistence foundation (schema + migration scaffold) for recording/scheduler state.
+5. Start scheduler skeleton and recording lifecycle state model.
+6. Begin Schedules Direct client implementation behind existing contracts.
+
+## Later Milestones (After Recorder + Persistence)
+
+- Playback backend abstraction (mpv first).
+- GTK4 live TV / guide shell UI.
+- inputlirc remote mapping.
+- Jellyfin integration.
 
 ## Contributor Notes
 
