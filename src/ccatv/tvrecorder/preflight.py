@@ -30,6 +30,8 @@ class WritePreflightChecker:
     preferred_adapter_index: int
     executable_path: str = "dvbctrl"
     timeout_seconds: float = 10.0
+    transient_retry_count: int = 2
+    transient_retry_delay_seconds: float = 0.2
     probe_command: str = "lsmuxes"
     client_factory: Callable[[int], DvbCtrlClient] | None = None
 
@@ -87,6 +89,8 @@ class WritePreflightChecker:
             host=self.host,
             adapter_index=adapter_index,
             timeout_seconds=self.timeout_seconds,
+            transient_retry_count=self.transient_retry_count,
+            transient_retry_delay_seconds=self.transient_retry_delay_seconds,
         )
 
     def _ensure_host_resolves(self) -> None:
