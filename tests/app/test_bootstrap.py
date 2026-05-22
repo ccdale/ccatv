@@ -91,5 +91,11 @@ def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None
 
     assert context.dvbctrl.transient_retry_count == 5
     assert context.dvbctrl.transient_retry_delay_seconds == 0.75
-    assert context.write_preflight.transient_retry_count == 5
-    assert context.write_preflight.transient_retry_delay_seconds == 0.75
+    assert (
+        context.write_preflight.transient_retry_count
+        == context.dvbctrl.transient_retry_count
+    )
+    assert (
+        context.write_preflight.transient_retry_delay_seconds
+        == context.dvbctrl.transient_retry_delay_seconds
+    )
