@@ -57,11 +57,11 @@ Required before integration work:
 
 1. Harden process lifecycle and command reliability for runtime use:
 	- handle force-kill timeout path in manager stop() consistently
-	- wire preflight checker into write operations (recording/scheduling) once those paths exist
 2. Add integration tests or scripted checks against a live dvbstreamer process.
 3. Validate end-to-end select/current/stats/festatus flow against real command output.
 4. Start persistence foundation (schema + migration scaffold) for recording/scheduler state.
 5. Start scheduler skeleton and recording lifecycle state model.
+	- wire preflight checker into write operations (recording/scheduling) as write paths are introduced
 6. Begin Schedules Direct client implementation behind existing contracts.
 
 ## Later Milestones (After Recorder + Persistence)
