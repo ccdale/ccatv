@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import time
 
 import pytest
@@ -12,7 +13,9 @@ from .runtime import IntegrationTestConfig, build_executor
 pytestmark = pytest.mark.integration
 
 
-def _assert_command_ok(result, *, operation: str) -> None:
+def _assert_command_ok(
+    result: subprocess.CompletedProcess[str], *, operation: str
+) -> None:
     if result.returncode == 0:
         return
     details = (

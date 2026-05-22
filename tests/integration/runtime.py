@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import subprocess
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -72,11 +73,12 @@ class IntegrationTestConfig:
             ) from exc
 
 
-class CommandExecutor:
+class CommandExecutor(ABC):
+    @abstractmethod
     def run(
         self, command: str, timeout_seconds: float
     ) -> subprocess.CompletedProcess[str]:
-        raise NotImplementedError
+        """Run a command and return the completed process result."""
 
 
 @dataclass(frozen=True, slots=True)
