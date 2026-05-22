@@ -45,6 +45,8 @@ class IntegrationTestConfig:
 
         allowed_keys = {field.name for field in cls.__dataclass_fields__.values()}
         values = {key: raw[key] for key in raw if key in allowed_keys}
+        if values.get("remote_workdir", None) == "":
+            values["remote_workdir"] = None
         return cls(**values)
 
     def render_start_command(self) -> str:

@@ -34,6 +34,10 @@ def test_live_dvbstreamer_lifecycle_smoke() -> None:
     executor = build_executor(config)
     stop_timeout_seconds = 10.0
 
+    if config.mode == "ssh":
+        connectivity = executor.run("true", stop_timeout_seconds)
+        _assert_command_ok(connectivity, operation="ssh connectivity check")
+
     stop_result = executor.run(config.render_stop_command(), stop_timeout_seconds)
     if stop_result.returncode not in (0, 1):
         _assert_command_ok(stop_result, operation="pre-test stop")
@@ -57,7 +61,12 @@ def test_live_dvbstreamer_lifecycle_smoke() -> None:
                 last_error = str(exc)
                 time.sleep(config.readiness_delay_seconds)
                 continue
-            assert probe.returncode == 0
+            if probe.returncode != 0:
+                last_error = (
+                    f"returncode={probe.returncode}, stderr={probe.stderr.strip()}"
+                )
+                time.sleep(config.readiness_delay_seconds)
+                continue
             break
         else:
             raise AssertionError(
