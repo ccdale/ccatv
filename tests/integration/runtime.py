@@ -19,7 +19,7 @@ class IntegrationTestConfig:
     remote_host: str = "druidmedia"
     remote_user: str = "chris"
     remote_port: int = 22
-    remote_workdir: str | None = "~"
+    remote_workdir: str | None = "$HOME"
     dvbstreamer_host: str = "druidmedia"
     dvb_adapter_count: int = 1
     dvb_adapter_index: int = 0
@@ -63,8 +63,8 @@ class IntegrationTestConfig:
 
     def _render_command(self, template: str) -> str:
         values = {
-            "adapter_count": shlex.quote(str(self.dvb_adapter_count)),
-            "adapter_index": shlex.quote(str(self.dvb_adapter_index)),
+            "adapter_count": str(self.dvb_adapter_count),
+            "adapter_index": str(self.dvb_adapter_index),
             "host": shlex.quote(self.dvbstreamer_host),
         }
         try:
@@ -112,7 +112,7 @@ class SshCommandExecutor(CommandExecutor):
     ) -> subprocess.CompletedProcess[str]:
         remote_command = command
         if self.workdir:
-            remote_command = f"cd {shlex.quote(self.workdir)} && {command}"
+            remote_command = f"cd {self.workdir} && {command}"
 
         target = f"{self.user}@{self.host}"
         return subprocess.run(

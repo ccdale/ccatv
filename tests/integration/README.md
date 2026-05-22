@@ -14,7 +14,7 @@ Example config for your remote host:
   "remote_host": "druidmedia",
   "remote_user": "chris",
   "remote_port": 22,
-  "remote_workdir": "~",
+  "remote_workdir": "$HOME",
   "dvbstreamer_host": "druidmedia",
   "dvb_adapter_count": 1,
   "dvb_adapter_index": 0,
