@@ -135,7 +135,16 @@ class DvbStreamerManager:
                 )
                 raise DvbStreamerStopTimeout(self._last_error) from exc
             self._process.kill()
-            self._process.wait(timeout=self.stop_timeout_seconds)
+            try:
+                self._process.wait(timeout=self.stop_timeout_seconds)
+            except subprocess.TimeoutExpired as kill_exc:
+                self._state = DvbStreamerState.FAILED
+                self._last_error = (
+                    "dvbstreamer did not stop after force-kill within "
+                    f"{self.stop_timeout_seconds} seconds"
+                )
+                self._process = None
+                raise DvbStreamerStopTimeout(self._last_error) from kill_exc
 
         self._process = None
         self._state = DvbStreamerState.STOPPED

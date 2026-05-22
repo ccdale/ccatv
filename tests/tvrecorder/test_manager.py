@@ -26,9 +26,11 @@ class _FakeProcess:
         self,
         pid: int = 1234,
         poll_value: int | None = None,
+        kill_clears_timeout: bool = True,
         wait_raises_timeout: bool = False,
         stderr_text: str = "",
     ) -> None:
+        self.kill_clears_timeout = kill_clears_timeout
         self.pid = pid
         self._poll_value = poll_value
         self._wait_raises_timeout = wait_raises_timeout
@@ -50,8 +52,9 @@ class _FakeProcess:
 
     def kill(self) -> None:
         self.killed = True
-        self._wait_raises_timeout = False
-        self._poll_value = -9
+        if self.kill_clears_timeout:
+            self._wait_raises_timeout = False
+            self._poll_value = -9
 
 
 def test_start_sets_running_state(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -145,6 +148,32 @@ def test_stop_timeout_without_force_raises(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(DvbStreamerStopTimeout):
         manager.stop(force_kill=False)
+
+
+def test_stop_force_kill_timeout_raises_typed_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(
+        poll_value=None,
+        kill_clears_timeout=False,
+        wait_raises_timeout=True,
+    )
+
+    def _popen(*args, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig(), stop_timeout_seconds=1.0)
+    manager.start()
+
+    with pytest.raises(DvbStreamerStopTimeout, match="after force-kill"):
+        manager.stop(force_kill=True)
+
+    status = manager.status()
+    assert fake_process.killed is True
+    assert status.state == DvbStreamerState.FAILED
+    assert status.pid is None
 
 
 def test_health_check_marks_failed_on_non_zero_exit(
