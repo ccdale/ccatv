@@ -9,31 +9,34 @@ from pathlib import Path
 class Migration:
     version: int
     name: str
-    sql: str
+    statements: tuple[str, ...]
 
 
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         version=1,
         name="initial_schema",
-        sql="""
-        CREATE TABLE IF NOT EXISTS recordings (
-            id INTEGER PRIMARY KEY,
-            channel_name TEXT NOT NULL,
-            output_path TEXT NOT NULL,
-            state TEXT NOT NULL,
-            started_at_utc TEXT,
-            ended_at_utc TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS scheduler_jobs (
-            id INTEGER PRIMARY KEY,
-            channel_name TEXT NOT NULL,
-            start_at_utc TEXT NOT NULL,
-            duration_seconds INTEGER NOT NULL,
-            state TEXT NOT NULL
-        );
-        """,
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS recordings (
+                id INTEGER PRIMARY KEY,
+                channel_name TEXT NOT NULL,
+                output_path TEXT NOT NULL,
+                state TEXT NOT NULL,
+                started_at_utc TEXT,
+                ended_at_utc TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS scheduler_jobs (
+                id INTEGER PRIMARY KEY,
+                channel_name TEXT NOT NULL,
+                start_at_utc TEXT NOT NULL,
+                duration_seconds INTEGER NOT NULL,
+                state TEXT NOT NULL
+            )
+            """,
+        ),
     ),
 )
 
@@ -63,12 +66,19 @@ def apply_migrations(connection: sqlite3.Connection) -> int:
     for migration in MIGRATIONS:
         if migration.version in applied_versions:
             continue
-        with connection:
-            connection.executescript(migration.sql)
+        try:
+            connection.execute("BEGIN")
+            for statement in migration.statements:
+                connection.execute(statement)
             connection.execute(
                 "INSERT INTO schema_migrations(version, name) VALUES(?, ?)",
                 (migration.version, migration.name),
             )
+        except Exception:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
         applied_count += 1
 
     return applied_count

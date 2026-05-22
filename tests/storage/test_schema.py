@@ -88,3 +88,44 @@ def test_initialize_database_closes_connection_on_migration_error(
     assert opened_connection is not None
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         opened_connection.execute("SELECT 1")
+
+
+def test_apply_migrations_rolls_back_on_insert_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = storage_schema.open_database(db_path)
+    try:
+        apply_migrations(connection)
+        connection.execute(
+            """
+            CREATE TRIGGER block_version_two
+            BEFORE INSERT ON schema_migrations
+            WHEN NEW.version = 2
+            BEGIN
+                SELECT RAISE(ABORT, 'blocked');
+            END;
+            """
+        )
+
+        migration_two = storage_schema.Migration(
+            version=2,
+            name="atomicity_probe",
+            statements=("CREATE TABLE atomic_probe(id INTEGER PRIMARY KEY)",),
+        )
+        monkeypatch.setattr(
+            storage_schema,
+            "MIGRATIONS",
+            storage_schema.MIGRATIONS + (migration_two,),
+        )
+
+        with pytest.raises(sqlite3.DatabaseError, match="blocked"):
+            apply_migrations(connection)
+
+        probe_rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='atomic_probe'"
+        ).fetchall()
+        assert probe_rows == []
+    finally:
+        connection.close()
