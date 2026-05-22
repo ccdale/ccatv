@@ -25,6 +25,9 @@ Implemented and validated:
 - DvbStreamerManager lifecycle scaffold (start/stop/health/status) with bootstrap wiring.
 - Manager health-check edge-case tests now cover no-process, clean-exit, and failed-state refresh paths.
 - Write preflight checker now validates host resolution and online adapters before write paths are used.
+- Live integration test now validates remote/local dvbstreamer lifecycle with config-driven SSH support.
+- Live integration test now exercises select, lock/status polling, stats activity, recording file growth, file-type validation, and cleanup paths.
+- Initial persistence foundation scaffold is in place with SQLite migration tracking and base recording/scheduler tables.
 
 Quality baseline:
 - Ruff linting configured and used in workflow.
@@ -32,9 +35,9 @@ Quality baseline:
 
 ## Scaffolded but Not Yet Integrated
 
-These pieces exist but are not yet wired to a live runtime flow:
-- TvRecorderService command path is test-covered but not yet validated against a live dvbstreamer instance.
-- DvbStreamerManager lifecycle is unit-tested but not yet exercised in a real process integration path.
+These pieces exist but are not yet wired to application runtime workflows:
+- TvRecorderService command path is validated in tests but not yet wired to a user-facing recording flow.
+- Persistence scaffold exists but is not yet connected to service state transitions.
 
 ## Not Started Yet
 
@@ -46,9 +49,9 @@ These pieces exist but are not yet wired to a live runtime flow:
 
 ## External Environment Prerequisites
 
-The next development step needs a working local dvbstreamer setup.
+Integration validation requires a working dvbstreamer environment.
 
-Required before integration work:
+Required before live integration runs:
 - dvbstreamer executable available.
 - dvbctrl executable available.
 - test adapter/channel configuration available.
@@ -57,10 +60,10 @@ Required before integration work:
 
 1. Harden process lifecycle and command reliability for runtime use:
 	- handle force-kill timeout path in manager stop() consistently
-2. Add integration tests or scripted checks against a live dvbstreamer process.
-	- use config-driven host and adapter-count inputs so tests can run from a remote host or the dvbstreamer host
-3. Validate end-to-end select/current/stats/festatus flow against real command output.
-4. Start persistence foundation (schema + migration scaffold) for recording/scheduler state.
+2. Completed: Add integration tests against a live dvbstreamer process.
+	- config-driven host and adapter-count inputs support remote-host and local execution modes
+3. Completed: Validate end-to-end select/current/stats/festatus flow against real command output.
+4. In progress: persistence foundation (schema + migration scaffold) for recording/scheduler state.
 5. Start scheduler skeleton and recording lifecycle state model.
 	- wire preflight checker into write operations (recording/scheduling) as write paths are introduced
 6. Begin Schedules Direct client implementation behind existing contracts.
