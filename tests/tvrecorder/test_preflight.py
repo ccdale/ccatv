@@ -264,6 +264,8 @@ def test_check_uses_default_client_factory_with_preferred_zero(
 ) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [object()])
 
+    captured: list[tuple[str, str, int, float]] = []
+
     class _DefaultClientStub:
         def __init__(
             self,
@@ -272,7 +274,7 @@ def test_check_uses_default_client_factory_with_preferred_zero(
             adapter_index: int,
             timeout_seconds: float,
         ) -> None:
-            self.adapter_index = adapter_index
+            captured.append((executable_path, host, adapter_index, timeout_seconds))
 
         def run_command(self, command: str):
             return object()
@@ -291,3 +293,7 @@ def test_check_uses_default_client_factory_with_preferred_zero(
 
     assert result.online_adapters == (0, 1)
     assert result.selected_adapter == 0
+    assert captured == [
+        ("dvbctrl", "druidmedia", 0, 10.0),
+        ("dvbctrl", "druidmedia", 1, 10.0),
+    ]
