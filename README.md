@@ -58,4 +58,19 @@ Runtime precedence for host and adapter count is:
 2. Local runtime config (`runtime.json`)
 3. Built-in defaults (`localhost`, `1`)
 
+## Integration Testing
+
+The integration smoke test is opt-in and supports local or SSH-managed
+dvbstreamer lifecycle.
+
+Configuration lives in:
+- `$CCATV_INTEGRATION_CONFIG` (if set), otherwise
+- `$XDG_CONFIG_HOME/ccatv/integration.json` (fallback `~/.config/ccatv/integration.json`)
+
+Run only integration tests with:
+- `uv run pytest -m integration`
+
+See `tests/integration/README.md` for config details and an SSH example for
+`druidmedia`/`chris`.
+
 See docs/architecture-proposal.md for the proposed architecture and phased implementation plan.
