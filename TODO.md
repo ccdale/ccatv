@@ -54,7 +54,6 @@ Required before integration work:
 	- handle force-kill timeout path in manager stop() consistently
 	- add manager health-check edge-case tests
 	- add retry/backoff policy for transient command failures
-	- decide startup-timeout behavior (implement or remove dead config)
 2. Add integration tests or scripted checks against a live dvbstreamer process.
 3. Validate end-to-end select/current/stats/festatus flow against real command output.
 4. Start persistence foundation (schema + migration scaffold) for recording/scheduler state.

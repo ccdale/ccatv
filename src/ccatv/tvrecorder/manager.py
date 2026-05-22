@@ -52,7 +52,6 @@ class DvbStreamerManager:
     """Process owner for dvbstreamer start/stop/health lifecycle."""
 
     config: DvbStreamerConfig
-    startup_timeout_seconds: float = 2.0
     stop_timeout_seconds: float = 5.0
     _last_error: str | None = field(default=None, init=False, repr=False)
     _process: subprocess.Popen[str] | None = field(default=None, init=False, repr=False)
