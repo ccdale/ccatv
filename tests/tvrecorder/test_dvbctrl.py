@@ -73,11 +73,8 @@ def test_run_command_missing_executable(monkeypatch: pytest.MonkeyPatch) -> None
         client.run_command("current")
 
 
-def test_run_command_includes_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = DvbCtrlClient(
-        password="secret",
-        username="alice",
-    )
+def test_run_command_omits_inline_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = DvbCtrlClient()
 
     def _run(*args, **kwargs):
         return subprocess.CompletedProcess(
@@ -97,9 +94,5 @@ def test_run_command_includes_credentials(monkeypatch: pytest.MonkeyPatch) -> No
         "localhost",
         "-a",
         "0",
-        "-u",
-        "alice",
-        "-p",
-        "secret",
         "current",
     )

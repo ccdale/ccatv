@@ -27,7 +27,7 @@ def test_run_setup_persists_credentials(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert stderr.getvalue() == ""
-    assert "Saved tvrecorder configuration" in stdout.getvalue()
+    assert "Saved dvbstreamer credentials" in stdout.getvalue()
     saved = TvRecorderConfigStore(config_dir=tmp_path).load()
     assert saved.dvbctrl_credentials is not None
     assert saved.dvbctrl_credentials.username == "alice"

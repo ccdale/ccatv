@@ -11,6 +11,10 @@ Implemented and validated:
 - Project metadata access from pyproject.toml via package helpers.
 - Error handling policy docs and reusable error helpers.
 - dvbctrl subprocess adapter with typed result and typed exceptions.
+- Shared dvbstreamer/dvbctrl auth config via
+	`$XDG_CONFIG_HOME/dvbstreamer/userconfig.json` with flat `username/password`.
+- ccatv no longer passes dvbctrl credentials with `-u/-p`; auth is read by
+	dvbctrl directly from userconfig.
 - Typed dvbctrl command catalog for current, stats, festatus, and select.
 - TvRecorderService parser layer for current/stats/festatus outputs.
 - Fixture-based unit tests for parser behavior.

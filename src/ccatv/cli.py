@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     setup_parser = subparsers.add_parser(
         "setup",
-        help="Store local tvrecorder dvbctrl credentials",
+        help="Store local dvbstreamer/dvbctrl credentials",
     )
     setup_parser.add_argument("--username", help="dvbctrl username")
     setup_parser.set_defaults(handler=run_setup)
@@ -62,7 +62,7 @@ def setup_main(
 
 
 def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
-    """Prompt for dvbctrl credentials and persist them locally."""
+    """Prompt for dvbctrl credentials and persist them in userconfig.json."""
     username = (args.username or deps.input_fn("Dvbctrl username: ")).strip()
     if not username:
         print("Username is required.", file=deps.stderr)
@@ -86,7 +86,7 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
             )
         )
     )
-    print(f"Saved tvrecorder configuration to {path}", file=deps.stdout)
+    print(f"Saved dvbstreamer credentials to {path}", file=deps.stdout)
     return 0
 
 

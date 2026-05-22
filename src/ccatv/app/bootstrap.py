@@ -23,11 +23,9 @@ def bootstrap_app() -> AppContext:
     configure_logging(settings.log_level)
     logger = logging.getLogger("ccatv")
     dvbctrl = DvbCtrlClient(
-        password=settings.dvbctrl_password,
         executable_path=settings.dvbctrl_path,
         host=settings.dvbstreamer_host,
         adapter_index=settings.dvb_adapter_index,
         timeout_seconds=settings.dvbctrl_timeout_seconds,
-        username=settings.dvbctrl_username,
     )
     return AppContext(settings=settings, logger=logger, dvbctrl=dvbctrl)

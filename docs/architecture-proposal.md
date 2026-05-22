@@ -109,7 +109,10 @@ Protocol notes to model:
 
 - Remote control protocol is line-oriented and returns response codes.
 - Adapter-specific control port convention should be configuration-driven.
-- Authentication should be configurable and not hardcoded.
+- Authentication is shared with dvbstreamer/dvbctrl via
+  `$XDG_CONFIG_HOME/dvbstreamer/userconfig.json` (fallback
+  `~/.config/dvbstreamer/userconfig.json`) using a flat JSON object with
+  `username` and `password`.
 
 Suggested package path:
 
@@ -244,7 +247,6 @@ Core settings:
 - dvbstreamer executable path
 - dvbctrl executable path
 - dvbstreamer bind address/host
-- control authentication credentials
 - recording output root
 - preferred playback backend (mpv or gst)
 - schedules direct username

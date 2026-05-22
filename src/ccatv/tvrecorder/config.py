@@ -27,10 +27,14 @@ class TvRecorderConfig:
 
 @dataclass(frozen=True, slots=True)
 class TvRecorderConfigStore:
-    """Load and persist tvrecorder config under the user config directory."""
+    """Load and persist dvbstreamer user auth config under XDG config."""
 
-    config_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "ccatv")
-    file_name: str = "tvrecorder.json"
+    config_dir: Path = field(
+        default_factory=lambda: (
+            Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config")) / "dvbstreamer"
+        )
+    )
+    file_name: str = "userconfig.json"
 
     @property
     def path(self) -> Path:
@@ -56,14 +60,8 @@ class TvRecorderConfigStore:
         if not isinstance(raw_data, dict):
             raise TvRecorderConfigError(f"invalid tvrecorder config shape: {self.path}")
 
-        dvbctrl = raw_data.get("dvbctrl")
-        if dvbctrl is None:
-            return TvRecorderConfig()
-        if not isinstance(dvbctrl, dict):
-            raise TvRecorderConfigError(f"invalid dvbctrl config shape: {self.path}")
-
-        username = dvbctrl.get("username")
-        password = dvbctrl.get("password")
+        username = raw_data.get("username")
+        password = raw_data.get("password")
         if not username or not password:
             return TvRecorderConfig()
 
@@ -79,9 +77,9 @@ class TvRecorderConfigStore:
         self.config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.config_dir, 0o700)
 
-        payload: dict[str, dict[str, str]] = {}
+        payload: dict[str, str] = {}
         if config.dvbctrl_credentials is not None:
-            payload["dvbctrl"] = {
+            payload = {
                 "password": config.dvbctrl_credentials.password,
                 "username": config.dvbctrl_credentials.username,
             }

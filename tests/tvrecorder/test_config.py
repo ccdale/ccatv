@@ -32,10 +32,15 @@ def test_save_and_load_round_trip_credentials(tmp_path: Path) -> None:
     path = store.save(expected)
     loaded = store.load()
 
-    assert path == tmp_path / "tvrecorder.json"
+    assert path == tmp_path / "userconfig.json"
     assert loaded == expected
     assert oct(path.stat().st_mode & 0o777) == "0o600"
     assert oct(tmp_path.stat().st_mode & 0o777) == "0o700"
+
+    raw_text = path.read_text(encoding="utf-8")
+    assert '"username": "alice"' in raw_text
+    assert '"password": "secret"' in raw_text
+    assert '"dvbctrl"' not in raw_text
 
 
 def test_load_raises_for_invalid_json(tmp_path: Path) -> None:
@@ -52,3 +57,11 @@ def test_load_raises_for_invalid_top_level_shape(tmp_path: Path) -> None:
 
     with pytest.raises(TvRecorderConfigError, match="invalid tvrecorder config shape"):
         store.load()
+
+
+def test_store_defaults_to_xdg_dvbstreamer_userconfig(monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdg-home")
+
+    store = TvRecorderConfigStore()
+
+    assert store.path == Path("/tmp/xdg-home/dvbstreamer/userconfig.json")

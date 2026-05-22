@@ -17,20 +17,22 @@ Current project direction:
 
 ## TvRecorder Configuration
 
-TvRecorder persists local dvbctrl credentials under `$HOME/.config/ccatv/tvrecorder.json`.
+TvRecorder persists local dvbctrl credentials under
+`$XDG_CONFIG_HOME/dvbstreamer/userconfig.json`.
+
+If `XDG_CONFIG_HOME` is unset, this resolves to
+`$HOME/.config/dvbstreamer/userconfig.json`.
 
 Current file shape:
 
 ```json
 {
-	"dvbctrl": {
-		"password": "your-password",
-		"username": "your-username"
-	}
+	"password": "your-password",
+	"username": "your-username"
 }
 ```
 
-`CCATV_DVBCTRL_USERNAME` and `CCATV_DVBCTRL_PASSWORD` still override the file when set.
+Both `dvbstreamer` and `dvbctrl` read auth directly from this file.
 
 To create or update the local file interactively, run `uv run ccatv-setup`.
 
