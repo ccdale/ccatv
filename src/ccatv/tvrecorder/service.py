@@ -186,12 +186,17 @@ class TvRecorderService:
         *,
         ended_at_utc: str | None = None,
     ) -> RecordingStateRecord:
+        persistence = self._require_persistence()
         if ended_at_utc is None:
-            return self._require_persistence().update_recording_state(
-                recording_id,
-                state="failed",
-            )
-        return self._require_persistence().update_recording_state(
+            existing = persistence.get_recording(recording_id, required=True)
+            if existing.ended_at_utc is None:
+                ended_at_utc = _now_utc_iso()
+            else:
+                return persistence.update_recording_state(
+                    recording_id,
+                    state="failed",
+                )
+        return persistence.update_recording_state(
             recording_id,
             state="failed",
             ended_at_utc=ended_at_utc,

@@ -191,6 +191,25 @@ def test_recording_failure_preserves_capture_end_timestamp(tmp_path: Path) -> No
         connection.close()
 
 
+def test_recording_failure_before_capture_sets_end_timestamp(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    service = TvRecorderService(StubDvbCtrlClient(), persistence=persistence)
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        failed = service.mark_recording_failed(recording.id)
+
+        assert failed.state == "failed"
+        assert failed.ended_at_utc is not None
+        assert failed.ended_at_utc.endswith("Z")
+    finally:
+        connection.close()
+
+
 def test_persistence_methods_require_configured_store() -> None:
     service = TvRecorderService(StubDvbCtrlClient())
 
