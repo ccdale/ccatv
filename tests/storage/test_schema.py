@@ -42,6 +42,8 @@ def test_initialize_database_creates_expected_tables(tmp_path: Path) -> None:
     assert "epg_channels" in tables
     assert "epg_programs" in tables
     assert "epg_broadcasts" in tables
+    assert "epg_ingest_runs" in tables
+    assert "epg_source_checkpoints" in tables
 
 
 def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
@@ -57,7 +59,7 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
 
     assert applied_count == 0
     assert applied_versions is not None
-    assert applied_versions[0] == 2
+    assert applied_versions[0] == 3
 
 
 def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None:
@@ -75,7 +77,7 @@ def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None
         second.close()
 
     assert applied_versions is not None
-    assert applied_versions[0] == 2
+    assert applied_versions[0] == 3
 
 
 def test_initialize_database_closes_connection_on_migration_error(

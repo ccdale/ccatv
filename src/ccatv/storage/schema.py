@@ -105,6 +105,31 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=3,
+        name="epg_ingest_tracking_v3",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS epg_ingest_runs (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                started_at_utc TEXT NOT NULL,
+                finished_at_utc TEXT,
+                status TEXT NOT NULL,
+                message TEXT,
+                stats_json TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS epg_source_checkpoints (
+                source TEXT PRIMARY KEY,
+                last_successful_ingest_utc TEXT,
+                last_source_version TEXT,
+                metadata_json TEXT
+            )
+            """,
+        ),
+    ),
 )
 
 

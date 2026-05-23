@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-import sqlite3
 
 EVENT_OPEN_RE = re.compile(r"^<event\s+([^>]+)>$")
 NEW_RE = re.compile(r"^<new\s+([^>]+)/>$")
@@ -30,6 +30,11 @@ class OtaEpgIngestStats:
     programs_upserted: int
     broadcasts_upserted: int
     parsed_events: int
+    channels_inserted: int = 0
+    programs_inserted: int = 0
+    broadcasts_inserted: int = 0
+    broadcasts_updated: int = 0
+    ingest_run_id: int | None = None
 
 
 @dataclass(slots=True)
@@ -164,7 +169,9 @@ def parse_dvbstreamer_epg(raw_text: str) -> list[OtaEpgEvent]:
             )
         )
 
-    events.sort(key=lambda item: (item.channel_source_id, item.start_utc, item.event_source_id))
+    events.sort(
+        key=lambda item: (item.channel_source_id, item.start_utc, item.event_source_id)
+    )
     return events
 
 
@@ -176,7 +183,18 @@ def _duration_seconds(start_utc: str, end_utc: str | None) -> int | None:
     return int((end - start).total_seconds())
 
 
-def _upsert_channel(connection: sqlite3.Connection, source: str, channel_source_id: str) -> int:
+def _now_utc_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _upsert_channel(
+    connection: sqlite3.Connection, source: str, channel_source_id: str
+) -> tuple[int, bool]:
+    existing_row = connection.execute(
+        "SELECT id FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+        (source, channel_source_id),
+    ).fetchone()
+    inserted = existing_row is None
     display_name = f"service {channel_source_id}"
     connection.execute(
         """
@@ -193,10 +211,12 @@ def _upsert_channel(connection: sqlite3.Connection, source: str, channel_source_
     ).fetchone()
     if row is None:
         raise RuntimeError("failed to upsert epg_channels row")
-    return int(row[0])
+    return int(row[0]), inserted
 
 
-def _upsert_program(connection: sqlite3.Connection, source: str, event: OtaEpgEvent) -> int:
+def _upsert_program(
+    connection: sqlite3.Connection, source: str, event: OtaEpgEvent
+) -> tuple[int, bool]:
     update_result = connection.execute(
         """
         UPDATE epg_programs
@@ -213,13 +233,16 @@ def _upsert_program(connection: sqlite3.Connection, source: str, event: OtaEpgEv
             """,
             (source, event.event_source_id, event.title, event.description),
         )
+        inserted = True
+    else:
+        inserted = False
     row = connection.execute(
         "SELECT id FROM epg_programs WHERE source = ? AND source_program_id = ?",
         (source, event.event_source_id),
     ).fetchone()
     if row is None:
         raise RuntimeError("failed to upsert epg_programs row")
-    return int(row[0])
+    return int(row[0]), inserted
 
 
 def _upsert_broadcast(
@@ -227,7 +250,13 @@ def _upsert_broadcast(
     channel_id: int,
     program_id: int,
     event: OtaEpgEvent,
-) -> None:
+) -> bool:
+    existing_row = connection.execute(
+        "SELECT id FROM epg_broadcasts WHERE channel_id = ? AND start_utc = ?",
+        (channel_id, event.start_utc),
+    ).fetchone()
+    inserted = existing_row is None
+
     flags = {}
     if event.encrypted is not None:
         flags["encrypted"] = event.encrypted
@@ -260,6 +289,88 @@ def _upsert_broadcast(
         ),
     )
 
+    return inserted
+
+
+def _insert_ingest_run(connection: sqlite3.Connection, source: str, started_at_utc: str) -> int:
+    cursor = connection.execute(
+        """
+        INSERT INTO epg_ingest_runs(source, started_at_utc, status)
+        VALUES(?, ?, ?)
+        """,
+        (source, started_at_utc, "running"),
+    )
+    return int(cursor.lastrowid)
+
+
+def _finish_ingest_run(
+    connection: sqlite3.Connection,
+    run_id: int,
+    *,
+    finished_at_utc: str,
+    status: str,
+    message: str | None,
+    stats: OtaEpgIngestStats | None,
+) -> None:
+    stats_json = None
+    if stats is not None:
+        stats_json = json.dumps(
+            {
+                "parsed_events": stats.parsed_events,
+                "channels_upserted": stats.channels_upserted,
+                "programs_upserted": stats.programs_upserted,
+                "broadcasts_upserted": stats.broadcasts_upserted,
+                "channels_inserted": stats.channels_inserted,
+                "programs_inserted": stats.programs_inserted,
+                "broadcasts_inserted": stats.broadcasts_inserted,
+                "broadcasts_updated": stats.broadcasts_updated,
+            },
+            sort_keys=True,
+        )
+
+    connection.execute(
+        """
+        UPDATE epg_ingest_runs
+        SET finished_at_utc = ?,
+            status = ?,
+            message = ?,
+            stats_json = ?
+        WHERE id = ?
+        """,
+        (finished_at_utc, status, message, stats_json, run_id),
+    )
+
+
+def _upsert_source_checkpoint(
+    connection: sqlite3.Connection,
+    source: str,
+    finished_at_utc: str,
+    stats: OtaEpgIngestStats,
+) -> None:
+    metadata_json = json.dumps(
+        {
+            "last_run_id": stats.ingest_run_id,
+            "parsed_events": stats.parsed_events,
+            "broadcasts_upserted": stats.broadcasts_upserted,
+        },
+        sort_keys=True,
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_source_checkpoints(
+            source,
+            last_successful_ingest_utc,
+            metadata_json
+        )
+        VALUES(?, ?, ?)
+        ON CONFLICT(source)
+        DO UPDATE SET
+            last_successful_ingest_utc = excluded.last_successful_ingest_utc,
+            metadata_json = excluded.metadata_json
+        """,
+        (source, finished_at_utc, metadata_json),
+    )
+
 
 def ingest_dvbstreamer_epg(
     connection: sqlite3.Connection,
@@ -267,40 +378,91 @@ def ingest_dvbstreamer_epg(
     *,
     source: str = "dvbstreamer_ota",
 ) -> OtaEpgIngestStats:
+    started_at_utc = _now_utc_iso()
+    with connection:
+        ingest_run_id = _insert_ingest_run(connection, source, started_at_utc)
+
     events = parse_dvbstreamer_epg(raw_text)
 
     channel_ids: dict[str, int] = {}
     program_ids: dict[str, int] = {}
+    channels_inserted = 0
+    programs_inserted = 0
+    broadcasts_inserted = 0
+    broadcasts_updated = 0
 
-    with connection:
-        for event in events:
-            if event.channel_source_id not in channel_ids:
-                channel_ids[event.channel_source_id] = _upsert_channel(
-                    connection,
-                    source,
-                    event.channel_source_id,
-                )
+    try:
+        with connection:
+            for event in events:
+                if event.channel_source_id not in channel_ids:
+                    channel_id, was_inserted = _upsert_channel(
+                        connection,
+                        source,
+                        event.channel_source_id,
+                    )
+                    channel_ids[event.channel_source_id] = channel_id
+                    if was_inserted:
+                        channels_inserted += 1
 
-            if event.event_source_id not in program_ids:
-                program_ids[event.event_source_id] = _upsert_program(
+                if event.event_source_id not in program_ids:
+                    program_id, was_inserted = _upsert_program(
+                        connection,
+                        source,
+                        event,
+                    )
+                    program_ids[event.event_source_id] = program_id
+                    if was_inserted:
+                        programs_inserted += 1
+
+                was_inserted = _upsert_broadcast(
                     connection,
-                    source,
+                    channel_ids[event.channel_source_id],
+                    program_ids[event.event_source_id],
                     event,
                 )
+                if was_inserted:
+                    broadcasts_inserted += 1
+                else:
+                    broadcasts_updated += 1
 
-            _upsert_broadcast(
-                connection,
-                channel_ids[event.channel_source_id],
-                program_ids[event.event_source_id],
-                event,
+            finished_at_utc = _now_utc_iso()
+            stats = OtaEpgIngestStats(
+                channels_upserted=len(channel_ids),
+                programs_upserted=len(program_ids),
+                broadcasts_upserted=len(events),
+                parsed_events=len(events),
+                channels_inserted=channels_inserted,
+                programs_inserted=programs_inserted,
+                broadcasts_inserted=broadcasts_inserted,
+                broadcasts_updated=broadcasts_updated,
+                ingest_run_id=ingest_run_id,
             )
-
-    return OtaEpgIngestStats(
-        channels_upserted=len(channel_ids),
-        programs_upserted=len(program_ids),
-        broadcasts_upserted=len(events),
-        parsed_events=len(events),
-    )
+            _finish_ingest_run(
+                connection,
+                ingest_run_id,
+                finished_at_utc=finished_at_utc,
+                status="ok",
+                message=None,
+                stats=stats,
+            )
+            _upsert_source_checkpoint(
+                connection,
+                source,
+                finished_at_utc,
+                stats,
+            )
+            return stats
+    except Exception as exc:
+        with connection:
+            _finish_ingest_run(
+                connection,
+                ingest_run_id,
+                finished_at_utc=_now_utc_iso(),
+                status="failed",
+                message=str(exc),
+                stats=None,
+            )
+        raise
 
 
 def ingest_dvbstreamer_epg_file(
