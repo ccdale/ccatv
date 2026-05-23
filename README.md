@@ -2,6 +2,9 @@
 
 ccatv is a Linux television application.
 
+> [!NOTE]
+> If you are in the UK you will need a TV Licence to use this software
+
 Current project direction:
 
 - Python GTK4 user interface designed for across-the-room TV use
@@ -13,7 +16,7 @@ Current project direction:
 - TV guide and schedule metadata from Schedules Direct
 - Remote control support via a Windows Media Center remote and inputlirc
 - Jellyfin integration for media library access on the local network
-- GPLv3 project licensing intent
+- Licensed under GNU GPLv3 (or later)
 
 ## Secrets Handling
 
