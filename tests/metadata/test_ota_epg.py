@@ -221,3 +221,37 @@ def test_ingest_marks_stale_running_run_failed(tmp_path: Path) -> None:
         assert stale_row[2].endswith("Z")
     finally:
         connection.close()
+
+
+def test_checkpoint_failure_keeps_run_terminal(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+
+    def _raise_checkpoint_error(
+        _connection,
+        _source: str,
+        _finished_at_utc: str,
+        _stats,
+    ) -> None:
+        raise RuntimeError("checkpoint write failed")
+
+    monkeypatch.setattr(ota_epg, "_upsert_source_checkpoint", _raise_checkpoint_error)
+
+    try:
+        with pytest.raises(RuntimeError, match="checkpoint write failed"):
+            ingest_dvbstreamer_epg(connection, _fixture_text())
+
+        run_row = connection.execute(
+            """
+            SELECT status, stats_json, finished_at_utc
+            FROM epg_ingest_runs
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        assert run_row is not None
+        assert run_row[0] == "ok"
+        assert run_row[1] is not None
+        assert run_row[2].endswith("Z")
+    finally:
+        connection.close()

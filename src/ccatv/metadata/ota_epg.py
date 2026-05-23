@@ -406,6 +406,7 @@ def ingest_dvbstreamer_epg(
         )
         ingest_run_id = _insert_ingest_run(connection, source, started_at_utc)
 
+    run_completed = False
     try:
         events = parse_dvbstreamer_epg(raw_text)
 
@@ -469,23 +470,31 @@ def ingest_dvbstreamer_epg(
                 message=None,
                 stats=stats,
             )
+
+        run_completed = True
+
+        with connection:
             _upsert_source_checkpoint(
                 connection,
                 source,
                 finished_at_utc,
                 stats,
             )
-            return stats
+        return stats
     except Exception as exc:
-        with connection:
-            _finish_ingest_run(
-                connection,
-                ingest_run_id,
-                finished_at_utc=_now_utc_iso(),
-                status="failed",
-                message=str(exc),
-                stats=None,
-            )
+        if not run_completed:
+            try:
+                with connection:
+                    _finish_ingest_run(
+                        connection,
+                        ingest_run_id,
+                        finished_at_utc=_now_utc_iso(),
+                        status="failed",
+                        message=str(exc),
+                        stats=None,
+                    )
+            except Exception:
+                pass
         raise
 
 
