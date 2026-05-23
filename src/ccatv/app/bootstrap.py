@@ -9,6 +9,7 @@ from ccatv.settings import AppSettings
 from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.tvrecorder.manager import DvbStreamerConfig, DvbStreamerManager
+from ccatv.tvrecorder.postprocess import NoOpPostProcessingRunner
 from ccatv.tvrecorder.preflight import WritePreflightChecker
 from ccatv.tvrecorder.service import TvRecorderService
 
@@ -58,7 +59,11 @@ def bootstrap_app() -> AppContext:
     persistence = PersistenceStore(
         connection=initialize_database(Path(settings.database_path))
     )
-    tvrecorder = TvRecorderService(dvbctrl, persistence=persistence)
+    tvrecorder = TvRecorderService(
+        dvbctrl,
+        persistence=persistence,
+        post_processor=NoOpPostProcessingRunner(),
+    )
     return AppContext(
         settings=settings,
         logger=logger,

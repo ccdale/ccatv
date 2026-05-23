@@ -12,6 +12,11 @@ from ccatv.tvrecorder.commands import (
     stats_command,
 )
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient, DvbCtrlResult
+from ccatv.tvrecorder.postprocess import (
+    NoOpPostProcessingRunner,
+    PostProcessingRequest,
+    PostProcessingRunner,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,9 +53,11 @@ class TvRecorderService:
         dvbctrl: DvbCtrlClient,
         *,
         persistence: PersistenceStore | None = None,
+        post_processor: PostProcessingRunner | None = None,
     ) -> None:
         self._dvbctrl = dvbctrl
         self._persistence = persistence
+        self._post_processor = post_processor or NoOpPostProcessingRunner()
 
     def run_raw(self, command: str) -> DvbCtrlResult:
         """Run a raw dvbctrl command string."""
@@ -173,6 +180,26 @@ class TvRecorderService:
             recording_id,
             state="post_processing",
         )
+
+    def run_recording_post_processing(self, recording_id: int) -> RecordingStateRecord:
+        persistence = self._require_persistence()
+        recording = persistence.get_recording(recording_id, required=True)
+        self.start_recording_post_processing(recording_id)
+        request = PostProcessingRequest(
+            recording_id=recording.id,
+            channel_name=recording.channel_name,
+            output_path=recording.output_path,
+        )
+
+        try:
+            result = self._post_processor.run(request)
+        except Exception:
+            self.mark_recording_failed(recording_id)
+            raise
+
+        if result.success:
+            return self.mark_recording_ready(recording_id)
+        return self.mark_recording_failed(recording_id)
 
     def mark_recording_ready(self, recording_id: int) -> RecordingStateRecord:
         return self._require_persistence().update_recording_state(

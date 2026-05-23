@@ -8,6 +8,7 @@ import pytest
 from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.commands import DvbCtrlCommand
 from ccatv.tvrecorder.dvbctrl import DvbCtrlResult
+from ccatv.tvrecorder.postprocess import PostProcessingRequest, PostProcessingResult
 from ccatv.tvrecorder.service import TvRecorderService
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -21,6 +22,21 @@ class StubDvbCtrlClient:
     def run_command(self, command: str) -> DvbCtrlResult:
         self.commands.append(command)
         return self.responses[command]
+
+
+@dataclass(slots=True)
+class StubPostProcessor:
+    success: bool = True
+    raise_error: bool = False
+    requests: list[PostProcessingRequest] = field(default_factory=list)
+
+    def run(self, request: PostProcessingRequest) -> PostProcessingResult:
+        self.requests.append(request)
+        if self.raise_error:
+            raise RuntimeError("post-processing failed hard")
+        if self.success:
+            return PostProcessingResult(success=True, message="ok")
+        return PostProcessingResult(success=False, message="failed")
 
 
 def _result(command: str, stdout: str) -> DvbCtrlResult:
@@ -219,3 +235,91 @@ def test_persistence_methods_require_configured_store() -> None:
             start_at_utc="2026-05-23T12:00:00Z",
             duration_seconds=3600,
         )
+
+
+def test_run_post_processing_success_marks_ready(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    post_processor = StubPostProcessor(success=True)
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        post_processor=post_processor,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+
+        ready = service.run_recording_post_processing(recording.id)
+
+        assert ready.state == "ready"
+        assert post_processor.requests
+        assert post_processor.requests[0].recording_id == recording.id
+        assert post_processor.requests[0].output_path == "/tmp/bbc2.ts"
+    finally:
+        connection.close()
+
+
+def test_run_post_processing_failure_marks_failed(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    post_processor = StubPostProcessor(success=False)
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        post_processor=post_processor,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+
+        failed = service.run_recording_post_processing(recording.id)
+
+        assert failed.state == "failed"
+        assert failed.ended_at_utc == "2026-05-23T11:00:00Z"
+    finally:
+        connection.close()
+
+
+def test_run_post_processing_exception_marks_failed_and_reraises(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    post_processor = StubPostProcessor(raise_error=True)
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        post_processor=post_processor,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+
+        with pytest.raises(RuntimeError, match="post-processing failed hard"):
+            service.run_recording_post_processing(recording.id)
+
+        row = persistence.get_recording(recording.id, required=True)
+        assert row.state == "failed"
+        assert row.ended_at_utc == "2026-05-23T11:00:00Z"
+    finally:
+        connection.close()

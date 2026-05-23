@@ -84,6 +84,18 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     jobs = context.persistence.list_scheduler_jobs()
     assert jobs == [scheduled]
 
+    recording = context.tvrecorder.begin_recording(
+        channel_name="BBC TWO HD",
+        output_path="/tmp/bbc2.ts",
+        started_at_utc="2026-05-23T10:00:00Z",
+    )
+    context.tvrecorder.mark_recording_capture_completed(
+        recording.id,
+        ended_at_utc="2026-05-23T11:00:00Z",
+    )
+    ready = context.tvrecorder.run_recording_post_processing(recording.id)
+    assert ready.state == "ready"
+
 
 def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None:
     # Non-default retry values verify bootstrap propagates custom client settings.
