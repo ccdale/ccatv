@@ -10,21 +10,21 @@ from urllib import error, parse, request
 from ccatv import __app_name__, __version__
 from ccatv.metadata.schedules_direct_contract import (
     GuideSyncWindow,
+    SchedulesDirectApiError,
+    SchedulesDirectAuthenticationError,
+    SchedulesDirectClient,
+    SchedulesDirectRateLimitError,
+    SchedulesDirectTransportError,
     SDAccountStatus,
     SDCredentials,
     SDLineup,
     SDProgram,
     SDScheduleEntry,
     SDStation,
-    SchedulesDirectApiError,
-    SchedulesDirectAuthenticationError,
-    SchedulesDirectClient,
-    SchedulesDirectRateLimitError,
-    SchedulesDirectTransportError,
 )
 from ccatv.metadata.schedules_direct_runtime import (
-    SDTokenCache,
     SchedulesDirectTokenCacheStore,
+    SDTokenCache,
 )
 
 
@@ -38,8 +38,7 @@ class JsonHttpTransport(Protocol):
         payload: object | None,
         query: dict[str, str] | None,
         timeout_seconds: float,
-    ) -> object:
-        ...
+    ) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)

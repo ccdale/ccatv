@@ -7,8 +7,8 @@ import pytest
 
 from ccatv.metadata.schedules_direct_api import SchedulesDirectHttpClient
 from ccatv.metadata.schedules_direct_contract import (
-    SDCredentials,
     SchedulesDirectAuthenticationError,
+    SDCredentials,
 )
 from ccatv.metadata.schedules_direct_runtime import SDTokenCache
 
@@ -28,16 +28,14 @@ class StubTransport:
         query: dict[str, str] | None,
         timeout_seconds: float,
     ) -> object:
-        self.calls.append(
-            {
-                "method": method,
-                "url": url,
-                "headers": dict(headers),
-                "payload": payload,
-                "query": query,
-                "timeout_seconds": timeout_seconds,
-            }
-        )
+        self.calls.append({
+            "method": method,
+            "url": url,
+            "headers": dict(headers),
+            "payload": payload,
+            "query": query,
+            "timeout_seconds": timeout_seconds,
+        })
         if not self.responses:
             raise AssertionError("unexpected extra request")
         return self.responses.pop(0)

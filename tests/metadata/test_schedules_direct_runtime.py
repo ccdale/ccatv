@@ -7,10 +7,10 @@ import pytest
 
 from ccatv.metadata.schedules_direct_contract import SDCredentials
 from ccatv.metadata.schedules_direct_runtime import (
-    SDTokenCache,
     SchedulesDirectConfigError,
     SchedulesDirectCredentialStore,
     SchedulesDirectTokenCacheStore,
+    SDTokenCache,
 )
 
 
@@ -29,14 +29,12 @@ def test_credential_store_loads_top_level_credentials(tmp_path: Path) -> None:
 def test_credential_store_loads_nested_credentials(tmp_path: Path) -> None:
     config_path = tmp_path / "schedules_direct.json"
     config_path.write_text(
-        json.dumps(
-            {
-                "schedules_direct": {
-                    "username": "alice",
-                    "password": "secret",
-                }
+        json.dumps({
+            "schedules_direct": {
+                "username": "alice",
+                "password": "secret",
             }
-        ),
+        }),
         encoding="utf-8",
     )
 

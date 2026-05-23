@@ -33,8 +33,7 @@ class SchedulesDirectCredentialStore:
     def load(self) -> SDCredentials:
         if not self._path.exists():
             raise SchedulesDirectConfigError(
-                "Schedules Direct credentials file not found. "
-                f"Expected: {self._path}"
+                f"Schedules Direct credentials file not found. Expected: {self._path}"
             )
 
         try:
