@@ -30,7 +30,7 @@ def test_credential_store_loads_nested_credentials(tmp_path: Path) -> None:
     config_path = tmp_path / "schedules_direct.json"
     config_path.write_text(
         json.dumps({
-            "schedules_direct": {
+            "schedulesdirect": {
                 "username": "alice",
                 "password": "secret",
             }

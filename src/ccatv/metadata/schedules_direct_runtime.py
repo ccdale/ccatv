@@ -49,7 +49,7 @@ class SchedulesDirectCredentialStore:
                 "Schedules Direct credentials file must be a JSON object"
             )
 
-        scope = raw_data.get("schedules_direct", raw_data)
+        scope = raw_data.get("schedulesdirect", raw_data)
         if not isinstance(scope, dict):
             raise SchedulesDirectConfigError(
                 "Schedules Direct credentials object is malformed"
