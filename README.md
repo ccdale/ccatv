@@ -15,6 +15,14 @@ Current project direction:
 - Jellyfin integration for media library access on the local network
 - GPLv3 project licensing intent
 
+## Secrets Handling
+
+Schedules Direct credentials and authentication state are sensitive.
+
+- Schedules Direct `username`, `password`, and API `token` must never be committed.
+- These values should only be read from local runtime config under `$XDG_CONFIG_HOME` and/or local runtime caches.
+- Do not add secrets to repository files, tests, fixtures, docs examples, or CI configuration.
+
 ## TvRecorder Configuration
 
 TvRecorder persists local dvbctrl credentials under

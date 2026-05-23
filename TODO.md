@@ -90,3 +90,4 @@ Required before live integration runs:
 - Run Ruff and tests before committing.
 - Treat post-Ruff file changes as formatter side-effects unless intentionally authored.
 - Keep this file updated as milestones move from scaffolded to integrated.
+- Schedules Direct secrets policy: username, password, and API token are runtime secrets only and must never be committed.
