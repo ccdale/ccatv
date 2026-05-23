@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
-from ccatv.app.service_daemon import run_service_daemon
+from ccatv.app.service_daemon import main, run_service_daemon
 from ccatv.tvrecorder.orchestrator import OrchestratorResult
 
 
@@ -121,3 +123,46 @@ def test_run_service_daemon_forever_continues_after_cycle_error(monkeypatch) -> 
 
     assert result == 0
     assert worker.cycle_count >= 1
+
+
+def test_main_dispatch_command_json(monkeypatch, capsys) -> None:
+    context = SimpleNamespace(
+        settings=SimpleNamespace(database_path=":memory:"),
+        persistence=SimpleNamespace(connection=SimpleNamespace(close=lambda: None)),
+        dvbstreamer=SimpleNamespace(stop=lambda force_kill=True: None),
+        logger=logging.getLogger("test.daemon.dispatch"),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr("ccatv.app.service_daemon.bootstrap_app", lambda: context)
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.close_app_context", lambda _context: None
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    request = {
+        "apiVersion": "v1alpha1",
+        "command": "service.health.get",
+        "requestId": "abc-123",
+        "payload": {},
+    }
+    result = main(["--dispatch-command-json", json.dumps(request)])
+
+    assert result == 0
+    output = capsys.readouterr().out.strip()
+    response = json.loads(output)
+    assert response["ok"] is True
+    assert response["requestId"] == "abc-123"

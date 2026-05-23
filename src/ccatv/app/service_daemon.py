@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import signal
 import sys
@@ -10,6 +11,7 @@ from threading import Event
 
 from ccatv.app.bootstrap import AppContext, bootstrap_app, close_app_context
 from ccatv.app.recorder_worker import create_scheduler_worker
+from ccatv.app.service_dispatcher import ServiceCommandDispatcher
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,6 +44,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-once",
         action="store_true",
         help="execute one scheduler cycle then exit",
+    )
+    parser.add_argument(
+        "--dispatch-command-json",
+        default=None,
+        help=(
+            "execute one service command envelope JSON string and exit; "
+            "use for M1 in-process command validation"
+        ),
     )
     return parser
 
@@ -111,6 +121,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         context.settings.database_path,
     )
     try:
+        if args.dispatch_command_json is not None:
+            try:
+                request = json.loads(args.dispatch_command_json)
+            except json.JSONDecodeError as exc:
+                parser.error(f"--dispatch-command-json must be valid JSON: {exc}")
+            if not isinstance(request, dict):
+                parser.error("--dispatch-command-json must decode to an object")
+            response = ServiceCommandDispatcher(context).dispatch(request)
+            print(json.dumps(response, sort_keys=True))
+            return 0
+
         return run_service_daemon(
             context,
             output_directory=args.output_directory,
