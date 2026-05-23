@@ -31,13 +31,14 @@ class SchedulesDirectCredentialStore:
         return self._path
 
     def load(self) -> SDCredentials:
-        if not self._path.exists():
+        credential_path = self._resolve_credentials_path()
+        if not credential_path.exists():
             raise SchedulesDirectConfigError(
                 f"Schedules Direct credentials file not found. Expected: {self._path}"
             )
 
         try:
-            raw_data = json.loads(self._path.read_text(encoding="utf-8"))
+            raw_data = json.loads(credential_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise SchedulesDirectConfigError(
                 "Schedules Direct credentials file is not valid JSON"
@@ -62,6 +63,18 @@ class SchedulesDirectCredentialStore:
             )
 
         return SDCredentials(username=username, password=password)
+
+    def _resolve_credentials_path(self) -> Path:
+        if self._path.exists():
+            return self._path
+
+        # Backward-compatible fallback for earlier SD-only config draft.
+        if self._path.name == "tvrecorder.json":
+            legacy_path = self._path.with_name("schedules_direct.json")
+            if legacy_path.exists():
+                return legacy_path
+
+        return self._path
 
 
 class SchedulesDirectTokenCacheStore:
@@ -113,7 +126,7 @@ class SchedulesDirectTokenCacheStore:
 
 
 def _default_credentials_path() -> Path:
-    return Path(user_config_dir("ccatv", appauthor=False)) / "schedules_direct.json"
+    return Path(user_config_dir("ccatv", appauthor=False)) / "tvrecorder.json"
 
 
 def _default_token_cache_path() -> Path:

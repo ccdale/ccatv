@@ -56,6 +56,21 @@ def test_credential_store_rejects_missing_credentials(tmp_path: Path) -> None:
         store.load()
 
 
+def test_credential_store_uses_legacy_fallback_when_primary_missing(
+    tmp_path: Path,
+) -> None:
+    primary_path = tmp_path / "tvrecorder.json"
+    legacy_path = tmp_path / "schedules_direct.json"
+    legacy_path.write_text(
+        json.dumps({"username": "alice", "password": "secret"}),
+        encoding="utf-8",
+    )
+
+    store = SchedulesDirectCredentialStore(path=primary_path)
+
+    assert store.load() == SDCredentials(username="alice", password="secret")
+
+
 def test_token_cache_roundtrip(tmp_path: Path) -> None:
     cache_path = tmp_path / "sd_token.json"
     store = SchedulesDirectTokenCacheStore(path=cache_path)
