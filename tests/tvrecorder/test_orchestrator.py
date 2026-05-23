@@ -328,3 +328,51 @@ def test_orchestrator_reports_cleanup_stop_failure_context(
         assert capture.stop_calls == [("BBC TWO HD", "/tmp/bbc2.ts")]
     finally:
         connection.close()
+
+
+def test_orchestrator_short_recording_does_not_oversleep_periodic_interval(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    clock = FakeClock(now_seconds=1_748_000_000.0)
+    sizes = iter([100, 120, 120, 140, 140, 140])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=1,
+            early_growth_interval_seconds=0,
+            final_stability_checks=1,
+            final_stability_interval_seconds=0,
+            growth_min_bytes=1,
+            periodic_growth_checks=1,
+            periodic_growth_interval_seconds=0,
+        ),
+        file_size_reader=lambda _path: next(sizes, 140),
+        sleep_fn=lambda _seconds: None,
+    )
+    orchestrator = RecorderOrchestrator(
+        service=service,
+        persistence=persistence,
+        periodic_policy=PeriodicCheckPolicy(growth_min_bytes=1, interval_seconds=10.0),
+        now_fn=clock.now,
+        sleep_fn=clock.sleep,
+    )
+
+    try:
+        job = service.schedule_recording(
+            channel_name="BBC TWO HD",
+            start_at_utc=_iso_at(clock.now_seconds - 2),
+            duration_seconds=5,
+        )
+
+        before = clock.now_seconds
+        result = orchestrator.run_job(job_id=job.id, output_path="/tmp/bbc2.ts")
+        after = clock.now_seconds
+
+        assert result.scheduler_state == "completed"
+        assert after - before == 5
+    finally:
+        connection.close()

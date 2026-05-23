@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -177,7 +176,11 @@ class RecorderOrchestrator:
                         output_path=output_path,
                     )
                 except Exception as cleanup_exc:
-                    cleanup_stop_error = str(cleanup_exc)
+                    cleanup_stop_error = _append_error(
+                        cleanup_stop_error,
+                        "cleanup stop_capture failed",
+                        str(cleanup_exc),
+                    )
 
             if recording is not None:
                 current = self.persistence.get_recording(recording.id, required=False)
@@ -186,23 +189,37 @@ class RecorderOrchestrator:
                     recording_id = recording.id
                 else:
                     if current.state not in {"failed", "ready"}:
-                        current = self.service.mark_recording_failed(recording.id)
+                        try:
+                            current = self.service.mark_recording_failed(recording.id)
+                        except Exception as state_exc:
+                            cleanup_stop_error = _append_error(
+                                cleanup_stop_error,
+                                "failed to mark recording failed",
+                                str(state_exc),
+                            )
                     recording_state = current.state
                     recording_id = current.id
             else:
                 recording_state = None
                 recording_id = None
 
-            scheduler = self.service.mark_scheduler_job_failed(job.id)
+            scheduler_state = "failed"
+            try:
+                scheduler = self.service.mark_scheduler_job_failed(job.id)
+                scheduler_state = scheduler.state
+            except Exception as state_exc:
+                cleanup_stop_error = _append_error(
+                    cleanup_stop_error,
+                    "failed to mark scheduler job failed",
+                    str(state_exc),
+                )
+
             error_message = str(exc)
             if cleanup_stop_error:
-                error_message = (
-                    f"{error_message}; cleanup stop_capture failed: "
-                    f"{cleanup_stop_error}"
-                )
+                error_message = f"{error_message}; {cleanup_stop_error}"
             return OrchestratorResult(
                 job_id=job.id,
-                scheduler_state=scheduler.state,
+                scheduler_state=scheduler_state,
                 recording_id=recording_id,
                 recording_state=recording_state,
                 error=error_message,
@@ -221,11 +238,14 @@ class RecorderOrchestrator:
         if recording_duration_seconds <= 0:
             return
 
-        check_count = math.ceil(
-            recording_duration_seconds / self.periodic_policy.interval_seconds
-        )
-        for _ in range(check_count):
-            self.sleep_fn(self.periodic_policy.interval_seconds)
+        remaining_seconds = float(recording_duration_seconds)
+        while remaining_seconds > 0:
+            sleep_seconds = min(
+                self.periodic_policy.interval_seconds,
+                remaining_seconds,
+            )
+            self.sleep_fn(sleep_seconds)
+            remaining_seconds -= sleep_seconds
             result = self.service.verify_recording_output_growth(
                 recording_id,
                 checks=1,
@@ -234,6 +254,13 @@ class RecorderOrchestrator:
             )
             if result.state == "failed":
                 raise RuntimeError("periodic growth check failed")
+
+
+def _append_error(existing: str | None, label: str, detail: str) -> str:
+    message = f"{label}: {detail}"
+    if existing:
+        return f"{existing}; {message}"
+    return message
 
 
 def _parse_utc_iso(value: str) -> float:
