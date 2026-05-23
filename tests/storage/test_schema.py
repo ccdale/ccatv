@@ -156,6 +156,7 @@ def test_epg_channel_unique_constraint(tmp_path: Path) -> None:
             """,
             ("xmltv", "chan-1", "BBC TWO HD"),
         )
+        connection.commit()
 
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
@@ -165,6 +166,13 @@ def test_epg_channel_unique_constraint(tmp_path: Path) -> None:
                 """,
                 ("xmltv", "chan-1", "Duplicate"),
             )
+
+        rows = connection.execute(
+            "SELECT COUNT(*) FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+            ("xmltv", "chan-1"),
+        ).fetchone()
+        assert rows is not None
+        assert rows[0] == 1
     finally:
         connection.close()
 
@@ -206,6 +214,7 @@ def test_epg_broadcast_unique_constraint(tmp_path: Path) -> None:
             """,
             (channel_id[0], program_id[0], "2026-05-23T10:00:00Z"),
         )
+        connection.commit()
 
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
@@ -215,6 +224,13 @@ def test_epg_broadcast_unique_constraint(tmp_path: Path) -> None:
                 """,
                 (channel_id[0], program_id[0], "2026-05-23T10:00:00Z"),
             )
+
+        rows = connection.execute(
+            "SELECT COUNT(*) FROM epg_broadcasts WHERE channel_id = ? AND start_utc = ?",
+            (channel_id[0], "2026-05-23T10:00:00Z"),
+        ).fetchone()
+        assert rows is not None
+        assert rows[0] == 1
     finally:
         connection.close()
 
@@ -279,6 +295,7 @@ def test_epg_programs_partial_index_enforces_non_null_source_ids(
             """,
             ("xmltv", "EP0001", "Program A"),
         )
+        connection.commit()
 
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
@@ -288,6 +305,13 @@ def test_epg_programs_partial_index_enforces_non_null_source_ids(
                 """,
                 ("xmltv", "EP0001", "Program B"),
             )
+
+        rows = connection.execute(
+            "SELECT COUNT(*) FROM epg_programs WHERE source = ? AND source_program_id = ?",
+            ("xmltv", "EP0001"),
+        ).fetchone()
+        assert rows is not None
+        assert rows[0] == 1
     finally:
         connection.close()
 
