@@ -24,14 +24,20 @@ class StubDvbCtrlClient:
 
 @dataclass(slots=True)
 class StubCaptureController:
+    fail_start: bool = False
+    fail_stop: bool = False
     start_calls: list[tuple[str, str]] = field(default_factory=list)
     stop_calls: list[tuple[str, str]] = field(default_factory=list)
 
     def start_capture(self, *, channel_name: str, output_path: str) -> None:
         self.start_calls.append((channel_name, output_path))
+        if self.fail_start:
+            raise RuntimeError("start failed")
 
     def stop_capture(self, *, channel_name: str, output_path: str) -> None:
         self.stop_calls.append((channel_name, output_path))
+        if self.fail_stop:
+            raise RuntimeError("stop failed")
 
 
 @dataclass(slots=True)
@@ -217,5 +223,108 @@ def test_orchestrator_run_due_jobs_filters_scheduled_due_items(
         assert persistence.get_scheduler_job(due_job.id, required=True).state == "completed"
         assert persistence.get_scheduler_job(future_job.id, required=True).state == "scheduled"
         assert persistence.get_scheduler_job(running_job.id, required=True).state == "running"
+    finally:
+        connection.close()
+
+
+def test_orchestrator_start_capture_failure_marks_job_and_recording_failed(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    clock = FakeClock(now_seconds=1_748_000_000.0)
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=1,
+            early_growth_interval_seconds=0,
+            final_stability_checks=1,
+            final_stability_interval_seconds=0,
+            growth_min_bytes=1,
+            periodic_growth_checks=1,
+            periodic_growth_interval_seconds=0,
+        ),
+        file_size_reader=lambda _path: 100,
+        sleep_fn=lambda _seconds: None,
+    )
+    capture = StubCaptureController(fail_start=True)
+    orchestrator = RecorderOrchestrator(
+        service=service,
+        persistence=persistence,
+        capture_controller=capture,
+        periodic_policy=PeriodicCheckPolicy(growth_min_bytes=1, interval_seconds=10.0),
+        now_fn=clock.now,
+        sleep_fn=clock.sleep,
+    )
+
+    try:
+        job = service.schedule_recording(
+            channel_name="BBC TWO HD",
+            start_at_utc=_iso_at(clock.now_seconds - 5),
+            duration_seconds=10,
+        )
+
+        result = orchestrator.run_job(job_id=job.id, output_path="/tmp/bbc2.ts")
+
+        assert result.scheduler_state == "failed"
+        assert result.recording_state == "failed"
+        assert result.error == "start failed"
+        assert capture.start_calls == [("BBC TWO HD", "/tmp/bbc2.ts")]
+        assert capture.stop_calls == []
+    finally:
+        connection.close()
+
+
+def test_orchestrator_reports_cleanup_stop_failure_context(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    clock = FakeClock(now_seconds=1_748_000_000.0)
+    sizes = iter([100, 120, 120, 120])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=1,
+            early_growth_interval_seconds=0,
+            final_stability_checks=1,
+            final_stability_interval_seconds=0,
+            growth_min_bytes=1,
+            periodic_growth_checks=1,
+            periodic_growth_interval_seconds=0,
+        ),
+        file_size_reader=lambda _path: next(sizes, 120),
+        sleep_fn=lambda _seconds: None,
+    )
+    capture = StubCaptureController(fail_stop=True)
+    orchestrator = RecorderOrchestrator(
+        service=service,
+        persistence=persistence,
+        capture_controller=capture,
+        periodic_policy=PeriodicCheckPolicy(growth_min_bytes=1, interval_seconds=10.0),
+        now_fn=clock.now,
+        sleep_fn=clock.sleep,
+    )
+
+    try:
+        job = service.schedule_recording(
+            channel_name="BBC TWO HD",
+            start_at_utc=_iso_at(clock.now_seconds - 5),
+            duration_seconds=10,
+        )
+
+        result = orchestrator.run_job(job_id=job.id, output_path="/tmp/bbc2.ts")
+
+        assert result.scheduler_state == "failed"
+        assert result.recording_state == "failed"
+        assert result.error is not None
+        assert "periodic growth check failed" in result.error
+        assert "cleanup stop_capture failed: stop failed" in result.error
+        assert capture.start_calls == [("BBC TWO HD", "/tmp/bbc2.ts")]
+        assert capture.stop_calls == [("BBC TWO HD", "/tmp/bbc2.ts")]
     finally:
         connection.close()

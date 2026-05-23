@@ -4,6 +4,7 @@ import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Protocol
 
 from ccatv.storage import PersistenceStore, RecordingStateRecord, SchedulerJobRecord
@@ -68,8 +69,8 @@ class RecorderOrchestrator:
     persistence: PersistenceStore
     capture_controller: CaptureController = NoOpCaptureController()
     periodic_policy: PeriodicCheckPolicy = PeriodicCheckPolicy()
-    now_fn: callable = time.time
-    sleep_fn: callable = time.sleep
+    now_fn: Callable[[], float] = time.time
+    sleep_fn: Callable[[float], None] = time.sleep
 
     def list_due_scheduler_jobs(
         self,
@@ -88,7 +89,7 @@ class RecorderOrchestrator:
     def run_due_jobs(
         self,
         *,
-        output_path_builder,
+        output_path_builder: Callable[[SchedulerJobRecord], str],
         now_utc: str | None = None,
         max_jobs: int | None = None,
     ) -> list[OrchestratorResult]:
@@ -114,12 +115,14 @@ class RecorderOrchestrator:
         self.service.mark_scheduler_job_running(job.id)
         recording: RecordingStateRecord | None = None
         capture_started = False
+        cleanup_stop_error: str | None = None
 
         try:
+            recording_started_at = self.now_fn()
             recording = self.service.begin_recording(
                 channel_name=job.channel_name,
                 output_path=output_path,
-                started_at_utc=_format_utc_iso(now_timestamp),
+                started_at_utc=_format_utc_iso(recording_started_at),
             )
             self.capture_controller.start_capture(
                 channel_name=job.channel_name,
@@ -131,12 +134,18 @@ class RecorderOrchestrator:
             if early.state == "failed":
                 raise RuntimeError("early growth check failed")
 
-            self._run_periodic_growth_checks(recording_id=recording.id, job=job)
-
-            self.capture_controller.stop_capture(
-                channel_name=job.channel_name,
-                output_path=output_path,
+            self._run_periodic_growth_checks(
+                recording_id=recording.id,
+                recording_duration_seconds=job.duration_seconds,
             )
+
+            try:
+                self.capture_controller.stop_capture(
+                    channel_name=job.channel_name,
+                    output_path=output_path,
+                )
+            except Exception as exc:
+                raise RuntimeError(f"failed stopping capture: {exc}") from exc
             capture_started = False
 
             self.service.mark_recording_capture_completed(
@@ -167,47 +176,53 @@ class RecorderOrchestrator:
                         channel_name=job.channel_name,
                         output_path=output_path,
                     )
-                except Exception:
-                    pass
+                except Exception as cleanup_exc:
+                    cleanup_stop_error = str(cleanup_exc)
 
             if recording is not None:
-                current = self.persistence.get_recording(recording.id, required=True)
-                if current.state not in {"failed", "ready"}:
-                    current = self.service.mark_recording_failed(recording.id)
-                recording_state = current.state
-                recording_id = current.id
+                current = self.persistence.get_recording(recording.id, required=False)
+                if current is None:
+                    recording_state = None
+                    recording_id = recording.id
+                else:
+                    if current.state not in {"failed", "ready"}:
+                        current = self.service.mark_recording_failed(recording.id)
+                    recording_state = current.state
+                    recording_id = current.id
             else:
                 recording_state = None
                 recording_id = None
 
             scheduler = self.service.mark_scheduler_job_failed(job.id)
+            error_message = str(exc)
+            if cleanup_stop_error:
+                error_message = (
+                    f"{error_message}; cleanup stop_capture failed: "
+                    f"{cleanup_stop_error}"
+                )
             return OrchestratorResult(
                 job_id=job.id,
                 scheduler_state=scheduler.state,
                 recording_id=recording_id,
                 recording_state=recording_state,
-                error=str(exc),
+                error=error_message,
             )
 
     def _run_periodic_growth_checks(
         self,
         *,
         recording_id: int,
-        job: SchedulerJobRecord,
+        recording_duration_seconds: int,
     ) -> None:
         if self.periodic_policy.interval_seconds <= 0:
             raise ValueError("periodic interval_seconds must be > 0")
         if self.periodic_policy.growth_min_bytes < 1:
             raise ValueError("periodic growth_min_bytes must be at least 1")
-
-        now_timestamp = self.now_fn()
-        start_timestamp = max(_parse_utc_iso(job.start_at_utc), now_timestamp)
-        end_timestamp = _parse_utc_iso(job.start_at_utc) + job.duration_seconds
-        if end_timestamp <= start_timestamp:
+        if recording_duration_seconds <= 0:
             return
 
         check_count = math.ceil(
-            (end_timestamp - start_timestamp) / self.periodic_policy.interval_seconds
+            recording_duration_seconds / self.periodic_policy.interval_seconds
         )
         for _ in range(check_count):
             self.sleep_fn(self.periodic_policy.interval_seconds)
