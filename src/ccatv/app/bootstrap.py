@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from ccatv.logging_config import configure_logging
 from ccatv.settings import AppSettings
+from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.tvrecorder.manager import DvbStreamerConfig, DvbStreamerManager
 from ccatv.tvrecorder.preflight import WritePreflightChecker
@@ -19,6 +21,7 @@ class AppContext:
     dvbctrl: DvbCtrlClient
     dvbstreamer: DvbStreamerManager
     write_preflight: WritePreflightChecker
+    persistence: PersistenceStore
 
 
 def bootstrap_app() -> AppContext:
@@ -50,10 +53,14 @@ def bootstrap_app() -> AppContext:
         transient_retry_count=dvbctrl.transient_retry_count,
         transient_retry_delay_seconds=dvbctrl.transient_retry_delay_seconds,
     )
+    persistence = PersistenceStore(
+        connection=initialize_database(Path(settings.database_path))
+    )
     return AppContext(
         settings=settings,
         logger=logger,
         dvbctrl=dvbctrl,
         dvbstreamer=dvbstreamer,
         write_preflight=write_preflight,
+        persistence=persistence,
     )

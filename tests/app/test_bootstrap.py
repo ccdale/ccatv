@@ -7,6 +7,7 @@ import pytest
 import ccatv.app.bootstrap as bootstrap_module
 from ccatv.app.bootstrap import bootstrap_app
 from ccatv.settings import AppSettings
+from ccatv.storage import PersistenceStore
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 
 
@@ -29,6 +30,7 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
                 dvbstreamer_output_mrl="udp://239.10.10.10:1234",
                 dvbstreamer_path="/opt/bin/dvbstreamer",
                 dvbstreamer_stop_timeout_seconds=7.5,
+                database_path=":memory:",
             )
         ),
     )
@@ -70,6 +72,7 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
         context.write_preflight.transient_retry_delay_seconds
         == _dvbctrl_init_default("transient_retry_delay_seconds")
     )
+    assert isinstance(context.persistence, PersistenceStore)
 
 
 def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None:
@@ -106,6 +109,7 @@ def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None
                 dvbstreamer_output_mrl="udp://239.10.10.11:1234",
                 dvbstreamer_path="/opt/bin/dvbstreamer",
                 dvbstreamer_stop_timeout_seconds=8.0,
+                database_path=":memory:",
             )
         ),
     )
@@ -152,6 +156,7 @@ def test_bootstrap_propagates_dvbctrl_init_failure(monkeypatch) -> None:
                 dvbstreamer_output_mrl="udp://239.10.10.12:1234",
                 dvbstreamer_path="/opt/bin/dvbstreamer",
                 dvbstreamer_stop_timeout_seconds=8.0,
+                database_path=":memory:",
             )
         ),
     )
