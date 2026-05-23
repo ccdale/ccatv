@@ -179,7 +179,9 @@ def test_schedule_recording_uses_custom_padding_policy(tmp_path: Path) -> None:
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
-        padding_policy=RecordingPaddingPolicy(post_finish_seconds=300, pre_start_seconds=60),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=300, pre_start_seconds=60
+        ),
     )
     try:
         job = service.schedule_recording(

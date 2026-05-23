@@ -1,6 +1,6 @@
 [project]
 name = "ccatv"
-version = "0.1.87"
+version = "0.1.88"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,3 +27,6 @@ addopts = "-m 'not integration'"
 markers = [
     "integration: live tests requiring external dvbstreamer/dvbctrl environment",
 ]
+
+[tool.ruff.format]
+preview = true
