@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
+from ccatv.runtime_config import RuntimeConfig, RuntimeConfigError, RuntimeConfigStore
 from ccatv.settings import AppSettings
 
 
@@ -101,3 +101,39 @@ def test_from_env_loads_host_and_adapter_count_from_runtime_config(monkeypatch) 
 
     assert settings.dvbstreamer_host == "druidmedia"
     assert settings.dvb_adapter_count == 4
+
+
+def test_from_env_falls_back_when_runtime_config_load_fails(monkeypatch) -> None:
+    monkeypatch.delenv("CCATV_DVBSTREAMER_HOST", raising=False)
+    monkeypatch.delenv("CCATV_DVB_ADAPTER_COUNT", raising=False)
+    monkeypatch.setattr(
+        RuntimeConfigStore,
+        "load",
+        lambda self: (_ for _ in ()).throw(RuntimeConfigError("broken config")),
+    )
+
+    settings = AppSettings.from_env()
+
+    assert settings.dvbstreamer_host == "localhost"
+    assert settings.dvb_adapter_count == 1
+
+
+def test_from_env_accepts_database_path_override(monkeypatch) -> None:
+    monkeypatch.setenv("CCATV_DATABASE_PATH", "/tmp/custom-ccatv.sqlite3")
+
+    settings = AppSettings.from_env()
+
+    assert settings.database_path == "/tmp/custom-ccatv.sqlite3"
+
+
+def test_from_env_ignores_blank_host_override(monkeypatch) -> None:
+    monkeypatch.setenv("CCATV_DVBSTREAMER_HOST", "   ")
+    monkeypatch.setattr(
+        RuntimeConfigStore,
+        "load",
+        lambda self: RuntimeConfig(dvb_adapter_count=4, dvbstreamer_host="druidmedia"),
+    )
+
+    settings = AppSettings.from_env()
+
+    assert settings.dvbstreamer_host == "druidmedia"

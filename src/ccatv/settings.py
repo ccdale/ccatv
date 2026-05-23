@@ -45,6 +45,16 @@ def _env_positive_float(name: str, default: float) -> float:
     return value
 
 
+def _env_non_empty_str(name: str, default: str) -> str:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    trimmed = raw.strip()
+    if not trimmed:
+        return default
+    return trimmed
+
+
 @dataclass(frozen=True, slots=True)
 class AppSettings:
     """Runtime settings loaded from environment variables."""
@@ -80,8 +90,9 @@ class AppSettings:
                 "CCATV_DVBSTREAMER_BIND_ADDRESS",
                 "127.0.0.1",
             ),
-            dvbstreamer_host=os.getenv(
-                "CCATV_DVBSTREAMER_HOST", runtime_config.dvbstreamer_host
+            dvbstreamer_host=_env_non_empty_str(
+                "CCATV_DVBSTREAMER_HOST",
+                runtime_config.dvbstreamer_host,
             ),
             dvbstreamer_output_mrl=os.getenv("CCATV_DVBSTREAMER_OUTPUT_MRL", "null://"),
             dvbstreamer_path=os.getenv("CCATV_DVBSTREAMER_PATH", "dvbstreamer"),
