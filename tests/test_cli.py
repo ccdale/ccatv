@@ -197,6 +197,9 @@ def test_epg_sync_sd_command_runs_once(tmp_path: Path, monkeypatch) -> None:
             return SDCredentials(username="alice", password="secret")
 
     class _StubClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
         async def authenticate(self, credentials: SDCredentials) -> None:
             assert credentials.username == "alice"
 
@@ -283,6 +286,9 @@ def test_epg_sync_sd_command_rejects_invalid_window(
             return SDCredentials(username="alice", password="secret")
 
     class _StubClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
         async def authenticate(self, credentials: SDCredentials) -> None:
             del credentials
 

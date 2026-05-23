@@ -17,6 +17,7 @@ from ccatv.metadata.schedules_direct_ingest import (
     SqliteGuideRepository,
 )
 from ccatv.metadata.schedules_direct_runtime import SchedulesDirectCredentialStore
+from ccatv.metadata.schedules_direct_runtime import SchedulesDirectTokenCacheStore
 from ccatv.runtime_config import (
     RuntimeConfig,
     RuntimeConfigError,
@@ -188,7 +189,9 @@ def _run_epg_sync_sd_once(args: argparse.Namespace, deps: CliDependencies) -> in
 
     connection = initialize_database(Path(database_path))
     repository = SqliteGuideRepository(connection=connection)
-    client = SchedulesDirectHttpClient()
+    client = SchedulesDirectHttpClient(
+        token_cache_store=SchedulesDirectTokenCacheStore()
+    )
     service = SchedulesDirectIngestionService(client=client, repository=repository)
 
     credentials = SchedulesDirectCredentialStore(path=credential_path).load()
@@ -254,7 +257,9 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
     credential_path = Path(args.credentials_path) if args.credentials_path else None
     connection = initialize_database(Path(database_path))
     repository = SqliteGuideRepository(connection=connection)
-    client = SchedulesDirectHttpClient()
+    client = SchedulesDirectHttpClient(
+        token_cache_store=SchedulesDirectTokenCacheStore()
+    )
     service = SchedulesDirectIngestionService(client=client, repository=repository)
     credentials = SchedulesDirectCredentialStore(path=credential_path).load()
 
