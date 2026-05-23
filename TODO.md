@@ -48,6 +48,12 @@ These pieces exist but are not yet wired to application runtime workflows:
 - Jellyfin integration implementation.
 - inputlirc remote mapping implementation.
 - Recording scheduler and conflict policy implementation.
+- Future recorder efficiency enhancement: support multiple concurrent recordings on a single adapter when channels share the same mux by using dvbstreamer service filters (`setsfmrl`/`getsfmrl`).
+	- Current target-machine strategy remains one adapter per recording (4 adapters => up to 4 simultaneous recordings).
+	- Introduce after base recorder orchestration is stable, since this adds non-trivial control-flow/state complexity.
+- Future recorder timing enhancement: investigate broadcaster-emitted programme start/stop events (where available) to improve recording efficiency and reduce unnecessary file size.
+	- Keep configurable pre-start/post-finish padding as the baseline/safety behavior.
+	- If event signals are available, write a per-recording marker file with observed event timestamps (or note that no events were seen) to support tuning and reliability analysis.
 
 ## External Environment Prerequisites
 
