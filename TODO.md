@@ -30,6 +30,7 @@ Implemented and validated:
 - Initial persistence foundation scaffold is in place with SQLite migration tracking and base recording/scheduler tables.
 - Persistence store adapter now supports recording and scheduler state create/update/list paths and is bootstrapped into app context.
 - TvRecorderService now integrates persistence-backed scheduler/recording state transitions, including a post-processing phase after capture completion.
+- Recording scheduling now supports configurable pre-start/post-finish padding and configurable early/periodic/final output-file health-check policies.
 
 Quality baseline:
 - Ruff linting configured and used in workflow.

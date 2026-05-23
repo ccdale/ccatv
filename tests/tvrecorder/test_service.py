@@ -9,7 +9,11 @@ from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.commands import DvbCtrlCommand
 from ccatv.tvrecorder.dvbctrl import DvbCtrlResult
 from ccatv.tvrecorder.postprocess import PostProcessingRequest, PostProcessingResult
-from ccatv.tvrecorder.service import TvRecorderService
+from ccatv.tvrecorder.service import (
+    RecordingHealthCheckPolicy,
+    RecordingPaddingPolicy,
+    TvRecorderService,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -161,8 +165,31 @@ def test_scheduler_job_lifecycle_uses_persistence(tmp_path: Path) -> None:
         completed = service.mark_scheduler_job_completed(job.id)
 
         assert job.state == "scheduled"
+        assert job.start_at_utc == "2026-05-23T11:58:00Z"
+        assert job.duration_seconds == 4620
         assert running.state == "running"
         assert completed.state == "completed"
+    finally:
+        connection.close()
+
+
+def test_schedule_recording_uses_custom_padding_policy(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        padding_policy=RecordingPaddingPolicy(post_finish_seconds=300, pre_start_seconds=60),
+    )
+    try:
+        job = service.schedule_recording(
+            channel_name="BBC ONE HD",
+            start_at_utc="2026-05-23T12:00:00Z",
+            duration_seconds=3600,
+        )
+
+        assert job.start_at_utc == "2026-05-23T11:59:00Z"
+        assert job.duration_seconds == 3960
     finally:
         connection.close()
 
@@ -451,5 +478,45 @@ def test_verify_recording_output_stable_after_stop_accepts_stable(
 
         assert stable.state == "capture_completed"
         assert stable.ended_at_utc == completed.ended_at_utc
+    finally:
+        connection.close()
+
+
+def test_default_growth_and_stability_policy_methods(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    sizes = iter([100, 120, 120, 121, 121, 121])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        file_size_reader=lambda _path: next(sizes, 121),
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=1,
+            early_growth_interval_seconds=0,
+            final_stability_checks=2,
+            final_stability_interval_seconds=0,
+            growth_min_bytes=1,
+            periodic_growth_checks=1,
+            periodic_growth_interval_seconds=0,
+        ),
+        sleep_fn=lambda _seconds: None,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        early = service.verify_recording_output_growth_early(recording.id)
+        periodic = service.verify_recording_output_growth_periodic(recording.id)
+        service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+        stable = service.verify_recording_output_stable_after_stop_default(recording.id)
+
+        assert early.state == "recording"
+        assert periodic.state == "recording"
+        assert stable.state == "capture_completed"
     finally:
         connection.close()

@@ -11,7 +11,11 @@ from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.tvrecorder.manager import DvbStreamerConfig, DvbStreamerManager
 from ccatv.tvrecorder.postprocess import NoOpPostProcessingRunner
 from ccatv.tvrecorder.preflight import WritePreflightChecker
-from ccatv.tvrecorder.service import TvRecorderService
+from ccatv.tvrecorder.service import (
+    RecordingHealthCheckPolicy,
+    RecordingPaddingPolicy,
+    TvRecorderService,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +66,19 @@ def bootstrap_app() -> AppContext:
     tvrecorder = TvRecorderService(
         dvbctrl,
         persistence=persistence,
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=settings.recording_early_growth_checks,
+            early_growth_interval_seconds=settings.recording_early_growth_interval_seconds,
+            final_stability_checks=settings.recording_final_stability_checks,
+            final_stability_interval_seconds=settings.recording_final_stability_interval_seconds,
+            growth_min_bytes=settings.recording_growth_min_bytes,
+            periodic_growth_checks=settings.recording_periodic_growth_checks,
+            periodic_growth_interval_seconds=settings.recording_periodic_growth_interval_seconds,
+        ),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=settings.recording_post_finish_seconds,
+            pre_start_seconds=settings.recording_pre_start_seconds,
+        ),
         post_processor=NoOpPostProcessingRunner(),
     )
     return AppContext(

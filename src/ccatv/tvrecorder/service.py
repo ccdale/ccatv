@@ -48,6 +48,23 @@ class FrontendStatus:
     fields: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class RecordingPaddingPolicy:
+    post_finish_seconds: int = 900
+    pre_start_seconds: int = 120
+
+
+@dataclass(frozen=True, slots=True)
+class RecordingHealthCheckPolicy:
+    early_growth_checks: int = 3
+    early_growth_interval_seconds: float = 2.0
+    final_stability_checks: int = 2
+    final_stability_interval_seconds: float = 2.0
+    growth_min_bytes: int = 1
+    periodic_growth_checks: int = 1
+    periodic_growth_interval_seconds: float = 30.0
+
+
 class TvRecorderService:
     """Thin service facade over DvbCtrlClient command execution."""
 
@@ -58,12 +75,16 @@ class TvRecorderService:
         persistence: PersistenceStore | None = None,
         post_processor: PostProcessingRunner | None = None,
         file_size_reader: Callable[[str], int | None] | None = None,
+        health_policy: RecordingHealthCheckPolicy | None = None,
+        padding_policy: RecordingPaddingPolicy | None = None,
         sleep_fn: Callable[[float], None] | None = None,
     ) -> None:
         self._dvbctrl = dvbctrl
         self._persistence = persistence
         self._post_processor = post_processor or NoOpPostProcessingRunner()
         self._file_size_reader = file_size_reader or _read_file_size
+        self._health_policy = health_policy or RecordingHealthCheckPolicy()
+        self._padding_policy = padding_policy or RecordingPaddingPolicy()
         self._sleep_fn = sleep_fn or time.sleep
 
     def run_raw(self, command: str) -> DvbCtrlResult:
@@ -129,12 +150,37 @@ class TvRecorderService:
         start_at_utc: str,
         duration_seconds: int,
     ) -> SchedulerJobRecord:
+        padded_start_utc, padded_duration_seconds = (
+            self.compute_padded_recording_window(
+                start_at_utc=start_at_utc,
+                duration_seconds=duration_seconds,
+            )
+        )
         return self._require_persistence().create_scheduler_job(
             channel_name=channel_name,
-            start_at_utc=start_at_utc,
-            duration_seconds=duration_seconds,
+            start_at_utc=padded_start_utc,
+            duration_seconds=padded_duration_seconds,
             state="scheduled",
         )
+
+    def compute_padded_recording_window(
+        self,
+        *,
+        start_at_utc: str,
+        duration_seconds: int,
+    ) -> tuple[str, int]:
+        if duration_seconds < 1:
+            raise ValueError("duration_seconds must be at least 1")
+
+        start = _parse_utc_iso(start_at_utc)
+        pre_start = self._padding_policy.pre_start_seconds
+        post_finish = self._padding_policy.post_finish_seconds
+        if pre_start < 0 or post_finish < 0:
+            raise ValueError("padding policy values must be non-negative")
+
+        padded_start = start - pre_start
+        padded_duration = duration_seconds + pre_start + post_finish
+        return _format_utc_iso(padded_start), padded_duration
 
     def mark_scheduler_job_running(self, job_id: int) -> SchedulerJobRecord:
         return self._require_persistence().update_scheduler_job_state(
@@ -300,6 +346,38 @@ class TvRecorderService:
 
         return persistence.get_recording(recording_id, required=True)
 
+    def verify_recording_output_growth_early(
+        self,
+        recording_id: int,
+    ) -> RecordingStateRecord:
+        return self.verify_recording_output_growth(
+            recording_id,
+            checks=self._health_policy.early_growth_checks,
+            interval_seconds=self._health_policy.early_growth_interval_seconds,
+            min_growth_bytes=self._health_policy.growth_min_bytes,
+        )
+
+    def verify_recording_output_growth_periodic(
+        self,
+        recording_id: int,
+    ) -> RecordingStateRecord:
+        return self.verify_recording_output_growth(
+            recording_id,
+            checks=self._health_policy.periodic_growth_checks,
+            interval_seconds=self._health_policy.periodic_growth_interval_seconds,
+            min_growth_bytes=self._health_policy.growth_min_bytes,
+        )
+
+    def verify_recording_output_stable_after_stop_default(
+        self,
+        recording_id: int,
+    ) -> RecordingStateRecord:
+        return self.verify_recording_output_stable_after_stop(
+            recording_id,
+            checks=self._health_policy.final_stability_checks,
+            interval_seconds=self._health_policy.final_stability_interval_seconds,
+        )
+
     def _require_persistence(self) -> PersistenceStore:
         if self._persistence is None:
             raise RuntimeError("persistence store is not configured")
@@ -308,6 +386,17 @@ class TvRecorderService:
 
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_utc_iso(value: str) -> int:
+    parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    return int(parsed.replace(tzinfo=timezone.utc).timestamp())
+
+
+def _format_utc_iso(timestamp_seconds: int) -> str:
+    return datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
 
 def _read_file_size(path: str) -> int | None:

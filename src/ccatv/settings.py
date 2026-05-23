@@ -46,6 +46,19 @@ def _env_positive_float(name: str, default: float) -> float:
     return value
 
 
+def _env_non_negative_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if value < 0:
+        return default
+    return value
+
+
 def _env_non_empty_str(name: str, default: str) -> str:
     raw = os.getenv(name)
     if raw is None:
@@ -70,6 +83,15 @@ class AppSettings:
     dvb_adapter_count: int = 1
     dvb_adapter_index: int = 0
     dvbctrl_timeout_seconds: float = 10.0
+    recording_pre_start_seconds: int = 120
+    recording_post_finish_seconds: int = 900
+    recording_early_growth_checks: int = 3
+    recording_early_growth_interval_seconds: float = 2.0
+    recording_periodic_growth_checks: int = 1
+    recording_periodic_growth_interval_seconds: float = 30.0
+    recording_growth_min_bytes: int = 1
+    recording_final_stability_checks: int = 2
+    recording_final_stability_interval_seconds: float = 2.0
     database_path: str = str(
         Path(user_data_dir("ccatv", appauthor=False)) / "ccatv.sqlite3"
     )
@@ -106,6 +128,42 @@ class AppSettings:
             ),
             dvb_adapter_index=_env_non_negative_int("CCATV_DVB_ADAPTER_INDEX", 0),
             dvbctrl_timeout_seconds=timeout_seconds,
+            recording_pre_start_seconds=_env_non_negative_int(
+                "CCATV_RECORDING_PRE_START_SECONDS",
+                120,
+            ),
+            recording_post_finish_seconds=_env_non_negative_int(
+                "CCATV_RECORDING_POST_FINISH_SECONDS",
+                900,
+            ),
+            recording_early_growth_checks=_env_positive_int(
+                "CCATV_RECORDING_EARLY_GROWTH_CHECKS",
+                3,
+            ),
+            recording_early_growth_interval_seconds=_env_non_negative_float(
+                "CCATV_RECORDING_EARLY_GROWTH_INTERVAL_SECONDS",
+                2.0,
+            ),
+            recording_periodic_growth_checks=_env_positive_int(
+                "CCATV_RECORDING_PERIODIC_GROWTH_CHECKS",
+                1,
+            ),
+            recording_periodic_growth_interval_seconds=_env_non_negative_float(
+                "CCATV_RECORDING_PERIODIC_GROWTH_INTERVAL_SECONDS",
+                30.0,
+            ),
+            recording_growth_min_bytes=_env_positive_int(
+                "CCATV_RECORDING_GROWTH_MIN_BYTES",
+                1,
+            ),
+            recording_final_stability_checks=_env_positive_int(
+                "CCATV_RECORDING_FINAL_STABILITY_CHECKS",
+                2,
+            ),
+            recording_final_stability_interval_seconds=_env_non_negative_float(
+                "CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS",
+                2.0,
+            ),
             database_path=os.getenv(
                 "CCATV_DATABASE_PATH",
                 str(Path(user_data_dir("ccatv", appauthor=False)) / "ccatv.sqlite3"),

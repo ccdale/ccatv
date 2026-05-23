@@ -15,6 +15,21 @@ def test_from_env_loads_core_defaults(monkeypatch) -> None:
     monkeypatch.delenv("CCATV_DVB_ADAPTER_INDEX", raising=False)
     monkeypatch.delenv("CCATV_DVB_ADAPTER_COUNT", raising=False)
     monkeypatch.delenv("CCATV_DVBCTRL_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("CCATV_RECORDING_PRE_START_SECONDS", raising=False)
+    monkeypatch.delenv("CCATV_RECORDING_POST_FINISH_SECONDS", raising=False)
+    monkeypatch.delenv("CCATV_RECORDING_EARLY_GROWTH_CHECKS", raising=False)
+    monkeypatch.delenv("CCATV_RECORDING_EARLY_GROWTH_INTERVAL_SECONDS", raising=False)
+    monkeypatch.delenv("CCATV_RECORDING_PERIODIC_GROWTH_CHECKS", raising=False)
+    monkeypatch.delenv(
+        "CCATV_RECORDING_PERIODIC_GROWTH_INTERVAL_SECONDS",
+        raising=False,
+    )
+    monkeypatch.delenv("CCATV_RECORDING_GROWTH_MIN_BYTES", raising=False)
+    monkeypatch.delenv("CCATV_RECORDING_FINAL_STABILITY_CHECKS", raising=False)
+    monkeypatch.delenv(
+        "CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS",
+        raising=False,
+    )
 
     settings = AppSettings.from_env()
 
@@ -28,6 +43,15 @@ def test_from_env_loads_core_defaults(monkeypatch) -> None:
     assert settings.dvb_adapter_count == 1
     assert settings.dvb_adapter_index == 0
     assert settings.dvbctrl_timeout_seconds == 10.0
+    assert settings.recording_pre_start_seconds == 120
+    assert settings.recording_post_finish_seconds == 900
+    assert settings.recording_early_growth_checks == 3
+    assert settings.recording_early_growth_interval_seconds == 2.0
+    assert settings.recording_periodic_growth_checks == 1
+    assert settings.recording_periodic_growth_interval_seconds == 30.0
+    assert settings.recording_growth_min_bytes == 1
+    assert settings.recording_final_stability_checks == 2
+    assert settings.recording_final_stability_interval_seconds == 2.0
 
 
 def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
@@ -41,6 +65,15 @@ def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
     monkeypatch.setenv("CCATV_DVB_ADAPTER_COUNT", "3")
     monkeypatch.setenv("CCATV_DVB_ADAPTER_INDEX", "2")
     monkeypatch.setenv("CCATV_DVBCTRL_TIMEOUT_SECONDS", "2.75")
+    monkeypatch.setenv("CCATV_RECORDING_PRE_START_SECONDS", "180")
+    monkeypatch.setenv("CCATV_RECORDING_POST_FINISH_SECONDS", "1200")
+    monkeypatch.setenv("CCATV_RECORDING_EARLY_GROWTH_CHECKS", "4")
+    monkeypatch.setenv("CCATV_RECORDING_EARLY_GROWTH_INTERVAL_SECONDS", "1.5")
+    monkeypatch.setenv("CCATV_RECORDING_PERIODIC_GROWTH_CHECKS", "2")
+    monkeypatch.setenv("CCATV_RECORDING_PERIODIC_GROWTH_INTERVAL_SECONDS", "45")
+    monkeypatch.setenv("CCATV_RECORDING_GROWTH_MIN_BYTES", "2048")
+    monkeypatch.setenv("CCATV_RECORDING_FINAL_STABILITY_CHECKS", "3")
+    monkeypatch.setenv("CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS", "4")
 
     settings = AppSettings.from_env()
 
@@ -54,6 +87,15 @@ def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
     assert settings.dvb_adapter_count == 3
     assert settings.dvb_adapter_index == 2
     assert settings.dvbctrl_timeout_seconds == 2.75
+    assert settings.recording_pre_start_seconds == 180
+    assert settings.recording_post_finish_seconds == 1200
+    assert settings.recording_early_growth_checks == 4
+    assert settings.recording_early_growth_interval_seconds == 1.5
+    assert settings.recording_periodic_growth_checks == 2
+    assert settings.recording_periodic_growth_interval_seconds == 45.0
+    assert settings.recording_growth_min_bytes == 2048
+    assert settings.recording_final_stability_checks == 3
+    assert settings.recording_final_stability_interval_seconds == 4.0
 
 
 def test_from_env_falls_back_for_invalid_numeric_values(monkeypatch) -> None:
@@ -61,6 +103,21 @@ def test_from_env_falls_back_for_invalid_numeric_values(monkeypatch) -> None:
     monkeypatch.setenv("CCATV_DVB_ADAPTER_INDEX", "not-an-int")
     monkeypatch.setenv("CCATV_DVBCTRL_TIMEOUT_SECONDS", "not-a-float")
     monkeypatch.setenv("CCATV_DVBSTREAMER_STOP_TIMEOUT_SECONDS", "not-a-float")
+    monkeypatch.setenv("CCATV_RECORDING_PRE_START_SECONDS", "not-an-int")
+    monkeypatch.setenv("CCATV_RECORDING_POST_FINISH_SECONDS", "not-an-int")
+    monkeypatch.setenv("CCATV_RECORDING_EARLY_GROWTH_CHECKS", "not-an-int")
+    monkeypatch.setenv("CCATV_RECORDING_EARLY_GROWTH_INTERVAL_SECONDS", "not-a-float")
+    monkeypatch.setenv("CCATV_RECORDING_PERIODIC_GROWTH_CHECKS", "not-an-int")
+    monkeypatch.setenv(
+        "CCATV_RECORDING_PERIODIC_GROWTH_INTERVAL_SECONDS",
+        "not-a-float",
+    )
+    monkeypatch.setenv("CCATV_RECORDING_GROWTH_MIN_BYTES", "not-an-int")
+    monkeypatch.setenv("CCATV_RECORDING_FINAL_STABILITY_CHECKS", "not-an-int")
+    monkeypatch.setenv(
+        "CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS",
+        "not-a-float",
+    )
 
     settings = AppSettings.from_env()
 
@@ -68,6 +125,15 @@ def test_from_env_falls_back_for_invalid_numeric_values(monkeypatch) -> None:
     assert settings.dvb_adapter_index == 0
     assert settings.dvbctrl_timeout_seconds == 10.0
     assert settings.dvbstreamer_stop_timeout_seconds == 5.0
+    assert settings.recording_pre_start_seconds == 120
+    assert settings.recording_post_finish_seconds == 900
+    assert settings.recording_early_growth_checks == 3
+    assert settings.recording_early_growth_interval_seconds == 2.0
+    assert settings.recording_periodic_growth_checks == 1
+    assert settings.recording_periodic_growth_interval_seconds == 30.0
+    assert settings.recording_growth_min_bytes == 1
+    assert settings.recording_final_stability_checks == 2
+    assert settings.recording_final_stability_interval_seconds == 2.0
 
 
 def test_from_env_falls_back_for_non_positive_timeout_values(monkeypatch) -> None:
@@ -86,6 +152,30 @@ def test_from_env_falls_back_for_negative_adapter_index(monkeypatch) -> None:
     settings = AppSettings.from_env()
 
     assert settings.dvb_adapter_index == 0
+
+
+def test_from_env_falls_back_for_negative_recording_policy_values(monkeypatch) -> None:
+    monkeypatch.setenv("CCATV_RECORDING_PRE_START_SECONDS", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_POST_FINISH_SECONDS", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_EARLY_GROWTH_CHECKS", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_EARLY_GROWTH_INTERVAL_SECONDS", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_PERIODIC_GROWTH_CHECKS", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_PERIODIC_GROWTH_INTERVAL_SECONDS", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_GROWTH_MIN_BYTES", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_FINAL_STABILITY_CHECKS", "-1")
+    monkeypatch.setenv("CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS", "-1")
+
+    settings = AppSettings.from_env()
+
+    assert settings.recording_pre_start_seconds == 120
+    assert settings.recording_post_finish_seconds == 900
+    assert settings.recording_early_growth_checks == 3
+    assert settings.recording_early_growth_interval_seconds == 2.0
+    assert settings.recording_periodic_growth_checks == 1
+    assert settings.recording_periodic_growth_interval_seconds == 30.0
+    assert settings.recording_growth_min_bytes == 1
+    assert settings.recording_final_stability_checks == 2
+    assert settings.recording_final_stability_interval_seconds == 2.0
 
 
 def test_from_env_loads_host_and_adapter_count_from_runtime_config(monkeypatch) -> None:
