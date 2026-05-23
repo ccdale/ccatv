@@ -44,6 +44,7 @@ These pieces exist but are not yet wired to application runtime workflows:
 ## Not Started Yet
 
 - Live GTK4 UI flow.
+- Build a Flask/FastAPI-based scheduler service (remote API) so recording jobs can be created/managed off-box; prioritize this before the GTK4 app work.
 - Full schedules direct ingestion implementation.
 	- Prioritize this before final daemon-behavior design so richer guide data (including repeat/alternate airing windows) can drive conflict, retry, and recording-selection policies.
 - Jellyfin integration implementation.
