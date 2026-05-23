@@ -38,6 +38,73 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=2,
+        name="epg_schema_v2",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS epg_channels (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                source_channel_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                callsign TEXT,
+                logical_channel_number TEXT,
+                icon_url TEXT,
+                metadata_json TEXT,
+                UNIQUE(source, source_channel_id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS epg_programs (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                source_program_id TEXT,
+                title TEXT NOT NULL,
+                subtitle TEXT,
+                description_short TEXT,
+                description_long TEXT,
+                original_air_date TEXT,
+                season_number INTEGER,
+                episode_number INTEGER,
+                episode_id_onscreen TEXT,
+                genre_primary TEXT,
+                metadata_json TEXT
+            )
+            """,
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_epg_programs_source_program_id
+            ON epg_programs(source, source_program_id)
+            WHERE source_program_id IS NOT NULL
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS epg_broadcasts (
+                id INTEGER PRIMARY KEY,
+                channel_id INTEGER NOT NULL,
+                program_id INTEGER NOT NULL,
+                start_utc TEXT NOT NULL,
+                stop_utc TEXT,
+                duration_seconds INTEGER,
+                is_new INTEGER,
+                is_repeat INTEGER,
+                quality_flags_json TEXT,
+                source_schedule_hash TEXT,
+                metadata_json TEXT,
+                FOREIGN KEY(channel_id) REFERENCES epg_channels(id),
+                FOREIGN KEY(program_id) REFERENCES epg_programs(id),
+                UNIQUE(channel_id, start_utc)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_epg_broadcasts_start_utc
+            ON epg_broadcasts(start_utc)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_epg_broadcasts_channel_start
+            ON epg_broadcasts(channel_id, start_utc)
+            """,
+        ),
+    ),
 )
 
 

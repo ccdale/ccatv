@@ -28,6 +28,9 @@ def test_initialize_database_creates_expected_tables(tmp_path: Path) -> None:
     assert "schema_migrations" in tables
     assert "recordings" in tables
     assert "scheduler_jobs" in tables
+    assert "epg_channels" in tables
+    assert "epg_programs" in tables
+    assert "epg_broadcasts" in tables
 
 
 def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
@@ -43,7 +46,7 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
 
     assert applied_count == 0
     assert applied_versions is not None
-    assert applied_versions[0] == 1
+    assert applied_versions[0] == 2
 
 
 def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None:
@@ -61,7 +64,7 @@ def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None
         second.close()
 
     assert applied_versions is not None
-    assert applied_versions[0] == 1
+    assert applied_versions[0] == 2
 
 
 def test_initialize_database_closes_connection_on_migration_error(
@@ -102,7 +105,7 @@ def test_apply_migrations_rolls_back_on_insert_failure(
             """
             CREATE TRIGGER block_version_two
             BEFORE INSERT ON schema_migrations
-            WHEN NEW.version = 2
+            WHEN NEW.version = 999
             BEGIN
                 SELECT RAISE(ABORT, 'blocked');
             END;
@@ -110,7 +113,7 @@ def test_apply_migrations_rolls_back_on_insert_failure(
         )
 
         migration_two = storage_schema.Migration(
-            version=2,
+            version=999,
             name="atomicity_probe",
             statements=("CREATE TABLE atomic_probe(id INTEGER PRIMARY KEY)",),
         )
@@ -127,5 +130,95 @@ def test_apply_migrations_rolls_back_on_insert_failure(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='atomic_probe'"
         ).fetchall()
         assert probe_rows == []
+    finally:
+        connection.close()
+
+
+def test_epg_channel_unique_constraint(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO epg_channels(source, source_channel_id, display_name)
+            VALUES(?, ?, ?)
+            """,
+            ("xmltv", "chan-1", "BBC TWO HD"),
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO epg_channels(source, source_channel_id, display_name)
+                VALUES(?, ?, ?)
+                """,
+                ("xmltv", "chan-1", "Duplicate"),
+            )
+    finally:
+        connection.close()
+
+
+def test_epg_broadcast_unique_constraint(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO epg_channels(source, source_channel_id, display_name)
+            VALUES(?, ?, ?)
+            """,
+            ("xmltv", "chan-1", "BBC TWO HD"),
+        )
+        connection.execute(
+            """
+            INSERT INTO epg_programs(source, source_program_id, title)
+            VALUES(?, ?, ?)
+            """,
+            ("xmltv", "prog-1", "News"),
+        )
+
+        channel_id = connection.execute(
+            "SELECT id FROM epg_channels WHERE source_channel_id = ?",
+            ("chan-1",),
+        ).fetchone()
+        program_id = connection.execute(
+            "SELECT id FROM epg_programs WHERE source_program_id = ?",
+            ("prog-1",),
+        ).fetchone()
+        assert channel_id is not None
+        assert program_id is not None
+
+        connection.execute(
+            """
+            INSERT INTO epg_broadcasts(channel_id, program_id, start_utc)
+            VALUES(?, ?, ?)
+            """,
+            (channel_id[0], program_id[0], "2026-05-23T10:00:00Z"),
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO epg_broadcasts(channel_id, program_id, start_utc)
+                VALUES(?, ?, ?)
+                """,
+                (channel_id[0], program_id[0], "2026-05-23T10:00:00Z"),
+            )
+    finally:
+        connection.close()
+
+
+def test_epg_broadcast_foreign_keys_enforced(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO epg_broadcasts(channel_id, program_id, start_utc)
+                VALUES(?, ?, ?)
+                """,
+                (999, 999, "2026-05-23T10:00:00Z"),
+            )
     finally:
         connection.close()
