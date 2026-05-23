@@ -1,6 +1,6 @@
 [project]
 name = "ccatv"
-version = "0.1.109"
+version = "0.1.110"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,6 +20,7 @@ build-backend = "hatchling.build"
 ccatv = "ccatv.cli:main"
 ccatv-setup = "ccatv.cli:setup_main"
 ccatv-recorder-worker = "ccatv.app.recorder_worker:main"
+ccatv-service = "ccatv.app.service_daemon:main"
 
 [dependency-groups]
 dev = [

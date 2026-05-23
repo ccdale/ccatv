@@ -85,3 +85,15 @@ See `tests/integration/README.md` for config details and an SSH example for
 `druidmedia`/`chris`.
 
 See docs/architecture-proposal.md for the proposed architecture and phased implementation plan.
+
+## Service-First Pivot (In Progress)
+
+ccatv is pivoting toward a service-first design:
+- one long-running service process (`ccatv-service`) for recorder/metadata workflows
+- multiple front ends (CLI, GTK4, Flask/FastAPI) as clients of a stable service API
+
+M1 contract draft:
+- `docs/service-api-contract.md`
+
+Current daemon skeleton command:
+- `uv run ccatv-service --run-once`

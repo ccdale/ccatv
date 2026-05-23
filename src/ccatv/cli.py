@@ -16,8 +16,10 @@ from ccatv.metadata.schedules_direct_ingest import (
     SchedulesDirectIngestionService,
     SqliteGuideRepository,
 )
-from ccatv.metadata.schedules_direct_runtime import SchedulesDirectCredentialStore
-from ccatv.metadata.schedules_direct_runtime import SchedulesDirectTokenCacheStore
+from ccatv.metadata.schedules_direct_runtime import (
+    SchedulesDirectCredentialStore,
+    SchedulesDirectTokenCacheStore,
+)
 from ccatv.runtime_config import (
     RuntimeConfig,
     RuntimeConfigError,

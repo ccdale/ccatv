@@ -78,6 +78,37 @@ Required before live integration runs:
 	- wire preflight checker into write operations (recording/scheduling) as write paths are introduced
 6. Begin Schedules Direct client implementation behind existing contracts.
 
+## Service-First Pivot Roadmap
+
+This project is now pivoting from a monolithic app shape to a service-first
+architecture: one long-running tvrecorder service process with multiple front
+ends (CLI, GTK4, Flask/FastAPI) as clients.
+
+M1. Service API surface and boundary definitions.
+- [x] Create M1 service API contract draft with envelope/error model.
+- [x] Add daemon entrypoint skeleton (`ccatv-service`) as process boundary seed.
+- [ ] Define command capability matrix and migration mapping from existing CLI flows.
+
+M2. Extract use-case orchestration from front-end glue.
+- [ ] Ensure recording and scheduling workflows are callable through service command handlers only.
+- [ ] Ensure metadata sync workflows are callable through service command handlers only.
+
+M3. Daemon transport implementation.
+- [ ] Add local IPC transport (likely Unix socket) for request/response handling.
+- [ ] Add structured health and info commands over transport.
+
+M4. Thin CLI client conversion.
+- [ ] Convert CLI command paths to service-client calls.
+- [ ] Keep backward-compatible behavior during migration.
+
+M5. systemd operationalization.
+- [ ] Add service unit file and lifecycle docs (start/stop/restart/status).
+- [ ] Add readiness, logging, and failure policy recommendations.
+
+M6. Multi-front-end enablement.
+- [ ] Introduce a shared service client module used by CLI/GTK4/Flask.
+- [ ] Add first GTK4 and Flask/FastAPI command-path integrations against service API.
+
 ## Later Milestones (After Recorder + Persistence)
 
 - Playback backend abstraction (mpv first).
