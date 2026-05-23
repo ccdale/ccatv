@@ -292,7 +292,9 @@ def _upsert_broadcast(
     return inserted
 
 
-def _insert_ingest_run(connection: sqlite3.Connection, source: str, started_at_utc: str) -> int:
+def _insert_ingest_run(
+    connection: sqlite3.Connection, source: str, started_at_utc: str
+) -> int:
     cursor = connection.execute(
         """
         INSERT INTO epg_ingest_runs(source, started_at_utc, status)
@@ -301,6 +303,23 @@ def _insert_ingest_run(connection: sqlite3.Connection, source: str, started_at_u
         (source, started_at_utc, "running"),
     )
     return int(cursor.lastrowid)
+
+def _mark_stale_running_ingest_runs_failed(
+    connection: sqlite3.Connection,
+    source: str,
+    *,
+    finished_at_utc: str,
+) -> None:
+    connection.execute(
+        """
+        UPDATE epg_ingest_runs
+        SET finished_at_utc = ?,
+            status = 'failed',
+            message = 'stale running run superseded by a new ingest'
+        WHERE source = ? AND status = 'running'
+        """,
+        (finished_at_utc, source),
+    )
 
 
 def _finish_ingest_run(
@@ -380,6 +399,11 @@ def ingest_dvbstreamer_epg(
 ) -> OtaEpgIngestStats:
     started_at_utc = _now_utc_iso()
     with connection:
+        _mark_stale_running_ingest_runs_failed(
+            connection,
+            source,
+            finished_at_utc=started_at_utc,
+        )
         ingest_run_id = _insert_ingest_run(connection, source, started_at_utc)
 
     try:

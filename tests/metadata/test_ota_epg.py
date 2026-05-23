@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-import json
 import pytest
 
 from ccatv.metadata import ota_epg
@@ -188,5 +188,36 @@ def test_ingest_marks_run_failed_on_parse_error(tmp_path: Path, monkeypatch) -> 
         assert run_row[0] == "failed"
         assert run_row[1] == "broken epg"
         assert run_row[2].endswith("Z")
+    finally:
+        connection.close()
+
+
+def test_ingest_marks_stale_running_run_failed(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO epg_ingest_runs(source, started_at_utc, status)
+            VALUES(?, ?, ?)
+            """,
+            ("dvbstreamer_ota", "2026-05-23T00:00:00Z", "running"),
+        )
+        connection.commit()
+
+        ingest_dvbstreamer_epg(connection, _fixture_text())
+
+        stale_row = connection.execute(
+            """
+            SELECT status, message, finished_at_utc
+            FROM epg_ingest_runs
+            WHERE source = ? AND started_at_utc = ?
+            """,
+            ("dvbstreamer_ota", "2026-05-23T00:00:00Z"),
+        ).fetchone()
+        assert stale_row is not None
+        assert stale_row[0] == "failed"
+        assert stale_row[1] == "stale running run superseded by a new ingest"
+        assert stale_row[2].endswith("Z")
     finally:
         connection.close()
