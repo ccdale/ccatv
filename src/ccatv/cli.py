@@ -1,17 +1,30 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import getpass
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import TextIO
 
+from ccatv.metadata import SchedulesDirectHttpClient
+from ccatv.metadata.schedules_direct_contract import GuideSyncWindow
+from ccatv.metadata.schedules_direct_ingest import (
+    SchedulesDirectIngestionService,
+    SqliteGuideRepository,
+)
+from ccatv.metadata.schedules_direct_runtime import SchedulesDirectCredentialStore
 from ccatv.runtime_config import (
     RuntimeConfig,
     RuntimeConfigError,
     RuntimeConfigStore,
 )
+from ccatv.settings import AppSettings
+from ccatv.storage import initialize_database
 from ccatv.tvrecorder.config import (
     DvbCtrlCredentials,
     TvRecorderConfig,
@@ -46,6 +59,49 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--host", help="dvbstreamer/dvbctrl host")
     setup_parser.add_argument("--username", help="dvbctrl username")
     setup_parser.set_defaults(handler=run_setup)
+
+    sync_parser = subparsers.add_parser(
+        "epg-sync-sd",
+        help="Sync EPG metadata from Schedules Direct",
+    )
+    sync_parser.add_argument(
+        "--lineup-id",
+        required=True,
+        help="Schedules Direct lineup identifier",
+    )
+    sync_parser.add_argument(
+        "--window-hours",
+        type=float,
+        default=24.0,
+        help="incremental sync window size in hours (run-once mode)",
+    )
+    sync_parser.add_argument(
+        "--seed",
+        action="store_true",
+        help="run initial seed window instead of incremental sync",
+    )
+    sync_parser.add_argument(
+        "--run-forever",
+        action="store_true",
+        help="run periodic sync cycles forever",
+    )
+    sync_parser.add_argument(
+        "--poll-interval-seconds",
+        type=float,
+        default=1800.0,
+        help="sleep interval between sync cycles in run-forever mode",
+    )
+    sync_parser.add_argument(
+        "--database-path",
+        default=None,
+        help="override sqlite database path",
+    )
+    sync_parser.add_argument(
+        "--credentials-path",
+        default=None,
+        help="override schedulesdirect credentials file path",
+    )
+    sync_parser.set_defaults(handler=run_epg_sync_sd)
     return parser
 
 
@@ -126,10 +182,84 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
     return 0
 
 
+def _run_epg_sync_sd_once(args: argparse.Namespace, deps: CliDependencies) -> int:
+    settings = AppSettings.from_env()
+    database_path = args.database_path or settings.database_path
+    credential_path = Path(args.credentials_path) if args.credentials_path else None
+
+    connection = initialize_database(Path(database_path))
+    repository = SqliteGuideRepository(connection=connection)
+    client = SchedulesDirectHttpClient()
+    service = SchedulesDirectIngestionService(client=client, repository=repository)
+
+    credentials = SchedulesDirectCredentialStore(path=credential_path).load()
+
+    async def _run_once() -> None:
+        try:
+            await client.authenticate(credentials)
+            now = datetime.now(timezone.utc)
+            if args.seed:
+                window_hours = service.seed_window_hours
+            else:
+                if args.window_hours <= 0:
+                    raise ValueError("--window-hours must be greater than 0")
+                window_hours = args.window_hours
+
+            window = GuideSyncWindow(
+                start_utc=now,
+                end_utc=now + timedelta(hours=window_hours),
+            )
+            stats = await service.sync_incremental_with_stats(
+                lineup_id=args.lineup_id,
+                window=window,
+            )
+            print(
+                (
+                    "Schedules Direct sync complete "
+                    f"(lineup={args.lineup_id}, "
+                    f"channels={stats.channels_upserted}, "
+                    f"programs={stats.programs_upserted}, "
+                    f"schedules={stats.schedules_upserted}, "
+                    f"pruned={stats.stale_schedules_pruned}, "
+                    f"run_id={stats.ingest_run_id})"
+                ),
+                file=deps.stdout,
+            )
+        finally:
+            await client.close()
+
+    try:
+        asyncio.run(_run_once())
+    finally:
+        connection.close()
+    return 0
+
+
+def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
+    if args.run_forever and args.poll_interval_seconds <= 0:
+        print("--poll-interval-seconds must be greater than 0", file=deps.stderr)
+        return 2
+
+    if not args.run_forever:
+        try:
+            return _run_epg_sync_sd_once(args, deps)
+        except Exception as exc:
+            print(f"EPG sync failed: {exc}", file=deps.stderr)
+            return 2
+
+    while True:
+        try:
+            _run_epg_sync_sd_once(args, deps)
+        except Exception as exc:
+            print(f"EPG sync cycle failed: {exc}", file=deps.stderr)
+        time.sleep(args.poll_interval_seconds)
+
+
 __all__ = [
     "CliDependencies",
     "build_parser",
     "main",
+    "run_epg_sync_sd",
     "run_setup",
     "setup_main",
 ]

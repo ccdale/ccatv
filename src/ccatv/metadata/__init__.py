@@ -5,6 +5,12 @@ from ccatv.metadata.schedules_direct_api import (
     SchedulesDirectHttpClient,
     UrlLibJsonTransport,
 )
+from ccatv.metadata.schedules_direct_ingest import (
+    SchedulesDirectIngestionService,
+    SDGuideIngestResult,
+    SDGuideIngestStats,
+    SqliteGuideRepository,
+)
 from ccatv.metadata.schedules_direct_runtime import (
     SchedulesDirectConfigError,
     SchedulesDirectCredentialStore,
@@ -16,12 +22,16 @@ from ccatv.metadata.schedules_direct_runtime import (
 
 __all__ = [
     "JsonHttpTransport",
+    "SDGuideIngestResult",
+    "SDGuideIngestStats",
     "SDResponseCacheEntry",
     "SDTokenCache",
     "SchedulesDirectConfigError",
     "SchedulesDirectCredentialStore",
     "SchedulesDirectHttpClient",
+    "SchedulesDirectIngestionService",
     "SchedulesDirectResponseCacheStore",
     "SchedulesDirectTokenCacheStore",
+    "SqliteGuideRepository",
     "UrlLibJsonTransport",
 ]
