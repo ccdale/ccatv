@@ -151,6 +151,46 @@ def test_scheduler_job_lifecycle_uses_persistence(tmp_path: Path) -> None:
         connection.close()
 
 
+def test_scheduler_job_failure_transition_uses_persistence(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    service = TvRecorderService(StubDvbCtrlClient(), persistence=persistence)
+    try:
+        job = service.schedule_recording(
+            channel_name="BBC ONE HD",
+            start_at_utc="2026-05-23T12:00:00Z",
+            duration_seconds=3600,
+        )
+        failed = service.mark_scheduler_job_failed(job.id)
+
+        assert failed.state == "failed"
+    finally:
+        connection.close()
+
+
+def test_recording_failure_preserves_capture_end_timestamp(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    service = TvRecorderService(StubDvbCtrlClient(), persistence=persistence)
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        completed = service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+        failed = service.mark_recording_failed(recording.id)
+
+        assert completed.ended_at_utc == "2026-05-23T11:00:00Z"
+        assert failed.state == "failed"
+        assert failed.ended_at_utc == "2026-05-23T11:00:00Z"
+    finally:
+        connection.close()
+
+
 def test_persistence_methods_require_configured_store() -> None:
     service = TvRecorderService(StubDvbCtrlClient())
 
