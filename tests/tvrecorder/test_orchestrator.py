@@ -397,3 +397,59 @@ def test_orchestrator_short_recording_does_not_oversleep_periodic_interval(
         assert after - before == 5
     finally:
         connection.close()
+
+
+def test_orchestrator_main_path_stop_capture_failure_marks_failed_once(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    clock = FakeClock(now_seconds=1_748_000_000.0)
+    sizes = iter([100, 120, 120, 140, 140])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=1,
+            early_growth_interval_seconds=0,
+            final_stability_checks=1,
+            final_stability_interval_seconds=0,
+            growth_min_bytes=1,
+            periodic_growth_checks=1,
+            periodic_growth_interval_seconds=0,
+        ),
+        file_size_reader=lambda _path: next(sizes, 140),
+        sleep_fn=lambda _seconds: None,
+    )
+    capture = StubCaptureController(fail_stop=True)
+    orchestrator = RecorderOrchestrator(
+        service=service,
+        persistence=persistence,
+        capture_controller=capture,
+        periodic_policy=PeriodicCheckPolicy(growth_min_bytes=1, interval_seconds=5.0),
+        now_fn=clock.now,
+        sleep_fn=clock.sleep,
+    )
+
+    try:
+        job = service.schedule_recording(
+            channel_name="BBC TWO HD",
+            start_at_utc=_iso_at(clock.now_seconds - 5),
+            duration_seconds=5,
+        )
+
+        result = orchestrator.run_job(job_id=job.id, output_path="/tmp/bbc2.ts")
+        scheduler = persistence.get_scheduler_job(job.id, required=True)
+
+        assert result.scheduler_state == "failed"
+        assert result.recording_state == "failed"
+        assert result.error is not None
+        assert "failed stopping capture: stop failed" in result.error
+        assert scheduler.state == "failed"
+        assert capture.start_calls == [("BBC TWO HD", "/tmp/bbc2.ts")]
+        assert capture.stop_calls == [("BBC TWO HD", "/tmp/bbc2.ts")]
+    finally:
+        connection.close()

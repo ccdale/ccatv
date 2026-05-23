@@ -367,7 +367,7 @@ def test_live_orchestrator_runs_due_scheduler_job(tmp_path) -> None:
         job = service.schedule_recording(
             channel_name="BBC TWO HD",
             start_at_utc=_utc_iso_now_minus(2.0),
-            duration_seconds=8,
+            duration_seconds=14,
         )
         results = orchestrator.run_due_jobs(
             output_path_builder=lambda _job: output_path,

@@ -200,6 +200,7 @@ class RecorderOrchestrator:
                 recording_duration_seconds=job.duration_seconds,
             )
 
+            capture_started = False
             try:
                 self.capture_controller.stop_capture(
                     channel_name=job.channel_name,
@@ -207,7 +208,6 @@ class RecorderOrchestrator:
                 )
             except Exception as exc:
                 raise RuntimeError(f"failed stopping capture: {exc}") from exc
-            capture_started = False
 
             self.service.mark_recording_capture_completed(
                 recording.id,
