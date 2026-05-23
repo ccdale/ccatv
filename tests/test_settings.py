@@ -70,6 +70,24 @@ def test_from_env_falls_back_for_invalid_numeric_values(monkeypatch) -> None:
     assert settings.dvbstreamer_stop_timeout_seconds == 5.0
 
 
+def test_from_env_falls_back_for_non_positive_timeout_values(monkeypatch) -> None:
+    monkeypatch.setenv("CCATV_DVBCTRL_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("CCATV_DVBSTREAMER_STOP_TIMEOUT_SECONDS", "-1")
+
+    settings = AppSettings.from_env()
+
+    assert settings.dvbctrl_timeout_seconds == 10.0
+    assert settings.dvbstreamer_stop_timeout_seconds == 5.0
+
+
+def test_from_env_falls_back_for_negative_adapter_index(monkeypatch) -> None:
+    monkeypatch.setenv("CCATV_DVB_ADAPTER_INDEX", "-3")
+
+    settings = AppSettings.from_env()
+
+    assert settings.dvb_adapter_index == 0
+
+
 def test_from_env_loads_host_and_adapter_count_from_runtime_config(monkeypatch) -> None:
     monkeypatch.delenv("CCATV_DVBSTREAMER_HOST", raising=False)
     monkeypatch.delenv("CCATV_DVB_ADAPTER_COUNT", raising=False)

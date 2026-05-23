@@ -25,6 +25,26 @@ def _env_positive_int(name: str, default: int) -> int:
     return value
 
 
+def _env_non_negative_int(name: str, default: int) -> int:
+    value = _env_int(name, default)
+    if value < 0:
+        return default
+    return value
+
+
+def _env_positive_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if value <= 0:
+        return default
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class AppSettings:
     """Runtime settings loaded from environment variables."""
@@ -48,18 +68,10 @@ class AppSettings:
             runtime_config = RuntimeConfigStore().load()
         except RuntimeConfigError:
             runtime_config = RuntimeConfig()
-
-        timeout_raw = os.getenv("CCATV_DVBCTRL_TIMEOUT_SECONDS", "10.0")
-        try:
-            timeout_seconds = float(timeout_raw)
-        except ValueError:
-            timeout_seconds = 10.0
-
-        stop_timeout_raw = os.getenv("CCATV_DVBSTREAMER_STOP_TIMEOUT_SECONDS", "5.0")
-        try:
-            stop_timeout_seconds = float(stop_timeout_raw)
-        except ValueError:
-            stop_timeout_seconds = 5.0
+        timeout_seconds = _env_positive_float("CCATV_DVBCTRL_TIMEOUT_SECONDS", 10.0)
+        stop_timeout_seconds = _env_positive_float(
+            "CCATV_DVBSTREAMER_STOP_TIMEOUT_SECONDS", 5.0
+        )
 
         return cls(
             log_level=os.getenv("CCATV_LOG_LEVEL", "INFO").upper(),
@@ -78,7 +90,7 @@ class AppSettings:
                 "CCATV_DVB_ADAPTER_COUNT",
                 runtime_config.dvb_adapter_count,
             ),
-            dvb_adapter_index=_env_int("CCATV_DVB_ADAPTER_INDEX", 0),
+            dvb_adapter_index=_env_non_negative_int("CCATV_DVB_ADAPTER_INDEX", 0),
             dvbctrl_timeout_seconds=timeout_seconds,
             database_path=os.getenv(
                 "CCATV_DATABASE_PATH",
