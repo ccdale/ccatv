@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
+from ccatv.storage import PersistenceStore, RecordingStateRecord, SchedulerJobRecord
 from ccatv.tvrecorder.commands import (
     DvbCtrlCommand,
     current_command,
@@ -41,8 +43,14 @@ class FrontendStatus:
 class TvRecorderService:
     """Thin service facade over DvbCtrlClient command execution."""
 
-    def __init__(self, dvbctrl: DvbCtrlClient) -> None:
+    def __init__(
+        self,
+        dvbctrl: DvbCtrlClient,
+        *,
+        persistence: PersistenceStore | None = None,
+    ) -> None:
         self._dvbctrl = dvbctrl
+        self._persistence = persistence
 
     def run_raw(self, command: str) -> DvbCtrlResult:
         """Run a raw dvbctrl command string."""
@@ -99,6 +107,99 @@ class TvRecorderService:
             ber=_parse_int(ber_raw),
             fields=fields,
         )
+
+    def schedule_recording(
+        self,
+        *,
+        channel_name: str,
+        start_at_utc: str,
+        duration_seconds: int,
+    ) -> SchedulerJobRecord:
+        return self._require_persistence().create_scheduler_job(
+            channel_name=channel_name,
+            start_at_utc=start_at_utc,
+            duration_seconds=duration_seconds,
+            state="scheduled",
+        )
+
+    def mark_scheduler_job_running(self, job_id: int) -> SchedulerJobRecord:
+        return self._require_persistence().update_scheduler_job_state(
+            job_id,
+            state="running",
+        )
+
+    def mark_scheduler_job_completed(self, job_id: int) -> SchedulerJobRecord:
+        return self._require_persistence().update_scheduler_job_state(
+            job_id,
+            state="completed",
+        )
+
+    def mark_scheduler_job_failed(self, job_id: int) -> SchedulerJobRecord:
+        return self._require_persistence().update_scheduler_job_state(
+            job_id,
+            state="failed",
+        )
+
+    def begin_recording(
+        self,
+        *,
+        channel_name: str,
+        output_path: str,
+        started_at_utc: str | None = None,
+    ) -> RecordingStateRecord:
+        return self._require_persistence().create_recording(
+            channel_name=channel_name,
+            output_path=output_path,
+            state="recording",
+            started_at_utc=started_at_utc or _now_utc_iso(),
+        )
+
+    def mark_recording_capture_completed(
+        self,
+        recording_id: int,
+        *,
+        ended_at_utc: str | None = None,
+    ) -> RecordingStateRecord:
+        return self._require_persistence().update_recording_state(
+            recording_id,
+            state="capture_completed",
+            ended_at_utc=ended_at_utc or _now_utc_iso(),
+        )
+
+    def start_recording_post_processing(
+        self, recording_id: int
+    ) -> RecordingStateRecord:
+        return self._require_persistence().update_recording_state(
+            recording_id,
+            state="post_processing",
+        )
+
+    def mark_recording_ready(self, recording_id: int) -> RecordingStateRecord:
+        return self._require_persistence().update_recording_state(
+            recording_id,
+            state="ready",
+        )
+
+    def mark_recording_failed(
+        self,
+        recording_id: int,
+        *,
+        ended_at_utc: str | None = None,
+    ) -> RecordingStateRecord:
+        return self._require_persistence().update_recording_state(
+            recording_id,
+            state="failed",
+            ended_at_utc=ended_at_utc,
+        )
+
+    def _require_persistence(self) -> PersistenceStore:
+        if self._persistence is None:
+            raise RuntimeError("persistence store is not configured")
+        return self._persistence
+
+
+def _now_utc_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_kv_lines(output: str) -> dict[str, str]:

@@ -29,6 +29,7 @@ Implemented and validated:
 - Live integration test now exercises select, lock/status polling, stats activity, recording file growth, file-type validation, and cleanup paths.
 - Initial persistence foundation scaffold is in place with SQLite migration tracking and base recording/scheduler tables.
 - Persistence store adapter now supports recording and scheduler state create/update/list paths and is bootstrapped into app context.
+- TvRecorderService now integrates persistence-backed scheduler/recording state transitions, including a post-processing phase after capture completion.
 
 Quality baseline:
 - Ruff linting configured and used in workflow.
@@ -38,7 +39,6 @@ Quality baseline:
 
 These pieces exist but are not yet wired to application runtime workflows:
 - TvRecorderService command path is validated in tests but not yet wired to a user-facing recording flow.
-- Persistence APIs are available in app bootstrap but are not yet connected to recorder/scheduler service state transitions.
 
 ## Not Started Yet
 
@@ -64,7 +64,7 @@ Required before live integration runs:
 2. Completed: Add integration tests against a live dvbstreamer process.
 	- config-driven host and adapter-count inputs support remote-host and local execution modes
 3. Completed: Validate end-to-end select/current/stats/festatus flow against real command output.
-4. In progress: persistence foundation (schema + migration scaffold) for recording/scheduler state.
+4. Completed: persistence foundation for recording/scheduler state.
 5. Start scheduler skeleton and recording lifecycle state model.
 	- wire preflight checker into write operations (recording/scheduling) as write paths are introduced
 6. Begin Schedules Direct client implementation behind existing contracts.

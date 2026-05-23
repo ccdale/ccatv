@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
+
+from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.commands import DvbCtrlCommand
 from ccatv.tvrecorder.dvbctrl import DvbCtrlResult
 from ccatv.tvrecorder.service import TvRecorderService
@@ -98,3 +101,62 @@ def test_select_service_uses_typed_command_path() -> None:
     service.select_service("BBC ONE HD")
 
     assert client.commands == ["select 'BBC ONE HD'"]
+
+
+def test_recording_lifecycle_includes_post_processing(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    service = TvRecorderService(StubDvbCtrlClient(), persistence=persistence)
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        completed = service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+        post_processing = service.start_recording_post_processing(recording.id)
+        ready = service.mark_recording_ready(recording.id)
+
+        assert recording.state == "recording"
+        assert completed.state == "capture_completed"
+        assert completed.ended_at_utc == "2026-05-23T11:00:00Z"
+        assert post_processing.state == "post_processing"
+        assert post_processing.ended_at_utc == "2026-05-23T11:00:00Z"
+        assert ready.state == "ready"
+        assert ready.ended_at_utc == "2026-05-23T11:00:00Z"
+    finally:
+        connection.close()
+
+
+def test_scheduler_job_lifecycle_uses_persistence(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    service = TvRecorderService(StubDvbCtrlClient(), persistence=persistence)
+    try:
+        job = service.schedule_recording(
+            channel_name="BBC ONE HD",
+            start_at_utc="2026-05-23T12:00:00Z",
+            duration_seconds=3600,
+        )
+        running = service.mark_scheduler_job_running(job.id)
+        completed = service.mark_scheduler_job_completed(job.id)
+
+        assert job.state == "scheduled"
+        assert running.state == "running"
+        assert completed.state == "completed"
+    finally:
+        connection.close()
+
+
+def test_persistence_methods_require_configured_store() -> None:
+    service = TvRecorderService(StubDvbCtrlClient())
+
+    with pytest.raises(RuntimeError, match="persistence store is not configured"):
+        service.schedule_recording(
+            channel_name="BBC ONE HD",
+            start_at_utc="2026-05-23T12:00:00Z",
+            duration_seconds=3600,
+        )

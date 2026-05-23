@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+_UNCHANGED = object()
+
 
 @dataclass(frozen=True, slots=True)
 class RecordingStateRecord:
@@ -104,16 +106,26 @@ class PersistenceStore:
         recording_id: int,
         *,
         state: str,
-        ended_at_utc: str | None = None,
+        ended_at_utc: str | None | object = _UNCHANGED,
     ) -> RecordingStateRecord:
-        result = self.connection.execute(
-            """
-            UPDATE recordings
-            SET state = ?, ended_at_utc = ?
-            WHERE id = ?
-            """,
-            (state, ended_at_utc, recording_id),
-        )
+        if ended_at_utc is _UNCHANGED:
+            result = self.connection.execute(
+                """
+                UPDATE recordings
+                SET state = ?
+                WHERE id = ?
+                """,
+                (state, recording_id),
+            )
+        else:
+            result = self.connection.execute(
+                """
+                UPDATE recordings
+                SET state = ?, ended_at_utc = ?
+                WHERE id = ?
+                """,
+                (state, ended_at_utc, recording_id),
+            )
         if result.rowcount == 0:
             raise ValueError(f"recording id not found: {recording_id}")
         self.connection.commit()
@@ -187,7 +199,9 @@ class PersistenceStore:
             for row in rows
         ]
 
-    def update_scheduler_job_state(self, job_id: int, *, state: str) -> SchedulerJobRecord:
+    def update_scheduler_job_state(
+        self, job_id: int, *, state: str
+    ) -> SchedulerJobRecord:
         result = self.connection.execute(
             """
             UPDATE scheduler_jobs

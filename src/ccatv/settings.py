@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from platformdirs import user_data_dir
+
 from ccatv.runtime_config import RuntimeConfig, RuntimeConfigError, RuntimeConfigStore
 
 
@@ -69,7 +70,9 @@ class AppSettings:
     dvb_adapter_count: int = 1
     dvb_adapter_index: int = 0
     dvbctrl_timeout_seconds: float = 10.0
-    database_path: str = str(Path(user_data_dir("ccatv", appauthor=False)) / "ccatv.sqlite3")
+    database_path: str = str(
+        Path(user_data_dir("ccatv", appauthor=False)) / "ccatv.sqlite3"
+    )
 
     @classmethod
     def from_env(cls) -> AppSettings:

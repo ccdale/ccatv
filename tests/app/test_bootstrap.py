@@ -9,6 +9,7 @@ from ccatv.app.bootstrap import bootstrap_app
 from ccatv.settings import AppSettings
 from ccatv.storage import PersistenceStore
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
+from ccatv.tvrecorder.service import TvRecorderService
 
 
 def _dvbctrl_init_default(param_name: str):
@@ -73,6 +74,15 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
         == _dvbctrl_init_default("transient_retry_delay_seconds")
     )
     assert isinstance(context.persistence, PersistenceStore)
+    assert isinstance(context.tvrecorder, TvRecorderService)
+
+    scheduled = context.tvrecorder.schedule_recording(
+        channel_name="BBC ONE HD",
+        start_at_utc="2026-05-23T12:00:00Z",
+        duration_seconds=3600,
+    )
+    jobs = context.persistence.list_scheduler_jobs()
+    assert jobs == [scheduled]
 
 
 def test_bootstrap_propagates_custom_dvbctrl_retry_settings(monkeypatch) -> None:
