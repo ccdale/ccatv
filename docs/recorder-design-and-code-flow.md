@@ -131,10 +131,11 @@ It creates:
 
 `TvRecorderService` is created with:
 
-1. `persistence`
-2. `health_policy` from settings
-3. `padding_policy` from settings
-4. `post_processor` defaulted to `NoOpPostProcessingRunner`
+1. `dvbctrl` client dependency
+2. `persistence`
+3. `health_policy` from settings
+4. `padding_policy` from settings
+5. `post_processor` explicitly set to `NoOpPostProcessingRunner`
 
 This means recorder behavior is policy-driven at startup without hardcoding check cadence in service call sites.
 
