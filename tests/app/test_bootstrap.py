@@ -9,6 +9,10 @@ from ccatv.app.bootstrap import bootstrap_app
 from ccatv.settings import AppSettings
 from ccatv.storage import PersistenceStore
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
+from ccatv.tvrecorder.orchestrator import (
+    DvbCtrlCaptureController,
+    RecorderOrchestrator,
+)
 from ccatv.tvrecorder.service import TvRecorderService
 
 
@@ -75,6 +79,21 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     )
     assert isinstance(context.persistence, PersistenceStore)
     assert isinstance(context.tvrecorder, TvRecorderService)
+    assert isinstance(context.recorder_orchestrator, RecorderOrchestrator)
+    assert context.recorder_orchestrator.service is context.tvrecorder
+    assert context.recorder_orchestrator.persistence is context.persistence
+    assert isinstance(
+        context.recorder_orchestrator.capture_controller,
+        DvbCtrlCaptureController,
+    )
+    assert (
+        context.recorder_orchestrator.periodic_policy.interval_seconds
+        == context.settings.recording_periodic_growth_interval_seconds
+    )
+    assert (
+        context.recorder_orchestrator.periodic_policy.growth_min_bytes
+        == context.settings.recording_growth_min_bytes
+    )
 
     scheduled = context.tvrecorder.schedule_recording(
         channel_name="BBC ONE HD",

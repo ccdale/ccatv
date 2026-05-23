@@ -9,6 +9,11 @@ from ccatv.settings import AppSettings
 from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.tvrecorder.manager import DvbStreamerConfig, DvbStreamerManager
+from ccatv.tvrecorder.orchestrator import (
+    DvbCtrlCaptureController,
+    PeriodicCheckPolicy,
+    RecorderOrchestrator,
+)
 from ccatv.tvrecorder.postprocess import NoOpPostProcessingRunner
 from ccatv.tvrecorder.preflight import WritePreflightChecker
 from ccatv.tvrecorder.service import (
@@ -29,6 +34,7 @@ class AppContext:
     write_preflight: WritePreflightChecker
     persistence: PersistenceStore
     tvrecorder: TvRecorderService
+    recorder_orchestrator: RecorderOrchestrator
 
 
 def bootstrap_app() -> AppContext:
@@ -81,6 +87,15 @@ def bootstrap_app() -> AppContext:
         ),
         post_processor=NoOpPostProcessingRunner(),
     )
+    recorder_orchestrator = RecorderOrchestrator(
+        service=tvrecorder,
+        persistence=persistence,
+        capture_controller=DvbCtrlCaptureController(service=tvrecorder),
+        periodic_policy=PeriodicCheckPolicy(
+            growth_min_bytes=settings.recording_growth_min_bytes,
+            interval_seconds=settings.recording_periodic_growth_interval_seconds,
+        ),
+    )
     return AppContext(
         settings=settings,
         logger=logger,
@@ -89,4 +104,5 @@ def bootstrap_app() -> AppContext:
         write_preflight=write_preflight,
         persistence=persistence,
         tvrecorder=tvrecorder,
+        recorder_orchestrator=recorder_orchestrator,
     )

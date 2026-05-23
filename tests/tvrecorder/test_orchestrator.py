@@ -65,7 +65,9 @@ def test_orchestrator_run_job_success_path(tmp_path: Path) -> None:
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
-        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
         health_policy=RecordingHealthCheckPolicy(
             early_growth_checks=1,
             early_growth_interval_seconds=0,
@@ -120,7 +122,9 @@ def test_orchestrator_marks_scheduler_failed_on_periodic_growth_failure(
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
-        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
         health_policy=RecordingHealthCheckPolicy(
             early_growth_checks=1,
             early_growth_interval_seconds=0,
@@ -175,7 +179,9 @@ def test_orchestrator_run_due_jobs_filters_scheduled_due_items(
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
-        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
         health_policy=RecordingHealthCheckPolicy(
             early_growth_checks=1,
             early_growth_interval_seconds=0,
@@ -220,9 +226,18 @@ def test_orchestrator_run_due_jobs_filters_scheduled_due_items(
 
         assert [result.job_id for result in results] == [due_job.id]
         assert results[0].scheduler_state == "completed"
-        assert persistence.get_scheduler_job(due_job.id, required=True).state == "completed"
-        assert persistence.get_scheduler_job(future_job.id, required=True).state == "scheduled"
-        assert persistence.get_scheduler_job(running_job.id, required=True).state == "running"
+        assert (
+            persistence.get_scheduler_job(due_job.id, required=True).state
+            == "completed"
+        )
+        assert (
+            persistence.get_scheduler_job(future_job.id, required=True).state
+            == "scheduled"
+        )
+        assert (
+            persistence.get_scheduler_job(running_job.id, required=True).state
+            == "running"
+        )
     finally:
         connection.close()
 
@@ -236,7 +251,9 @@ def test_orchestrator_start_capture_failure_marks_job_and_recording_failed(
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
-        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
         health_policy=RecordingHealthCheckPolicy(
             early_growth_checks=1,
             early_growth_interval_seconds=0,
@@ -287,7 +304,9 @@ def test_orchestrator_reports_cleanup_stop_failure_context(
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
-        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
         health_policy=RecordingHealthCheckPolicy(
             early_growth_checks=1,
             early_growth_interval_seconds=0,
@@ -340,7 +359,9 @@ def test_orchestrator_short_recording_does_not_oversleep_periodic_interval(
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
-        padding_policy=RecordingPaddingPolicy(post_finish_seconds=0, pre_start_seconds=0),
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
         health_policy=RecordingHealthCheckPolicy(
             early_growth_checks=1,
             early_growth_interval_seconds=0,

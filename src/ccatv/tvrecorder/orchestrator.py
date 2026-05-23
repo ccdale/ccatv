@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import re
+import shlex
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from collections.abc import Callable
 from typing import Protocol
 
 from ccatv.storage import PersistenceStore, RecordingStateRecord, SchedulerJobRecord
@@ -31,16 +33,14 @@ class CaptureController(Protocol):
         *,
         channel_name: str,
         output_path: str,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def stop_capture(
         self,
         *,
         channel_name: str,
         output_path: str,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +62,65 @@ class NoOpCaptureController:
         del channel_name, output_path
 
 
+@dataclass(frozen=True, slots=True)
+class DvbCtrlCaptureController:
+    service: TvRecorderService
+
+    def start_capture(
+        self,
+        *,
+        channel_name: str,
+        output_path: str,
+    ) -> None:
+        self.service.select_service(channel_name)
+        output_mrl = f"file://{output_path}"
+        self.service.run_raw(f"setmrl {shlex.quote(output_mrl)}")
+
+    def stop_capture(
+        self,
+        *,
+        channel_name: str,
+        output_path: str,
+    ) -> None:
+        del channel_name, output_path
+        self.service.run_raw("setmrl null://")
+
+
+@dataclass(slots=True)
+class SchedulerWorker:
+    orchestrator: RecorderOrchestrator
+    output_path_builder: Callable[[SchedulerJobRecord], str]
+    max_jobs_per_cycle: int | None = None
+    poll_interval_seconds: float = 5.0
+    sleep_fn: Callable[[float], None] = time.sleep
+
+    def run_cycle(self, *, now_utc: str | None = None) -> list[OrchestratorResult]:
+        return self.orchestrator.run_due_jobs(
+            output_path_builder=self.output_path_builder,
+            now_utc=now_utc,
+            max_jobs=self.max_jobs_per_cycle,
+        )
+
+    def run_forever(self) -> None:
+        if self.poll_interval_seconds <= 0:
+            raise ValueError("poll_interval_seconds must be > 0")
+        while True:
+            self.run_cycle()
+            self.sleep_fn(self.poll_interval_seconds)
+
+
+def build_recording_output_path(
+    *,
+    directory: str,
+    job: SchedulerJobRecord,
+    extension: str = ".ts",
+) -> str:
+    safe_channel = _sanitize_channel_name(job.channel_name)
+    utc_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = extension if extension.startswith(".") else f".{extension}"
+    return f"{directory.rstrip('/')}/{safe_channel}-{job.id}-{utc_stamp}{suffix}"
+
+
 @dataclass(slots=True)
 class RecorderOrchestrator:
     service: TvRecorderService
@@ -76,11 +135,14 @@ class RecorderOrchestrator:
         *,
         now_utc: str | None = None,
     ) -> list[SchedulerJobRecord]:
-        now_timestamp = _parse_utc_iso(now_utc) if now_utc is not None else self.now_fn()
+        now_timestamp = (
+            _parse_utc_iso(now_utc) if now_utc is not None else self.now_fn()
+        )
         due_jobs = [
             job
             for job in self.persistence.list_scheduler_jobs()
-            if job.state == "scheduled" and _parse_utc_iso(job.start_at_utc) <= now_timestamp
+            if job.state == "scheduled"
+            and _parse_utc_iso(job.start_at_utc) <= now_timestamp
         ]
         due_jobs.sort(key=lambda job: (_parse_utc_iso(job.start_at_utc), job.id))
         return due_jobs
@@ -272,3 +334,9 @@ def _format_utc_iso(timestamp_seconds: float) -> str:
     return datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
+
+
+def _sanitize_channel_name(value: str) -> str:
+    collapsed = re.sub(r"\s+", "-", value.strip().lower())
+    cleaned = re.sub(r"[^a-z0-9._-]", "", collapsed)
+    return cleaned or "channel"
