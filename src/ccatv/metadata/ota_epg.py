@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ EVENT_OPEN_RE = re.compile(r"^<event\s+([^>]+)>$")
 NEW_RE = re.compile(r"^<new\s+([^>]+)/>$")
 DETAIL_RE = re.compile(r"^<detail\s+([^>]+)>(.*)</detail>$")
 ATTR_RE = re.compile(r"(\w+)=[\"']([^\"']*)[\"']")
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +307,7 @@ def _insert_ingest_run(
     )
     return int(cursor.lastrowid)
 
+
 def _mark_stale_running_ingest_runs_failed(
     connection: sqlite3.Connection,
     source: str,
@@ -494,7 +498,15 @@ def ingest_dvbstreamer_epg(
                         stats=None,
                     )
             except Exception:
-                pass
+                LOGGER.warning(
+                    "failed to finalize ingest run failure state",
+                    extra={
+                        "ingest_run_id": ingest_run_id,
+                        "source": source,
+                        "original_error": str(exc),
+                    },
+                    exc_info=True,
+                )
         raise
 
 

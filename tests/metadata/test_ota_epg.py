@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -253,5 +254,41 @@ def test_checkpoint_failure_keeps_run_terminal(tmp_path: Path, monkeypatch) -> N
         assert run_row[0] == "ok"
         assert run_row[1] is not None
         assert run_row[2].endswith("Z")
+    finally:
+        connection.close()
+
+
+def test_finalize_failure_logs_warning_and_preserves_original_error(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+
+    def _raise_parse_error(raw_text: str) -> list[ota_epg.OtaEpgEvent]:
+        raise ValueError("broken epg")
+
+    def _raise_finalize_error(
+        _connection,
+        _run_id: int,
+        *,
+        finished_at_utc: str,
+        status: str,
+        message: str | None,
+        stats,
+    ) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(ota_epg, "parse_dvbstreamer_epg", _raise_parse_error)
+    monkeypatch.setattr(ota_epg, "_finish_ingest_run", _raise_finalize_error)
+
+    try:
+        with caplog.at_level("WARNING", logger="ccatv.metadata.ota_epg"):
+            with pytest.raises(ValueError, match="broken epg"):
+                ingest_dvbstreamer_epg(connection, "<epg>")
+
+        assert "failed to finalize ingest run failure state" in caplog.text
+        assert "database is locked" in caplog.text
     finally:
         connection.close()
