@@ -20,6 +20,17 @@ def _table_names(path: Path) -> set[str]:
         connection.close()
 
 
+def _index_names(path: Path) -> set[str]:
+    connection = initialize_database(path)
+    try:
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ).fetchall()
+        return {row[0] for row in rows}
+    finally:
+        connection.close()
+
+
 def test_initialize_database_creates_expected_tables(tmp_path: Path) -> None:
     db_path = tmp_path / "ccatv.sqlite3"
 
@@ -222,3 +233,44 @@ def test_epg_broadcast_foreign_keys_enforced(tmp_path: Path) -> None:
             )
     finally:
         connection.close()
+
+
+def test_epg_programs_partial_index_allows_multiple_null_source_ids(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO epg_programs(source, source_program_id, title)
+            VALUES(?, ?, ?)
+            """,
+            ("xmltv", None, "Program A"),
+        )
+        connection.execute(
+            """
+            INSERT INTO epg_programs(source, source_program_id, title)
+            VALUES(?, ?, ?)
+            """,
+            ("xmltv", None, "Program B"),
+        )
+
+        rows = connection.execute(
+            "SELECT COUNT(*) FROM epg_programs WHERE source = ? AND source_program_id IS NULL",
+            ("xmltv",),
+        ).fetchone()
+        assert rows is not None
+        assert rows[0] == 2
+    finally:
+        connection.close()
+
+
+def test_epg_schema_indexes_exist(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+
+    indexes = _index_names(db_path)
+
+    assert "idx_epg_programs_source_program_id" in indexes
+    assert "idx_epg_broadcasts_start_utc" in indexes
+    assert "idx_epg_broadcasts_channel_start" in indexes
