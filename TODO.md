@@ -45,6 +45,7 @@ These pieces exist but are not yet wired to application runtime workflows:
 
 - Live GTK4 UI flow.
 - Full schedules direct ingestion implementation.
+	- Prioritize this before final daemon-behavior design so richer guide data (including repeat/alternate airing windows) can drive conflict, retry, and recording-selection policies.
 - Jellyfin integration implementation.
 - inputlirc remote mapping implementation.
 - Recording scheduler and conflict policy implementation.
