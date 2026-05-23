@@ -12,7 +12,7 @@ Current project direction:
 	- libmpv as the first implementation
 	- GStreamer as an optional/alternate backend
 - TV recorder and tuner control via external dvbstreamer + dvbctrl
-	- local reference path: ~/src/dvbstreamer/dvbstreamer-2.1.0
+	- reference repository: https://github.com/ccdale/dvbstreamer
 - TV guide and schedule metadata from Schedules Direct
 - Remote control support via a Windows Media Center remote and inputlirc
 - Jellyfin integration for media library access on the local network
