@@ -60,7 +60,10 @@ def test_load_raises_for_invalid_top_level_shape(tmp_path: Path) -> None:
 
 
 def test_store_defaults_to_xdg_dvbstreamer_userconfig(monkeypatch) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdg-home")
+    monkeypatch.setattr(
+        "ccatv.tvrecorder.config.user_config_dir",
+        lambda appname, appauthor=False: "/tmp/xdg-home/dvbstreamer",
+    )
 
     store = TvRecorderConfigStore()
 
@@ -68,8 +71,11 @@ def test_store_defaults_to_xdg_dvbstreamer_userconfig(monkeypatch) -> None:
 
 
 def test_store_defaults_to_home_config_when_xdg_unset(monkeypatch) -> None:
-    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(
+        "ccatv.tvrecorder.config.user_config_dir",
+        lambda appname, appauthor=False: "/home/tester/.config/dvbstreamer",
+    )
 
     store = TvRecorderConfigStore()
 
-    assert store.path == Path.home() / ".config" / "dvbstreamer" / "userconfig.json"
+    assert store.path == Path("/home/tester/.config/dvbstreamer/userconfig.json")

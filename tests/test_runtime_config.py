@@ -45,3 +45,14 @@ def test_runtime_store_rejects_invalid_adapter_count(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeConfigError, match="invalid dvb_adapter_count"):
         store.load()
+
+
+def test_runtime_store_defaults_to_platformdirs_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ccatv.runtime_config.user_config_dir",
+        lambda appname, appauthor=False: "/home/tester/.config/ccatv",
+    )
+
+    store = RuntimeConfigStore()
+
+    assert store.path == Path("/home/tester/.config/ccatv/runtime.json")

@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from platformdirs import user_config_dir
+
 
 class RuntimeConfigError(Exception):
     """Raised when ccatv runtime configuration cannot be loaded."""
@@ -23,9 +25,7 @@ class RuntimeConfigStore:
     """Load and persist ccatv runtime config under XDG config."""
 
     config_dir: Path = field(
-        default_factory=lambda: (
-            Path(os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "ccatv"
-        )
+        default_factory=lambda: Path(user_config_dir("ccatv", appauthor=False))
     )
     file_name: str = "runtime.json"
 

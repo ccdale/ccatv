@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from platformdirs import user_config_dir
+
 CONFIG_ENV_VAR = "CCATV_INTEGRATION_CONFIG"
 
 
@@ -147,10 +149,4 @@ def _default_config_path() -> Path:
     override = os.getenv(CONFIG_ENV_VAR)
     if override:
         return Path(override).expanduser()
-
-    xdg_config_home = os.getenv("XDG_CONFIG_HOME")
-    if xdg_config_home:
-        base = Path(xdg_config_home)
-    else:
-        base = Path.home() / ".config"
-    return base / "ccatv" / "integration.json"
+    return Path(user_config_dir("ccatv", appauthor=False)) / "integration.json"

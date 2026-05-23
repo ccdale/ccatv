@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from platformdirs import user_config_dir
+
 
 class TvRecorderConfigError(Exception):
     """Raised when tvrecorder configuration cannot be loaded."""
@@ -30,10 +32,7 @@ class TvRecorderConfigStore:
     """Load and persist dvbstreamer user auth config under XDG config."""
 
     config_dir: Path = field(
-        default_factory=lambda: (
-            Path(os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config")))
-            / "dvbstreamer"
-        )
+        default_factory=lambda: Path(user_config_dir("dvbstreamer", appauthor=False))
     )
     file_name: str = "userconfig.json"
 
