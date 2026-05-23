@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import json
+import pytest
 
+from ccatv.metadata import ota_epg
 from ccatv.metadata.ota_epg import (
     ingest_dvbstreamer_epg,
     parse_dvbstreamer_epg,
@@ -103,6 +105,15 @@ def test_ingest_is_idempotent_for_same_source(tmp_path: Path) -> None:
         assert first.ingest_run_id is not None
         assert second.ingest_run_id is not None
         assert second.ingest_run_id > first.ingest_run_id
+
+        checkpoint_row = connection.execute(
+            "SELECT metadata_json FROM epg_source_checkpoints WHERE source = ?",
+            ("dvbstreamer_ota",),
+        ).fetchone()
+        assert checkpoint_row is not None
+        assert checkpoint_row[0] is not None
+        checkpoint_metadata = json.loads(checkpoint_row[0])
+        assert checkpoint_metadata["last_run_id"] == second.ingest_run_id
     finally:
         connection.close()
 
@@ -148,5 +159,34 @@ def test_ingest_records_run_and_checkpoint(tmp_path: Path) -> None:
 
         checkpoint_metadata = json.loads(checkpoint_row[2])
         assert checkpoint_metadata["last_run_id"] == stats.ingest_run_id
+    finally:
+        connection.close()
+
+
+def test_ingest_marks_run_failed_on_parse_error(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+
+    def _raise_parse_error(raw_text: str) -> list[ota_epg.OtaEpgEvent]:
+        raise ValueError("broken epg")
+
+    monkeypatch.setattr(ota_epg, "parse_dvbstreamer_epg", _raise_parse_error)
+
+    try:
+        with pytest.raises(ValueError, match="broken epg"):
+            ingest_dvbstreamer_epg(connection, "<epg>")
+
+        run_row = connection.execute(
+            """
+            SELECT status, message, finished_at_utc
+            FROM epg_ingest_runs
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        assert run_row is not None
+        assert run_row[0] == "failed"
+        assert run_row[1] == "broken epg"
+        assert run_row[2].endswith("Z")
     finally:
         connection.close()

@@ -382,16 +382,16 @@ def ingest_dvbstreamer_epg(
     with connection:
         ingest_run_id = _insert_ingest_run(connection, source, started_at_utc)
 
-    events = parse_dvbstreamer_epg(raw_text)
-
-    channel_ids: dict[str, int] = {}
-    program_ids: dict[str, int] = {}
-    channels_inserted = 0
-    programs_inserted = 0
-    broadcasts_inserted = 0
-    broadcasts_updated = 0
-
     try:
+        events = parse_dvbstreamer_epg(raw_text)
+
+        channel_ids: dict[str, int] = {}
+        program_ids: dict[str, int] = {}
+        channels_inserted = 0
+        programs_inserted = 0
+        broadcasts_inserted = 0
+        broadcasts_updated = 0
+
         with connection:
             for event in events:
                 if event.channel_source_id not in channel_ids:
