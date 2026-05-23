@@ -28,3 +28,6 @@ htmlcov/
 
 # Local scratch notes
 src/ccatv/notes
+
+# Large local-only integration captures
+tests/integration/fixtures/epgdata_full.txt
