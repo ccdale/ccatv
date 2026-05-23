@@ -266,6 +266,32 @@ def test_epg_programs_partial_index_allows_multiple_null_source_ids(
         connection.close()
 
 
+def test_epg_programs_partial_index_enforces_non_null_source_ids(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO epg_programs(source, source_program_id, title)
+            VALUES(?, ?, ?)
+            """,
+            ("xmltv", "EP0001", "Program A"),
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO epg_programs(source, source_program_id, title)
+                VALUES(?, ?, ?)
+                """,
+                ("xmltv", "EP0001", "Program B"),
+            )
+    finally:
+        connection.close()
+
+
 def test_epg_schema_indexes_exist(tmp_path: Path) -> None:
     db_path = tmp_path / "ccatv.sqlite3"
 

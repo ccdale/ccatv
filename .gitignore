@@ -25,3 +25,6 @@ htmlcov/
 # Editor and OS files
 .vscode/
 .DS_Store
+
+# Local scratch notes
+src/ccatv/notes
