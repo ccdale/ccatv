@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -301,7 +302,7 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
             route="token",
             payload={
                 "username": self._credentials.username,
-                "password": self._credentials.password,
+                "password": _sha1_hex(self._credentials.password),
             },
             token_required=False,
         )
@@ -342,6 +343,10 @@ def _parse_json_or_none(raw_value: str) -> object | None:
         return json.loads(raw_value)
     except json.JSONDecodeError:
         return None
+
+
+def _sha1_hex(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()
 
 
 def _pick_str(payload: dict[str, object], *keys: str) -> str | None:

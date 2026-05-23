@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import dataclass, field
 
 import pytest
@@ -76,7 +77,7 @@ def test_authenticate_requests_token_and_caches() -> None:
     assert transport.calls[0]["url"].endswith("/token")
     assert transport.calls[0]["payload"] == {
         "username": "alice",
-        "password": "secret",
+        "password": hashlib.sha1("secret".encode("utf-8")).hexdigest(),
     }
     assert cache.saved
     assert cache.saved[0].token == "token-abc"
