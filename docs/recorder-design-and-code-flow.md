@@ -367,14 +367,19 @@ Recommended next steps:
 Use defaults:
 
 1. `schedule_recording(...)`
-2. `begin_recording(...)`
-3. `verify_recording_output_growth_early(...)`
-4. `verify_recording_output_growth_periodic(...)` (timer-driven)
-5. `mark_recording_capture_completed(...)`
-6. `verify_recording_output_stable_after_stop_default(...)`
-7. `run_recording_post_processing(...)`
+2. `mark_scheduler_job_running(...)`
+3. `begin_recording(...)`
+4. `verify_recording_output_growth_early(...)`
+5. `verify_recording_output_growth_periodic(...)` (timer-driven)
+6. `mark_recording_capture_completed(...)`
+7. `verify_recording_output_stable_after_stop_default(...)`
+8. `run_recording_post_processing(...)`
+9. `mark_scheduler_job_completed(...)` on recorder success
+10. `mark_scheduler_job_failed(...)` on recorder failure
 
 Expected terminal states:
 
-1. success: `ready`
-2. failure: `failed`
+1. recording success: `ready`
+2. recording failure: `failed`
+3. scheduler success: `completed`
+4. scheduler failure: `failed`
