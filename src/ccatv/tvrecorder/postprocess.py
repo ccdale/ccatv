@@ -18,14 +18,15 @@ class PostProcessingResult:
 
 
 class PostProcessingRunner(Protocol):
-    def run(self, request: PostProcessingRequest) -> PostProcessingResult:
-        ...
+    def run(self, request: PostProcessingRequest) -> PostProcessingResult: ...
 
 
 @dataclass(slots=True)
 class NoOpPostProcessingRunner:
     def run(self, request: PostProcessingRequest) -> PostProcessingResult:
-        return PostProcessingResult(success=True, message="no post-processing configured")
+        return PostProcessingResult(
+            success=True, message="no post-processing configured"
+        )
 
 
 __all__ = [

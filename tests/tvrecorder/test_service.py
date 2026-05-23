@@ -295,7 +295,9 @@ def test_run_post_processing_failure_marks_failed(tmp_path: Path) -> None:
         connection.close()
 
 
-def test_run_post_processing_exception_marks_failed_and_reraises(tmp_path: Path) -> None:
+def test_run_post_processing_exception_marks_failed_and_reraises(
+    tmp_path: Path,
+) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     persistence = PersistenceStore(connection=connection)
     post_processor = StubPostProcessor(raise_error=True)
@@ -321,5 +323,133 @@ def test_run_post_processing_exception_marks_failed_and_reraises(tmp_path: Path)
         row = persistence.get_recording(recording.id, required=True)
         assert row.state == "failed"
         assert row.ended_at_utc == "2026-05-23T11:00:00Z"
+    finally:
+        connection.close()
+
+
+def test_verify_recording_output_growth_marks_failed_when_no_growth(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    sizes = iter([100, 100, 100])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        file_size_reader=lambda _path: next(sizes, 100),
+        sleep_fn=lambda _seconds: None,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+
+        failed = service.verify_recording_output_growth(
+            recording.id,
+            checks=2,
+            interval_seconds=0,
+        )
+
+        assert failed.state == "failed"
+    finally:
+        connection.close()
+
+
+def test_verify_recording_output_growth_accepts_growth(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    sizes = iter([100, 130, 130])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        file_size_reader=lambda _path: next(sizes, 130),
+        sleep_fn=lambda _seconds: None,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+
+        result = service.verify_recording_output_growth(
+            recording.id,
+            checks=2,
+            interval_seconds=0,
+            min_growth_bytes=10,
+        )
+
+        assert result.state == "recording"
+    finally:
+        connection.close()
+
+
+def test_verify_recording_output_stable_after_stop_marks_failed_on_change(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    sizes = iter([200, 200, 220])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        file_size_reader=lambda _path: next(sizes, 220),
+        sleep_fn=lambda _seconds: None,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+
+        failed = service.verify_recording_output_stable_after_stop(
+            recording.id,
+            checks=2,
+            interval_seconds=0,
+        )
+
+        assert failed.state == "failed"
+    finally:
+        connection.close()
+
+
+def test_verify_recording_output_stable_after_stop_accepts_stable(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    sizes = iter([200, 200, 200])
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        file_size_reader=lambda _path: next(sizes, 200),
+        sleep_fn=lambda _seconds: None,
+    )
+    try:
+        recording = service.begin_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            started_at_utc="2026-05-23T10:00:00Z",
+        )
+        completed = service.mark_recording_capture_completed(
+            recording.id,
+            ended_at_utc="2026-05-23T11:00:00Z",
+        )
+
+        stable = service.verify_recording_output_stable_after_stop(
+            recording.id,
+            checks=2,
+            interval_seconds=0,
+        )
+
+        assert stable.state == "capture_completed"
+        assert stable.ended_at_utc == completed.ended_at_utc
     finally:
         connection.close()

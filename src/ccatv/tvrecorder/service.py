@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ccatv.storage import PersistenceStore, RecordingStateRecord, SchedulerJobRecord
 from ccatv.tvrecorder.commands import (
@@ -54,10 +57,14 @@ class TvRecorderService:
         *,
         persistence: PersistenceStore | None = None,
         post_processor: PostProcessingRunner | None = None,
+        file_size_reader: Callable[[str], int | None] | None = None,
+        sleep_fn: Callable[[float], None] | None = None,
     ) -> None:
         self._dvbctrl = dvbctrl
         self._persistence = persistence
         self._post_processor = post_processor or NoOpPostProcessingRunner()
+        self._file_size_reader = file_size_reader or _read_file_size
+        self._sleep_fn = sleep_fn or time.sleep
 
     def run_raw(self, command: str) -> DvbCtrlResult:
         """Run a raw dvbctrl command string."""
@@ -229,6 +236,70 @@ class TvRecorderService:
             ended_at_utc=ended_at_utc,
         )
 
+    def verify_recording_output_growth(
+        self,
+        recording_id: int,
+        *,
+        checks: int,
+        interval_seconds: float,
+        min_growth_bytes: int = 1,
+    ) -> RecordingStateRecord:
+        if checks < 1:
+            raise ValueError("checks must be at least 1")
+        if interval_seconds < 0:
+            raise ValueError("interval_seconds must be >= 0")
+        if min_growth_bytes < 1:
+            raise ValueError("min_growth_bytes must be at least 1")
+
+        persistence = self._require_persistence()
+        recording = persistence.get_recording(recording_id, required=True)
+        previous_size = self._file_size_reader(recording.output_path)
+        if previous_size is None:
+            return self.mark_recording_failed(recording_id)
+
+        saw_growth = False
+        for _ in range(checks):
+            self._sleep_fn(interval_seconds)
+            current_size = self._file_size_reader(recording.output_path)
+            if current_size is None:
+                return self.mark_recording_failed(recording_id)
+            if current_size - previous_size >= min_growth_bytes:
+                saw_growth = True
+            previous_size = current_size
+
+        if not saw_growth:
+            return self.mark_recording_failed(recording_id)
+        return persistence.get_recording(recording_id, required=True)
+
+    def verify_recording_output_stable_after_stop(
+        self,
+        recording_id: int,
+        *,
+        checks: int = 2,
+        interval_seconds: float = 2.0,
+    ) -> RecordingStateRecord:
+        if checks < 1:
+            raise ValueError("checks must be at least 1")
+        if interval_seconds < 0:
+            raise ValueError("interval_seconds must be >= 0")
+
+        persistence = self._require_persistence()
+        recording = persistence.get_recording(recording_id, required=True)
+        previous_size = self._file_size_reader(recording.output_path)
+        if previous_size is None:
+            return self.mark_recording_failed(recording_id)
+
+        for _ in range(checks):
+            self._sleep_fn(interval_seconds)
+            current_size = self._file_size_reader(recording.output_path)
+            if current_size is None:
+                return self.mark_recording_failed(recording_id)
+            if current_size != previous_size:
+                return self.mark_recording_failed(recording_id)
+            previous_size = current_size
+
+        return persistence.get_recording(recording_id, required=True)
+
     def _require_persistence(self) -> PersistenceStore:
         if self._persistence is None:
             raise RuntimeError("persistence store is not configured")
@@ -237,6 +308,14 @@ class TvRecorderService:
 
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _read_file_size(path: str) -> int | None:
+    file_path = Path(path)
+    try:
+        return file_path.stat().st_size
+    except FileNotFoundError:
+        return None
 
 
 def _parse_kv_lines(output: str) -> dict[str, str]:
