@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import sqlite3
 from inspect import signature
 
 import pytest
 
 import ccatv.app.bootstrap as bootstrap_module
-from ccatv.app.bootstrap import bootstrap_app
+from ccatv.app.bootstrap import bootstrap_app, close_app_context
 from ccatv.settings import AppSettings
 from ccatv.storage import PersistenceStore
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
@@ -204,3 +205,30 @@ def test_bootstrap_propagates_dvbctrl_init_failure(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="dvbctrl init failed"):
         bootstrap_app()
+
+
+def test_close_app_context_closes_persistence_connection(monkeypatch) -> None:
+    monkeypatch.setattr(
+        AppSettings,
+        "from_env",
+        classmethod(
+            lambda cls: AppSettings(
+                dvb_adapter_count=1,
+                dvb_adapter_index=0,
+                dvbctrl_path="dvbctrl",
+                dvbctrl_timeout_seconds=3.0,
+                dvbstreamer_bind_address="127.0.0.1",
+                dvbstreamer_host="localhost",
+                dvbstreamer_output_mrl="null://",
+                dvbstreamer_path="dvbstreamer",
+                dvbstreamer_stop_timeout_seconds=5.0,
+                database_path=":memory:",
+            )
+        ),
+    )
+
+    context = bootstrap_app()
+    close_app_context(context)
+
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        context.persistence.connection.execute("SELECT 1")

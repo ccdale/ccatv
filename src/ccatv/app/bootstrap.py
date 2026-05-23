@@ -37,6 +37,21 @@ class AppContext:
     recorder_orchestrator: RecorderOrchestrator
 
 
+def close_app_context(context: AppContext) -> None:
+    """Best-effort shutdown for bootstrap resources."""
+    logger = context.logger
+
+    try:
+        context.dvbstreamer.stop(force_kill=True)
+    except Exception:
+        logger.warning("failed to stop dvbstreamer during shutdown", exc_info=True)
+
+    try:
+        context.persistence.connection.close()
+    except Exception:
+        logger.warning("failed to close persistence connection", exc_info=True)
+
+
 def bootstrap_app() -> AppContext:
     """Create settings, logging, and key adapter clients for startup."""
     settings = AppSettings.from_env()

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from threading import Event
 
-from ccatv.app.bootstrap import AppContext, bootstrap_app
+from ccatv.app.bootstrap import AppContext, bootstrap_app, close_app_context
 from ccatv.app.recorder_worker import create_scheduler_worker
 
 
@@ -51,8 +53,10 @@ def run_service_daemon(
     max_jobs_per_cycle: int | None,
     poll_interval_seconds: float,
     run_once: bool,
+    should_stop: Callable[[], bool] | None = None,
 ) -> int:
     logger = context.logger
+    stop_predicate = should_stop or (lambda: False)
     worker = create_scheduler_worker(
         context,
         output_directory=output_directory,
@@ -70,11 +74,18 @@ def run_service_daemon(
         logger.info("service daemon completed one cycle (jobs=%d)", len(results))
         return 0
 
-    while True:
-        results = worker.run_cycle()
+    while not stop_predicate():
+        try:
+            results = worker.run_cycle()
+        except Exception:
+            logger.exception("service daemon cycle failed")
+            results = []
         if results:
             logger.info("service daemon cycle completed with %d due jobs", len(results))
         time.sleep(poll_interval_seconds)
+
+    logger.info("service daemon stop requested")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -87,17 +98,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--max-jobs-per-cycle must be at least 1 when provided")
 
     context = bootstrap_app()
+    stop_requested = Event()
+
+    def _request_stop(_signum: int, _frame) -> None:
+        stop_requested.set()
+
+    signal.signal(signal.SIGINT, _request_stop)
+    signal.signal(signal.SIGTERM, _request_stop)
+
     logging.getLogger("ccatv").debug(
         "service daemon bootstrapped with db=%s",
         context.settings.database_path,
     )
-    return run_service_daemon(
-        context,
-        output_directory=args.output_directory,
-        max_jobs_per_cycle=args.max_jobs_per_cycle,
-        poll_interval_seconds=args.poll_interval_seconds,
-        run_once=args.run_once,
-    )
+    try:
+        return run_service_daemon(
+            context,
+            output_directory=args.output_directory,
+            max_jobs_per_cycle=args.max_jobs_per_cycle,
+            poll_interval_seconds=args.poll_interval_seconds,
+            run_once=args.run_once,
+            should_stop=stop_requested.is_set,
+        )
+    finally:
+        close_app_context(context)
 
 
 if __name__ == "__main__":
