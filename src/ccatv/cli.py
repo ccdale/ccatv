@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import getpass
 import sys
-import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -194,37 +193,40 @@ def _run_epg_sync_sd_once(args: argparse.Namespace, deps: CliDependencies) -> in
 
     credentials = SchedulesDirectCredentialStore(path=credential_path).load()
 
+    async def _sync_cycle() -> None:
+        now = datetime.now(timezone.utc)
+        if args.seed:
+            window_hours = service.seed_window_hours
+        else:
+            if args.window_hours <= 0:
+                raise ValueError("--window-hours must be greater than 0")
+            window_hours = args.window_hours
+
+        window = GuideSyncWindow(
+            start_utc=now,
+            end_utc=now + timedelta(hours=window_hours),
+        )
+        stats = await service.sync_incremental_with_stats(
+            lineup_id=args.lineup_id,
+            window=window,
+        )
+        print(
+            (
+                "Schedules Direct sync complete "
+                f"(lineup={args.lineup_id}, "
+                f"channels={stats.channels_upserted}, "
+                f"programs={stats.programs_upserted}, "
+                f"schedules={stats.schedules_upserted}, "
+                f"pruned={stats.stale_schedules_pruned}, "
+                f"run_id={stats.ingest_run_id})"
+            ),
+            file=deps.stdout,
+        )
+
     async def _run_once() -> None:
         try:
             await client.authenticate(credentials)
-            now = datetime.now(timezone.utc)
-            if args.seed:
-                window_hours = service.seed_window_hours
-            else:
-                if args.window_hours <= 0:
-                    raise ValueError("--window-hours must be greater than 0")
-                window_hours = args.window_hours
-
-            window = GuideSyncWindow(
-                start_utc=now,
-                end_utc=now + timedelta(hours=window_hours),
-            )
-            stats = await service.sync_incremental_with_stats(
-                lineup_id=args.lineup_id,
-                window=window,
-            )
-            print(
-                (
-                    "Schedules Direct sync complete "
-                    f"(lineup={args.lineup_id}, "
-                    f"channels={stats.channels_upserted}, "
-                    f"programs={stats.programs_upserted}, "
-                    f"schedules={stats.schedules_upserted}, "
-                    f"pruned={stats.stale_schedules_pruned}, "
-                    f"run_id={stats.ingest_run_id})"
-                ),
-                file=deps.stdout,
-            )
+            await _sync_cycle()
         finally:
             await client.close()
 
@@ -247,12 +249,59 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
             print(f"EPG sync failed: {exc}", file=deps.stderr)
             return 2
 
-    while True:
+    settings = AppSettings.from_env()
+    database_path = args.database_path or settings.database_path
+    credential_path = Path(args.credentials_path) if args.credentials_path else None
+    connection = initialize_database(Path(database_path))
+    repository = SqliteGuideRepository(connection=connection)
+    client = SchedulesDirectHttpClient()
+    service = SchedulesDirectIngestionService(client=client, repository=repository)
+    credentials = SchedulesDirectCredentialStore(path=credential_path).load()
+
+    async def _run_forever() -> None:
         try:
-            _run_epg_sync_sd_once(args, deps)
-        except Exception as exc:
-            print(f"EPG sync cycle failed: {exc}", file=deps.stderr)
-        time.sleep(args.poll_interval_seconds)
+            await client.authenticate(credentials)
+            while True:
+                try:
+                    now = datetime.now(timezone.utc)
+                    if args.seed:
+                        window_hours = service.seed_window_hours
+                    else:
+                        if args.window_hours <= 0:
+                            raise ValueError("--window-hours must be greater than 0")
+                        window_hours = args.window_hours
+
+                    window = GuideSyncWindow(
+                        start_utc=now,
+                        end_utc=now + timedelta(hours=window_hours),
+                    )
+                    stats = await service.sync_incremental_with_stats(
+                        lineup_id=args.lineup_id,
+                        window=window,
+                    )
+                    print(
+                        (
+                            "Schedules Direct sync complete "
+                            f"(lineup={args.lineup_id}, "
+                            f"channels={stats.channels_upserted}, "
+                            f"programs={stats.programs_upserted}, "
+                            f"schedules={stats.schedules_upserted}, "
+                            f"pruned={stats.stale_schedules_pruned}, "
+                            f"run_id={stats.ingest_run_id})"
+                        ),
+                        file=deps.stdout,
+                    )
+                except Exception as exc:
+                    print(f"EPG sync cycle failed: {exc}", file=deps.stderr)
+                await asyncio.sleep(args.poll_interval_seconds)
+        finally:
+            await client.close()
+
+    try:
+        asyncio.run(_run_forever())
+    finally:
+        connection.close()
+    return 0
 
 
 __all__ = [
