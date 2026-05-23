@@ -9,6 +9,7 @@ from ccatv.metadata.schedules_direct_contract import SDCredentials
 from ccatv.metadata.schedules_direct_runtime import (
     SchedulesDirectConfigError,
     SchedulesDirectCredentialStore,
+    SchedulesDirectResponseCacheStore,
     SchedulesDirectTokenCacheStore,
     SDTokenCache,
 )
@@ -101,3 +102,28 @@ def test_token_cache_clear(tmp_path: Path) -> None:
     store.clear()
 
     assert store.load() is None
+
+
+def test_response_cache_roundtrip(tmp_path: Path) -> None:
+    cache_path = tmp_path / "sd_response_cache.json"
+    store = SchedulesDirectResponseCacheStore(path=cache_path)
+
+    store.save(key="stations:v1", payload={"stations": ["101"]}, ttl_seconds=60)
+
+    assert store.load("stations:v1") == {"stations": ["101"]}
+
+
+def test_response_cache_ignores_expired_entries(tmp_path: Path) -> None:
+    cache_path = tmp_path / "sd_response_cache.json"
+    cache_path.write_text(
+        json.dumps({
+            "stations:v1": {
+                "expires_at_utc": "2000-01-01T00:00:00Z",
+                "payload": {"stations": ["101"]},
+            }
+        }),
+        encoding="utf-8",
+    )
+    store = SchedulesDirectResponseCacheStore(path=cache_path)
+
+    assert store.load("stations:v1") is None

@@ -4,7 +4,8 @@ import asyncio
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Protocol
 from urllib import error, parse, request
 
@@ -24,6 +25,7 @@ from ccatv.metadata.schedules_direct_contract import (
     SDStation,
 )
 from ccatv.metadata.schedules_direct_runtime import (
+    SchedulesDirectResponseCacheStore,
     SchedulesDirectTokenCacheStore,
     SDTokenCache,
 )
@@ -47,6 +49,7 @@ class _TransportHttpError(Exception):
     status_code: int
     payload: object | None
     message: str
+    retry_after_seconds: int | None = None
 
 
 class UrlLibJsonTransport:
@@ -79,10 +82,14 @@ class UrlLibJsonTransport:
         except error.HTTPError as exc:
             raw_body = exc.read().decode("utf-8", errors="replace")
             parsed_payload = _parse_json_or_none(raw_body)
+            retry_after_seconds = _parse_retry_after_header(
+                exc.headers.get("Retry-After")
+            )
             raise _TransportHttpError(
                 status_code=exc.code,
                 payload=parsed_payload,
                 message=f"HTTP status {exc.code}",
+                retry_after_seconds=retry_after_seconds,
             ) from exc
         except Exception as exc:
             raise SchedulesDirectTransportError(
@@ -105,11 +112,19 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
         *,
         base_url: str = "https://json.schedulesdirect.org/20141201",
         timeout_seconds: float = 15.0,
+        max_rate_limit_retries: int = 3,
+        rate_limit_backoff_seconds: float = 2.0,
+        response_cache_store: SchedulesDirectResponseCacheStore | None = None,
         token_cache_store: SchedulesDirectTokenCacheStore | None = None,
         transport: JsonHttpTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._max_rate_limit_retries = max(0, max_rate_limit_retries)
+        self._rate_limit_backoff_seconds = max(0.1, rate_limit_backoff_seconds)
+        self._response_cache_store = (
+            response_cache_store or SchedulesDirectResponseCacheStore()
+        )
         self._token_cache_store = token_cache_store
         self._transport = transport or UrlLibJsonTransport()
         self._credentials: SDCredentials | None = None
@@ -126,6 +141,7 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
             method="GET",
             route="status",
             token_required=True,
+            cache_ttl_seconds=300,
         )
         status_payload = payload if isinstance(payload, dict) else {}
 
@@ -146,6 +162,7 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
             route="lineups",
             query={"country": country, "postalcode": postal_code},
             token_required=True,
+            cache_ttl_seconds=86_400,
         )
         items: list[object]
         if isinstance(payload, list):
@@ -179,6 +196,7 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
             method="GET",
             route=f"lineups/{lineup_id}",
             token_required=True,
+            cache_ttl_seconds=21_600,
         )
         if not isinstance(payload, dict):
             return []
@@ -222,12 +240,89 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
         lineup_id: str,
         window: GuideSyncWindow,
     ) -> list[SDScheduleEntry]:
-        del lineup_id, window
-        return []
+        station_ids = [
+            station.station_id for station in await self.get_lineup_stations(lineup_id)
+        ]
+        if not station_ids:
+            return []
+
+        dates = _window_dates(window)
+        if not dates:
+            return []
+
+        payload = await self._request_json(
+            method="POST",
+            route="schedules",
+            payload=[
+                {
+                    "stationID": station_id,
+                    "date": dates,
+                }
+                for station_id in station_ids
+            ],
+            token_required=True,
+            cache_ttl_seconds=1_800,
+        )
+        if not isinstance(payload, list):
+            return []
+
+        result: list[SDScheduleEntry] = []
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            station_id = _pick_str(row, "stationID", "stationId")
+            if not station_id:
+                continue
+
+            programs = row.get("programs")
+            if not isinstance(programs, list):
+                continue
+
+            for item in programs:
+                if not isinstance(item, dict):
+                    continue
+                entry = _parse_schedule_entry(item=item, station_id=station_id)
+                if entry is None:
+                    continue
+                if (
+                    entry.end_utc <= window.start_utc
+                    or entry.start_utc >= window.end_utc
+                ):
+                    continue
+                result.append(entry)
+
+        return sorted(
+            result,
+            key=lambda entry: (entry.start_utc, entry.station_id, entry.program_id),
+        )
 
     async def get_programs(self, program_ids: list[str]) -> list[SDProgram]:
-        del program_ids
-        return []
+        unique_program_ids = list(
+            dict.fromkeys(pid.strip() for pid in program_ids if pid.strip())
+        )
+        if not unique_program_ids:
+            return []
+
+        result: list[SDProgram] = []
+        for batch in _chunked(unique_program_ids, 500):
+            payload = await self._request_json(
+                method="POST",
+                route="programs",
+                payload=batch,
+                token_required=True,
+                cache_ttl_seconds=86_400,
+            )
+            if not isinstance(payload, list):
+                continue
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                program = _parse_program(item)
+                if program is None:
+                    continue
+                result.append(program)
+
+        return result
 
     async def close(self) -> None:
         return None
@@ -240,6 +335,7 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
         payload: object | None = None,
         query: dict[str, str] | None = None,
         token_required: bool,
+        cache_ttl_seconds: int | None = None,
     ) -> object:
         headers = {"User-Agent": self._user_agent}
         if token_required:
@@ -250,30 +346,63 @@ class SchedulesDirectHttpClient(SchedulesDirectClient):
                 )
             headers["token"] = self._token
 
-        url = f"{self._base_url}/{route.lstrip('/')}"
-        try:
-            return await asyncio.to_thread(
-                self._transport.request_json,
+        cache_key: str | None = None
+        if cache_ttl_seconds and cache_ttl_seconds > 0 and route != "token":
+            cache_key = _build_cache_key(
                 method=method,
-                url=url,
-                headers=headers,
+                route=route,
                 payload=payload,
                 query=query,
-                timeout_seconds=self._timeout_seconds,
             )
-        except _TransportHttpError as exc:
-            if exc.status_code == 401:
-                raise SchedulesDirectAuthenticationError(
-                    "Schedules Direct rejected authentication"
+            cached = self._response_cache_store.load(cache_key)
+            if cached is not None:
+                return cached
+
+        url = f"{self._base_url}/{route.lstrip('/')}"
+        attempts = self._max_rate_limit_retries + 1
+        for attempt in range(attempts):
+            try:
+                response_payload = await asyncio.to_thread(
+                    self._transport.request_json,
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    payload=payload,
+                    query=query,
+                    timeout_seconds=self._timeout_seconds,
+                )
+                if cache_key is not None and cache_ttl_seconds is not None:
+                    self._response_cache_store.save(
+                        key=cache_key,
+                        payload=response_payload,
+                        ttl_seconds=cache_ttl_seconds,
+                    )
+                return response_payload
+            except _TransportHttpError as exc:
+                if exc.status_code == 401:
+                    raise SchedulesDirectAuthenticationError(
+                        "Schedules Direct rejected authentication"
+                    ) from exc
+                if exc.status_code == 429:
+                    retry_after_seconds = _extract_retry_after_seconds(exc)
+                    if attempt < attempts - 1:
+                        delay = retry_after_seconds
+                        if delay is None:
+                            delay = int(self._rate_limit_backoff_seconds * (2**attempt))
+                        await asyncio.sleep(max(1, delay))
+                        continue
+                    raise SchedulesDirectRateLimitError(
+                        "Schedules Direct rate limited this request",
+                        retry_after_seconds=retry_after_seconds,
+                    ) from exc
+                raise SchedulesDirectApiError(
+                    code=None,
+                    message=f"Schedules Direct HTTP error ({exc.status_code})",
                 ) from exc
-            if exc.status_code == 429:
-                raise SchedulesDirectRateLimitError(
-                    "Schedules Direct rate limited this request"
-                ) from exc
-            raise SchedulesDirectApiError(
-                code=None,
-                message=f"Schedules Direct HTTP error ({exc.status_code})",
-            ) from exc
+
+        raise SchedulesDirectApiError(
+            code=None, message="Schedules Direct request failed"
+        )
 
     async def _ensure_token(self) -> None:
         now = datetime.now(timezone.utc).timestamp()
@@ -347,6 +476,233 @@ def _parse_json_or_none(raw_value: str) -> object | None:
 
 def _sha1_hex(value: str) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()
+
+
+def _build_cache_key(
+    *,
+    method: str,
+    route: str,
+    payload: object | None,
+    query: dict[str, str] | None,
+) -> str:
+    identity = {
+        "method": method,
+        "route": route,
+        "payload": payload,
+        "query": query,
+    }
+    rendered = json.dumps(identity, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def _extract_retry_after_seconds(exc: _TransportHttpError) -> int | None:
+    if exc.retry_after_seconds is not None:
+        return exc.retry_after_seconds
+    if isinstance(exc.payload, dict):
+        retry_value = _pick_int(exc.payload, "retryAfter", "retry_after")
+        if retry_value is not None and retry_value > 0:
+            return retry_value
+    return None
+
+
+def _parse_retry_after_header(raw_value: object) -> int | None:
+    if not isinstance(raw_value, str):
+        return None
+
+    value = raw_value.strip()
+    if not value:
+        return None
+
+    if value.isdigit():
+        seconds = int(value)
+        return seconds if seconds > 0 else None
+
+    try:
+        retry_after_dt = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+    if retry_after_dt.tzinfo is None:
+        retry_after_dt = retry_after_dt.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    delay_seconds = int((retry_after_dt - now).total_seconds())
+    return delay_seconds if delay_seconds > 0 else None
+
+
+def _chunked(values: list[str], chunk_size: int) -> list[list[str]]:
+    return [
+        values[index : index + chunk_size]
+        for index in range(0, len(values), chunk_size)
+    ]
+
+
+def _window_dates(window: GuideSyncWindow) -> list[str]:
+    start_date = window.start_utc.date()
+    end_date = window.end_utc.date()
+    if end_date < start_date:
+        return []
+
+    dates: list[str] = []
+    current = start_date
+    while current <= end_date:
+        dates.append(current.isoformat())
+        current += timedelta(days=1)
+    return dates
+
+
+def _parse_schedule_entry(
+    *, item: dict[str, object], station_id: str
+) -> SDScheduleEntry | None:
+    program_id = _pick_str(item, "programID", "programId")
+    air_datetime = _pick_str(item, "airDateTime")
+    duration_seconds = _pick_int(item, "duration")
+    if (
+        not program_id
+        or not air_datetime
+        or duration_seconds is None
+        or duration_seconds <= 0
+    ):
+        return None
+
+    start_utc = _parse_optional_utc(air_datetime)
+    if start_utc is None:
+        return None
+
+    end_utc = start_utc + timedelta(seconds=duration_seconds)
+    return SDScheduleEntry(
+        station_id=station_id,
+        program_id=program_id,
+        start_utc=start_utc,
+        end_utc=end_utc,
+        duration_seconds=duration_seconds,
+        is_live=_pick_bool(item, "liveTapeDelay", "isLive") or False,
+        is_new=_pick_bool(item, "new", "isNew") or False,
+        audio_properties=_pick_str_sequence(item, "audioProperties"),
+        video_properties=_pick_str_sequence(item, "videoProperties"),
+    )
+
+
+def _parse_program(item: dict[str, object]) -> SDProgram | None:
+    program_id = _pick_str(item, "programID", "programId")
+    if not program_id:
+        return None
+
+    title = _extract_program_title(item)
+    if title is None:
+        return None
+
+    return SDProgram(
+        program_id=program_id,
+        title=title,
+        episode_title=_extract_program_episode_title(item),
+        description=_extract_program_description(item),
+        original_air_date=_parse_optional_date(_pick_str(item, "originalAirDate")),
+        genres=_pick_str_sequence(item, "genres"),
+        artwork_urls=_extract_artwork_urls(item),
+    )
+
+
+def _extract_program_title(item: dict[str, object]) -> str | None:
+    titles = item.get("titles")
+    if isinstance(titles, list):
+        for title in titles:
+            if not isinstance(title, dict):
+                continue
+            value = _pick_str(title, "title120", "title")
+            if value:
+                return value
+    return _pick_str(item, "title")
+
+
+def _extract_program_episode_title(item: dict[str, object]) -> str | None:
+    value = _pick_str(item, "episodeTitle150")
+    if value:
+        return value
+    titles = item.get("episodeTitle")
+    if isinstance(titles, list):
+        for title in titles:
+            if not isinstance(title, dict):
+                continue
+            value = _pick_str(title, "title150", "title")
+            if value:
+                return value
+    return None
+
+
+def _extract_program_description(item: dict[str, object]) -> str | None:
+    descriptions = item.get("descriptions")
+    if isinstance(descriptions, dict):
+        for key in ("description1000", "description100"):
+            values = descriptions.get(key)
+            if not isinstance(values, list):
+                continue
+            for entry in values:
+                if not isinstance(entry, dict):
+                    continue
+                value = _pick_str(entry, "description")
+                if value:
+                    return value
+    return _pick_str(item, "description")
+
+
+def _extract_artwork_urls(item: dict[str, object]) -> tuple[str, ...]:
+    urls: list[str] = []
+    episode_image = item.get("episodeImage")
+    if isinstance(episode_image, dict):
+        uri = _pick_str(episode_image, "uri")
+        if uri:
+            urls.append(uri)
+
+    for key in ("keyArt", "showImages"):
+        images = item.get(key)
+        if not isinstance(images, list):
+            continue
+        for image in images:
+            if not isinstance(image, dict):
+                continue
+            uri = _pick_str(image, "uri")
+            if uri:
+                urls.append(uri)
+
+    # Keep insertion order but drop duplicates.
+    return tuple(dict.fromkeys(urls))
+
+
+def _pick_bool(payload: dict[str, object], *keys: str) -> bool | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "false"}:
+                return lowered == "true"
+    return None
+
+
+def _pick_str_sequence(payload: dict[str, object], key: str) -> tuple[str, ...]:
+    raw_values = payload.get(key)
+    if not isinstance(raw_values, list):
+        return ()
+
+    values: list[str] = []
+    for raw_value in raw_values:
+        if not isinstance(raw_value, str):
+            continue
+        trimmed = raw_value.strip()
+        if not trimmed:
+            continue
+        values.append(trimmed)
+    return tuple(dict.fromkeys(values))
+
+
+def _parse_optional_date(value: str | None) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _pick_str(payload: dict[str, object], *keys: str) -> str | None:
