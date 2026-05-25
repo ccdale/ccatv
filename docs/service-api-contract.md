@@ -90,7 +90,11 @@ Response payload:
   "timeUtc": "2026-05-23T16:00:00Z",
   "database": {
     "path": "...",
-    "reachable": true
+    "reachable": true,
+    "readable": true,
+    "writable": true,
+    "error": null,
+    "failedAt": null
   },
   "recorder": {
     "workerEnabled": true
@@ -107,15 +111,30 @@ Response payload:
 ```json
 {
   "appName": "ccatv",
-  "appVersion": "0.1.109",
+  "appVersion": "0.1.118",
   "apiVersion": "v1alpha1",
   "capabilities": [
-    "recording.schedule",
-    "recording.orchestration",
+    "service.health",
+    "service.info",
+    "recording.worker.cycle",
     "metadata.schedulesdirect.sync"
   ]
 }
 ```
+
+## M1 Capability Matrix and CLI Migration Mapping
+
+This maps existing CLI/runtime flows to the M1 service command surface.
+
+| Existing front-end flow | M1 command(s) | Status | Notes |
+| --- | --- | --- | --- |
+| `ccatv-service --run-once` recorder cycle | `recording.worker.cycle.run` | Implemented | Single-cycle execution now available through dispatcher command path. |
+| `ccatv epg-sync-sd --lineup-id ...` one-shot sync | `metadata.sd.sync.run` | Implemented | Lineup/window/seed path supported; timeout and shutdown cancellation hardened. |
+| service liveness/status | `service.health.get` | Implemented | Includes read/write DB readiness details and probe failure step diagnostics. |
+| service metadata + features | `service.info.get` | Implemented | Returns app metadata, API version, and concrete capability list. |
+| `ccatv setup` runtime credential/config mutation | N/A in M1 | Deferred | Remains local CLI-side in M1; migration evaluated in M2/M4. |
+| scheduler create/list APIs | `recording.schedule.create`, `recording.schedule.list` | Deferred | Contracted but not wired to dispatcher in current M1 code. |
+| metadata checkpoint/status read | `metadata.sd.sync.status.get` | Deferred | Contracted but not wired to dispatcher in current M1 code. |
 
 ### Recorder Scheduling
 

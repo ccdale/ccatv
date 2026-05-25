@@ -11,6 +11,7 @@ import pytest
 
 from ccatv.app.service_dispatcher import (
     API_VERSION,
+    SERVICE_CAPABILITIES,
     ServiceCommandDispatcher,
     ServiceCommandError,
 )
@@ -69,6 +70,25 @@ def test_dispatch_service_health_get() -> None:
     assert payload["database"]["error"] is None
     assert payload["database"]["failedAt"] is None
     assert payload["recorder"]["workerEnabled"] is True
+
+
+def test_dispatch_service_info_get() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.info.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["apiVersion"] == API_VERSION
+    assert payload["appName"] == "ccatv"
+    assert isinstance(payload["appVersion"], str)
+    assert payload["appVersion"]
+    assert payload["capabilities"] == SERVICE_CAPABILITIES
 
 
 def test_dispatch_service_health_get_degraded_when_connection_closed() -> None:

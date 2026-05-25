@@ -87,7 +87,7 @@ ends (CLI, GTK4, Flask/FastAPI) as clients.
 M1. Service API surface and boundary definitions.
 - [x] Create M1 service API contract draft with envelope/error model.
 - [x] Add daemon entrypoint skeleton (`ccatv-service`) as process boundary seed.
-- [ ] Define command capability matrix and migration mapping from existing CLI flows.
+- [x] Define command capability matrix and migration mapping from existing CLI flows.
 
 M2. Extract use-case orchestration from front-end glue.
 - [ ] Ensure recording and scheduling workflows are callable through service command handlers only.

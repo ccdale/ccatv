@@ -8,6 +8,7 @@ from pathlib import Path
 from queue import Queue
 from threading import Lock, Thread
 
+from ccatv import __app_name__, __version__
 from ccatv.app.bootstrap import AppContext
 from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.metadata import SchedulesDirectHttpClient
@@ -27,6 +28,13 @@ from ccatv.metadata.schedules_direct_runtime import (
 from ccatv.storage import initialize_database
 
 API_VERSION = "v1alpha1"
+
+SERVICE_CAPABILITIES = [
+    "service.health",
+    "service.info",
+    "recording.worker.cycle",
+    "metadata.schedulesdirect.sync",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +125,8 @@ class ServiceCommandDispatcher:
     ) -> dict[str, object]:
         if command == "service.health.get":
             return self._service_health_get()
+        if command == "service.info.get":
+            return self._service_info_get()
         if command == "recording.worker.cycle.run":
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.sd.sync.run":
@@ -144,6 +154,14 @@ class ServiceCommandDispatcher:
             "recorder": {
                 "workerEnabled": True,
             },
+        }
+
+    def _service_info_get(self) -> dict[str, object]:
+        return {
+            "appName": __app_name__,
+            "appVersion": __version__,
+            "apiVersion": API_VERSION,
+            "capabilities": SERVICE_CAPABILITIES,
         }
 
     def _probe_database_health(self) -> dict[str, object]:
