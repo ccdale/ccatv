@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import pytest
+
 from ccatv.app.service_client import ServiceClientError
 from ccatv.web.app import create_app
 
@@ -138,3 +140,95 @@ def test_schedule_create_maps_service_error(monkeypatch) -> None:
             "durationSeconds": 0,
         },
     )]
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected_status"),
+    [
+        ("SD_RATE_LIMITED", 429),
+        ("SD_SYNC_TIMEOUT", 504),
+        ("SD_UPSTREAM_ERROR", 502),
+        ("AUTHENTICATION_REQUIRED", 503),
+        ("TRANSPORT_ERROR", 503),
+    ],
+)
+def test_health_route_maps_domain_and_transport_errors(
+    monkeypatch,
+    error_code: str,
+    expected_status: int,
+) -> None:
+    stub = _StubServiceClient(
+        fail_with=ServiceClientError(
+            code=error_code,
+            message="simulated error",
+            retryable=True,
+        )
+    )
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/health")
+
+    assert response.status_code == expected_status
+    body = response.get_json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == error_code
+
+
+def test_web_auth_guard_blocks_unauthenticated_requests(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 401
+    body = response.get_json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "AUTHENTICATION_REQUIRED"
+    assert stub.calls == []
+
+
+def test_web_auth_guard_allows_authenticated_requests(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get(
+        "/api/health",
+        headers={"Authorization": "Bearer web-token"},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["ok"] is True
+    assert stub.calls == [("service.health.get", {})]

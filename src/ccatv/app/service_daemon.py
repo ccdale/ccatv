@@ -305,8 +305,22 @@ def run_http_server(
         if response.get("ok") is True:
             return HTTPStatus.OK
         error = response.get("error")
-        if isinstance(error, dict) and error.get("code") == "INTERNAL_ERROR":
-            return HTTPStatus.INTERNAL_SERVER_ERROR
+        if isinstance(error, dict):
+            code = error.get("code")
+            if code == "INTERNAL_ERROR":
+                return HTTPStatus.INTERNAL_SERVER_ERROR
+            if code == "AUTHENTICATION_REQUIRED":
+                return HTTPStatus.UNAUTHORIZED
+            if code == "NOT_FOUND":
+                return HTTPStatus.NOT_FOUND
+            if code == "COMMAND_CANCELLED":
+                return HTTPStatus.CONFLICT
+            if code == "SD_RATE_LIMITED":
+                return HTTPStatus.TOO_MANY_REQUESTS
+            if code == "SD_SYNC_TIMEOUT":
+                return HTTPStatus.GATEWAY_TIMEOUT
+            if code in {"SD_UPSTREAM_ERROR", "SD_AUTH_FAILED"}:
+                return HTTPStatus.BAD_GATEWAY
         return HTTPStatus.BAD_REQUEST
 
     class _Handler(BaseHTTPRequestHandler):

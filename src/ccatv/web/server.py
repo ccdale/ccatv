@@ -47,6 +47,14 @@ def build_parser() -> argparse.ArgumentParser:
             "CCATV_SERVICE_AUTH_TOKEN from environment."
         ),
     )
+    parser.add_argument(
+        "--web-auth-token",
+        default=None,
+        help=(
+            "Optional bearer token required by this Flask app for /api/* routes. "
+            "If omitted, uses CCATV_WEB_AUTH_TOKEN from environment."
+        ),
+    )
     return parser
 
 
@@ -65,10 +73,13 @@ def main(argv: list[str] | None = None) -> int:
             "--service-auth-token is required (or set CCATV_SERVICE_AUTH_TOKEN)"
         )
 
+    web_auth_token = args.web_auth_token or os.getenv("CCATV_WEB_AUTH_TOKEN")
+
     app = create_app(
         service_host=args.service_host,
         service_port=args.service_port,
         service_auth_token=service_auth_token,
+        web_auth_token=web_auth_token,
     )
     app.run(host=args.listen_host, port=args.listen_port, debug=False)
     return 0

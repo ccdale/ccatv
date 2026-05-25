@@ -612,6 +612,104 @@ def test_run_http_server_handles_authenticated_health_get(monkeypatch) -> None:
     assert decoded["payload"]["status"] == "ok"
 
 
+def test_run_http_server_rejects_unauthenticated_health_get(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.health.unauth"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    thread, http_port = _start_http_server(context)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    connection.request("GET", "/health")
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 401
+    assert decoded["ok"] is False
+    assert decoded["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+def test_run_http_server_maps_rate_limit_code_to_429(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.sd.rate_limit"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": False,
+                "error": {
+                    "code": "SD_RATE_LIMITED",
+                    "message": "slow down",
+                    "retryable": True,
+                    "details": {"retryAfterSeconds": 30},
+                },
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    thread, http_port = _start_http_server(context)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    connection.request(
+        "POST",
+        "/api/v1/command",
+        body=json.dumps(
+            {
+                "apiVersion": "v1alpha1",
+                "command": "metadata.sd.sync.run",
+                "requestId": "http-rate-limit",
+                "payload": {},
+            }
+        ),
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+        },
+    )
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 429
+    assert decoded["ok"] is False
+    assert decoded["error"]["code"] == "SD_RATE_LIMITED"
+
+
 def test_run_http_server_rejects_empty_request_body(monkeypatch) -> None:
     context = SimpleNamespace(
         logger=logging.getLogger("test.daemon.http.empty"),

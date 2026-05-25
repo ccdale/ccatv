@@ -12,12 +12,24 @@ def _status_for_service_error(code: str) -> int:
         return 400
     if code == "UNSUPPORTED_COMMAND":
         return 400
-    if code == "AUTHENTICATION_REQUIRED":
+    if code == "COMMAND_CANCELLED":
+        return 409
+    if code == "SD_RATE_LIMITED":
+        return 429
+    if code == "SD_SYNC_TIMEOUT":
+        return 504
+    if code == "SD_UPSTREAM_ERROR":
         return 502
+    if code == "SD_AUTH_FAILED":
+        return 502
+    if code == "AUTHENTICATION_REQUIRED":
+        return 503
     if code == "TRANSPORT_ERROR":
         return 503
     if code == "INTERNAL_ERROR":
         return 502
+    if code == "NOT_FOUND":
+        return 404
     return 502
 
 
@@ -49,8 +61,33 @@ def create_app(
     service_host: str,
     service_port: int,
     service_auth_token: str,
+    web_auth_token: str | None = None,
 ) -> Flask:
     app = Flask(__name__)
+
+    @app.before_request
+    def _web_auth_guard():
+        if web_auth_token is None:
+            return None
+        if not request.path.startswith("/api/"):
+            return None
+        header = request.headers.get("Authorization")
+        if header == f"Bearer {web_auth_token}":
+            return None
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "AUTHENTICATION_REQUIRED",
+                        "message": "missing or invalid web bearer token",
+                        "retryable": False,
+                        "details": {},
+                    },
+                }
+            ),
+            401,
+        )
 
     def _client_factory() -> ServiceClient:
         return create_service_client(
