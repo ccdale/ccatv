@@ -38,13 +38,11 @@ class LocalInProcessServiceClient(ServiceClient):
         )
 
     def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
-        response = self._dispatcher.dispatch(
-            {
-                "apiVersion": API_VERSION,
-                "command": command,
-                "payload": payload,
-            }
-        )
+        response = self._dispatcher.dispatch({
+            "apiVersion": API_VERSION,
+            "command": command,
+            "payload": payload,
+        })
         if response.get("ok") is not True:
             error = response.get("error")
             if isinstance(error, dict):
