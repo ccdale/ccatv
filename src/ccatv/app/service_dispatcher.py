@@ -139,6 +139,7 @@ class ServiceCommandDispatcher:
                 "readable": db_status["readable"],
                 "writable": db_status["writable"],
                 "error": db_status["error"],
+                "failedAt": db_status["failedAt"],
             },
             "recorder": {
                 "workerEnabled": True,
@@ -150,36 +151,90 @@ class ServiceCommandDispatcher:
         readable = False
         writable = False
         error: str | None = None
+        failed_at: str | None = None
 
         try:
             connection.execute("SELECT 1")
             readable = True
         except Exception as exc:
+            failed_at = "read.select"
             error = str(exc)
             return {
                 "reachable": False,
                 "readable": readable,
                 "writable": writable,
                 "error": error,
+                "failedAt": failed_at,
             }
 
-        try:
-            # Use a savepoint-based write probe to avoid mutating persistent state.
-            connection.execute("SAVEPOINT ccatv_health_check")
-            connection.execute("CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)")
-            connection.execute("INSERT INTO ccatv_health_probe (v) VALUES (1)")
-            connection.execute("ROLLBACK TO ccatv_health_check")
-            connection.execute("RELEASE ccatv_health_check")
-            writable = True
-        except Exception as exc:
-            error = str(exc)
+        if getattr(connection, "in_transaction", False):
+            writable, error, failed_at = self._probe_database_write_with_savepoint(
+                connection,
+            )
+        else:
+            writable, error, failed_at = self._probe_database_write_with_transaction(
+                connection,
+            )
 
         return {
             "reachable": readable and writable,
             "readable": readable,
             "writable": writable,
             "error": error,
+            "failedAt": failed_at,
         }
+
+    def _probe_database_write_with_savepoint(self, connection):
+        savepoint_name = "ccatv_health_check"
+        failed_at: str | None = None
+        try:
+            failed_at = "write.savepoint.begin"
+            connection.execute(f"SAVEPOINT {savepoint_name}")
+            failed_at = "write.tempTable.create"
+            connection.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)"
+            )
+            failed_at = "write.tempTable.insert"
+            connection.execute("INSERT INTO ccatv_health_probe (v) VALUES (1)")
+            failed_at = "write.savepoint.rollback"
+            connection.execute(f"ROLLBACK TO {savepoint_name}")
+            failed_at = "write.savepoint.release"
+            connection.execute(f"RELEASE {savepoint_name}")
+            return True, None, None
+        except Exception as exc:
+            try:
+                connection.execute(f"ROLLBACK TO {savepoint_name}")
+            except Exception:
+                pass
+            try:
+                connection.execute(f"RELEASE {savepoint_name}")
+            except Exception:
+                pass
+            return False, str(exc), failed_at
+
+    def _probe_database_write_with_transaction(self, connection):
+        failed_at: str | None = None
+        transaction_started = False
+        try:
+            failed_at = "write.transaction.begin"
+            connection.execute("BEGIN")
+            transaction_started = True
+            failed_at = "write.tempTable.create"
+            connection.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)"
+            )
+            failed_at = "write.tempTable.insert"
+            connection.execute("INSERT INTO ccatv_health_probe (v) VALUES (1)")
+            failed_at = "write.transaction.rollback"
+            connection.execute("ROLLBACK")
+            return True, None, None
+        except Exception as exc:
+            if transaction_started and getattr(connection, "in_transaction", False):
+                try:
+                    connection.execute("ROLLBACK")
+                except Exception:
+                    pass
+            return False, str(exc), failed_at
 
     def _recording_worker_cycle_run(
         self, payload: dict[str, object]

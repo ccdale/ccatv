@@ -67,6 +67,7 @@ def test_dispatch_service_health_get() -> None:
     assert payload["database"]["readable"] is True
     assert payload["database"]["writable"] is True
     assert payload["database"]["error"] is None
+    assert payload["database"]["failedAt"] is None
     assert payload["recorder"]["workerEnabled"] is True
 
 
@@ -88,6 +89,7 @@ def test_dispatch_service_health_get_degraded_when_connection_closed() -> None:
     assert payload["database"]["readable"] is False
     assert payload["database"]["writable"] is False
     assert payload["database"]["error"]
+    assert payload["database"]["failedAt"] == "read.select"
 
 
 def test_dispatch_service_health_get_degraded_when_write_probe_fails() -> None:
@@ -117,6 +119,77 @@ def test_dispatch_service_health_get_degraded_when_write_probe_fails() -> None:
     assert payload["database"]["readable"] is True
     assert payload["database"]["writable"] is False
     assert "readonly" in payload["database"]["error"].lower()
+    assert payload["database"]["failedAt"]
+
+
+def test_dispatch_service_health_get_reports_transaction_begin_failure() -> None:
+    class _BeginFailConnection:
+        in_transaction = False
+
+        def execute(self, sql: str):
+            if sql == "SELECT 1":
+                return None
+            if sql == "BEGIN":
+                raise sqlite3.OperationalError("database is locked")
+            return None
+
+    context = SimpleNamespace(
+        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+        persistence=SimpleNamespace(connection=_BeginFailConnection()),
+        settings=SimpleNamespace(database_path=":memory:"),
+    )
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.health.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["status"] == "degraded"
+    assert payload["database"]["readable"] is True
+    assert payload["database"]["writable"] is False
+    assert payload["database"]["failedAt"] == "write.transaction.begin"
+
+
+def test_dispatch_service_health_get_reports_savepoint_create_failure() -> None:
+    class _SavepointCreateFailConnection:
+        in_transaction = True
+
+        def execute(self, sql: str):
+            if sql == "SELECT 1":
+                return None
+            if sql == "SAVEPOINT ccatv_health_check":
+                return None
+            if sql == "CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)":
+                raise sqlite3.OperationalError("temp store is full")
+            if sql == "ROLLBACK TO ccatv_health_check":
+                return None
+            if sql == "RELEASE ccatv_health_check":
+                return None
+            return None
+
+    context = SimpleNamespace(
+        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+        persistence=SimpleNamespace(connection=_SavepointCreateFailConnection()),
+        settings=SimpleNamespace(database_path=":memory:"),
+    )
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.health.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["status"] == "degraded"
+    assert payload["database"]["readable"] is True
+    assert payload["database"]["writable"] is False
+    assert payload["database"]["failedAt"] == "write.tempTable.create"
 
 
 def test_dispatch_recording_worker_cycle_run(monkeypatch) -> None:
