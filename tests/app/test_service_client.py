@@ -304,6 +304,60 @@ def test_http_service_client_treats_401_as_auth_failure_even_on_ok_body(
     assert exc_info.value.code == "AUTHENTICATION_REQUIRED"
     assert exc_info.value.retryable is False
 
+
+def test_http_service_client_treats_401_as_auth_failure_when_error_dict_present(
+    monkeypatch,
+) -> None:
+    class _StubHttpResponse:
+        status = 401
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "ok": True,
+                    "error": {
+                        "code": "AUTHENTICATION_REQUIRED",
+                        "message": "token expired",
+                        "retryable": False,
+                        "details": {},
+                    },
+                    "payload": {"status": "unexpected"},
+                }
+            ).encode("utf-8")
+
+    class _StubHttpConnection:
+        def __init__(self, host: str, port: int, timeout: float) -> None:
+            self.host = host
+            self.port = port
+            self.timeout = timeout
+
+        def request(self, method: str, path: str, body: bytes, headers: dict[str, str]):
+            assert method == "POST"
+            assert path == "/api/v1/command"
+
+        def getresponse(self):
+            return _StubHttpResponse()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "ccatv.app.service_client._http_client.HTTPConnection",
+        _StubHttpConnection,
+    )
+
+    client = HttpServiceClient(
+        host="127.0.0.1",
+        port=8787,
+        auth_token="test-token",
+    )
+    with pytest.raises(ServiceClientError) as exc_info:
+        client.execute("service.info.get", {})
+
+    assert exc_info.value.code == "AUTHENTICATION_REQUIRED"
+    assert exc_info.value.message == "token expired"
+    assert exc_info.value.retryable is False
+
 def test_create_service_client_returns_unix_socket_client_when_path_given() -> None:
     client = create_service_client(socket_path="/tmp/_ccatv_test.sock")
     assert isinstance(client, UnixSocketServiceClient)
@@ -331,3 +385,12 @@ def test_create_service_client_returns_http_client_when_host_given() -> None:
 def test_create_service_client_requires_http_auth_token() -> None:
     with pytest.raises(ValueError):
         create_service_client(http_host="127.0.0.1")
+
+
+def test_create_service_client_rejects_socket_and_http_combination() -> None:
+    with pytest.raises(ValueError):
+        create_service_client(
+            socket_path="/tmp/ccatv.sock",
+            http_host="127.0.0.1",
+            http_auth_token="token",
+        )

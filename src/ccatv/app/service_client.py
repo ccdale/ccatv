@@ -214,12 +214,16 @@ class HttpServiceClient:
 
         if status_code == 401:
             error = response.get("error")
-            if not isinstance(error, dict):
-                raise ServiceClientError(
-                    code="AUTHENTICATION_REQUIRED",
-                    message="missing or invalid bearer token",
-                    retryable=False,
-                )
+            message = "missing or invalid bearer token"
+            if isinstance(error, dict):
+                response_message = error.get("message")
+                if isinstance(response_message, str) and response_message.strip():
+                    message = response_message
+            raise ServiceClientError(
+                code="AUTHENTICATION_REQUIRED",
+                message=message,
+                retryable=False,
+            )
 
         return _extract_payload_or_raise(
             response,
