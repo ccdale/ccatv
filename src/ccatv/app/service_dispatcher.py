@@ -187,29 +187,45 @@ class ServiceCommandDispatcher:
     def _probe_database_write_with_savepoint(self, connection):
         savepoint_name = "ccatv_health_check"
         failed_at: str | None = None
+        savepoint_started = False
         try:
             failed_at = "write.savepoint.begin"
             connection.execute(f"SAVEPOINT {savepoint_name}")
+            savepoint_started = True
             failed_at = "write.tempTable.create"
             connection.execute(
                 "CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)"
             )
             failed_at = "write.tempTable.insert"
             connection.execute("INSERT INTO ccatv_health_probe (v) VALUES (1)")
+        except Exception as exc:
+            error = str(exc)
+            if savepoint_started:
+                try:
+                    connection.execute(f"ROLLBACK TO {savepoint_name}")
+                except Exception as cleanup_exc:
+                    return (
+                        False,
+                        f"{error}; cleanup rollback failed: {cleanup_exc}",
+                        f"{failed_at}.cleanup.rollback",
+                    )
+                try:
+                    connection.execute(f"RELEASE {savepoint_name}")
+                except Exception as cleanup_exc:
+                    return (
+                        False,
+                        f"{error}; cleanup release failed: {cleanup_exc}",
+                        f"{failed_at}.cleanup.release",
+                    )
+            return False, str(exc), failed_at
+
+        try:
             failed_at = "write.savepoint.rollback"
             connection.execute(f"ROLLBACK TO {savepoint_name}")
             failed_at = "write.savepoint.release"
             connection.execute(f"RELEASE {savepoint_name}")
             return True, None, None
         except Exception as exc:
-            try:
-                connection.execute(f"ROLLBACK TO {savepoint_name}")
-            except Exception:
-                pass
-            try:
-                connection.execute(f"RELEASE {savepoint_name}")
-            except Exception:
-                pass
             return False, str(exc), failed_at
 
     def _probe_database_write_with_transaction(self, connection):
@@ -225,15 +241,24 @@ class ServiceCommandDispatcher:
             )
             failed_at = "write.tempTable.insert"
             connection.execute("INSERT INTO ccatv_health_probe (v) VALUES (1)")
+        except Exception as exc:
+            error = str(exc)
+            if transaction_started:
+                try:
+                    connection.execute("ROLLBACK")
+                except Exception as cleanup_exc:
+                    return (
+                        False,
+                        f"{error}; cleanup rollback failed: {cleanup_exc}",
+                        f"{failed_at}.cleanup.rollback",
+                    )
+            return False, str(exc), failed_at
+
+        try:
             failed_at = "write.transaction.rollback"
             connection.execute("ROLLBACK")
             return True, None, None
         except Exception as exc:
-            if transaction_started and getattr(connection, "in_transaction", False):
-                try:
-                    connection.execute("ROLLBACK")
-                except Exception:
-                    pass
             return False, str(exc), failed_at
 
     def _recording_worker_cycle_run(

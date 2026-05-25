@@ -154,6 +154,77 @@ def test_dispatch_service_health_get_reports_transaction_begin_failure() -> None
     assert payload["database"]["failedAt"] == "write.transaction.begin"
 
 
+def test_dispatch_service_health_get_reports_transaction_insert_failure() -> None:
+    class _InsertFailConnection:
+        in_transaction = False
+
+        def execute(self, sql: str):
+            if sql in {"SELECT 1", "BEGIN", "ROLLBACK"}:
+                return None
+            if sql == "CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)":
+                return None
+            if sql == "INSERT INTO ccatv_health_probe (v) VALUES (1)":
+                raise sqlite3.OperationalError("disk I/O error")
+            return None
+
+    context = SimpleNamespace(
+        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+        persistence=SimpleNamespace(connection=_InsertFailConnection()),
+        settings=SimpleNamespace(database_path=":memory:"),
+    )
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.health.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["status"] == "degraded"
+    assert payload["database"]["readable"] is True
+    assert payload["database"]["writable"] is False
+    assert payload["database"]["failedAt"] == "write.tempTable.insert"
+
+
+def test_dispatch_service_health_get_reports_transaction_cleanup_failure() -> None:
+    class _InsertAndRollbackFailConnection:
+        in_transaction = False
+
+        def execute(self, sql: str):
+            if sql in {"SELECT 1", "BEGIN"}:
+                return None
+            if sql == "CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)":
+                return None
+            if sql == "INSERT INTO ccatv_health_probe (v) VALUES (1)":
+                raise sqlite3.OperationalError("disk full")
+            if sql == "ROLLBACK":
+                raise sqlite3.OperationalError("rollback failed")
+            return None
+
+    context = SimpleNamespace(
+        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+        persistence=SimpleNamespace(connection=_InsertAndRollbackFailConnection()),
+        settings=SimpleNamespace(database_path=":memory:"),
+    )
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.health.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["status"] == "degraded"
+    assert payload["database"]["readable"] is True
+    assert payload["database"]["writable"] is False
+    assert payload["database"]["failedAt"] == "write.tempTable.insert.cleanup.rollback"
+    assert "cleanup rollback failed" in payload["database"]["error"]
+
+
 def test_dispatch_service_health_get_reports_savepoint_create_failure() -> None:
     class _SavepointCreateFailConnection:
         in_transaction = True
