@@ -119,6 +119,28 @@ def test_stop_terminates_running_process(monkeypatch: pytest.MonkeyPatch) -> Non
     assert status.pid is None
 
 
+def test_stop_returns_stopped_when_process_already_exited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(poll_value=None)
+
+    def _popen(*args, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig())
+    manager.start()
+    fake_process._poll_value = 0
+
+    status = manager.stop()
+
+    assert fake_process.terminated is False
+    assert fake_process.killed is False
+    assert status.state == DvbStreamerState.STOPPED
+    assert status.pid is None
+
+
 def test_stop_timeout_can_force_kill(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_process = _FakeProcess(poll_value=None, wait_raises_timeout=True)
 
