@@ -49,6 +49,33 @@ def test_select_preferred_broadcast_falls_back_to_sd() -> None:
     assert selected.source == "schedules_direct"
 
 
+def test_select_preferred_broadcast_empty_list_returns_none() -> None:
+    selected = select_preferred_broadcast([])
+
+    assert selected is None
+
+
+def test_select_preferred_broadcast_keeps_order_for_equal_priority() -> None:
+    first = GuideBroadcastCandidate(
+        source="dvbstreamer_ota",
+        source_channel_id="1:2:3",
+        start_utc="2026-05-25T20:00:00Z",
+        stop_utc="2026-05-25T20:30:00Z",
+        title="News",
+    )
+    second = GuideBroadcastCandidate(
+        source="dvbstreamer_ota",
+        source_channel_id="4:5:6",
+        start_utc="2026-05-25T20:00:00Z",
+        stop_utc="2026-05-25T20:30:00Z",
+        title="News",
+    )
+
+    selected = select_preferred_broadcast([first, second])
+
+    assert selected is first
+
+
 def test_sort_by_preference_orders_known_sources_before_unknown() -> None:
     candidates = [
         GuideBroadcastCandidate(

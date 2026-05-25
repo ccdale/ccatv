@@ -95,7 +95,8 @@ M2. Extract use-case orchestration from front-end glue.
 	- [ ] Remaining: migrate front-end callers to service-client path so workflow execution is service-command-only.
 - [ ] Ensure metadata sync workflows are callable through service command handlers only.
 	- [x] Added `metadata.sd.sync.status.get` dispatcher command handler.
-	- [x] Added explicit guide source precedence policy (prefer `dvbstreamer_ota` over `schedules_direct` where both provide a slot).
+	- [x] Scaffolded explicit guide source precedence policy (prefer `dvbstreamer_ota` over `schedules_direct` where both provide a slot).
+	- [ ] Integrate source precedence policy into metadata workflow read paths.
 	- [ ] Remaining: migrate front-end callers to service-client path so metadata workflows are service-command-only.
 
 M3. Daemon transport implementation.

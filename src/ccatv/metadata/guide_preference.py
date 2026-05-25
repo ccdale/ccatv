@@ -28,7 +28,10 @@ def source_priority(source: str) -> int:
 def select_preferred_broadcast(
     candidates: list[GuideBroadcastCandidate],
 ) -> GuideBroadcastCandidate | None:
-    """Select the best candidate for a single slot, preferring OTA over SD."""
+    """Select the best candidate for a single slot, preferring OTA over SD.
+
+    Candidates with equal source priority preserve incoming list order.
+    """
     if not candidates:
         return None
     return min(candidates, key=lambda candidate: source_priority(candidate.source))
