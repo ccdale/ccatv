@@ -3,6 +3,30 @@
 Status: draft proposal  
 Date: 2026-05-17
 
+## Service-First Frontend Topology (M6 Update)
+
+Operational target based on current requirements:
+
+- GTK4 TV player app runs on the same host as `ccatv-service`.
+- Flask app runs on a different host (home desktop) for scheduling, recording
+  review, and logs/health views.
+
+Direction for transport boundaries:
+
+- GTK4 should use the local Unix socket transport (`--socket-path`) through a
+  shared service client.
+- Flask should use a remote-safe API transport (HTTP/JSON) exposed by the
+  recorder-service host.
+- Service command envelope and error contract remain shared across transports.
+
+Security and operations guidance:
+
+- Keep Unix socket mode as the default local control path.
+- Remote HTTP endpoint should be explicitly enabled, disabled by default, and
+  protected with authentication.
+- Prefer binding remote API to LAN or loopback plus reverse proxy/TLS based on
+  deployment model.
+
 ## Goals
 
 - Build a Linux television application with a Python GTK4 user interface.
