@@ -60,7 +60,42 @@ def test_gateway_health_command_uses_ipc_transport(tmp_path: Path) -> None:
     payload = gateway.get_service_health()
 
     thread.join(timeout=2.0)
+    assert not thread.is_alive()
     assert payload["status"] in {"ok", "degraded"}
+
+
+def test_gateway_create_schedule_forwards_expected_payload() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _execute(command: str, payload: dict[str, object]) -> dict[str, object]:
+        calls.append((command, payload))
+        return {"job": {"id": 123, "state": "scheduled"}}
+
+    gateway = GtkServiceGateway(
+        socket_path="/tmp/ccatv.sock",
+        _client_factory=lambda: SimpleNamespace(
+            execute=_execute,
+            close=lambda: None,
+        ),
+    )
+
+    payload = gateway.create_schedule(
+        channel_name="BBC ONE",
+        start_at_utc="2026-05-25T20:00:00Z",
+        duration_seconds=1800,
+    )
+
+    assert payload["job"]["id"] == 123
+    assert calls == [
+        (
+            "recording.schedule.create",
+            {
+                "channelName": "BBC ONE",
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "durationSeconds": 1800,
+            },
+        )
+    ]
 
 
 def test_gateway_create_schedule_validates_inputs() -> None:
