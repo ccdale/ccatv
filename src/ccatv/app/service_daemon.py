@@ -293,6 +293,7 @@ def run_http_server(
     auth_token: str,
     should_stop: Callable[[], bool] | None = None,
     max_requests: int | None = None,
+    on_listening: Callable[[int], None] | None = None,
 ) -> int:
     logger = context.logger
     stop_predicate = should_stop or (lambda: False)
@@ -482,7 +483,25 @@ def run_http_server(
                 )
                 return
 
-            raw_body = self.rfile.read(body_length)
+            self.connection.settimeout(5.0)
+            try:
+                raw_body = self.rfile.read(body_length)
+            except OSError:
+                self._json_response(
+                    status=HTTPStatus.REQUEST_TIMEOUT,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "TRANSPORT_ERROR",
+                            "message": "request body read timed out",
+                            "retryable": True,
+                            "details": {},
+                        },
+                    },
+                )
+                return
             response_bytes = _handle_ipc_request(raw_body, dispatcher)
             try:
                 response = json.loads(response_bytes.decode("utf-8"))
@@ -513,6 +532,8 @@ def run_http_server(
             bind_host,
             server.server_port,
         )
+        if on_listening is not None:
+            on_listening(server.server_port)
         while not stop_predicate():
             if max_requests is not None and requests_served >= max_requests:
                 break

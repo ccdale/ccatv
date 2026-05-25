@@ -55,6 +55,38 @@ class StubLock:
         return False
 
 
+def _start_http_server(
+    context,
+    *,
+    auth_token: str = "test-token",
+    max_requests: int = 1,
+) -> tuple[threading.Thread, int]:
+    listened_port: dict[str, int] = {}
+    ready = threading.Event()
+
+    def _on_listening(port: int) -> None:
+        listened_port["value"] = port
+        ready.set()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": 0,
+            "auth_token": auth_token,
+            "max_requests": max_requests,
+            "on_listening": _on_listening,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    if not ready.wait(timeout=2.0):
+        raise AssertionError("HTTP server did not become ready in time")
+    return thread, listened_port["value"]
+
+
 def test_run_service_daemon_once(monkeypatch) -> None:
     worker = StubWorker(
         cycle_results=[
@@ -452,25 +484,7 @@ def test_run_http_server_handles_authenticated_command_request(
         "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
     )
 
-    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    port_socket.bind(("127.0.0.1", 0))
-    http_port = port_socket.getsockname()[1]
-    port_socket.close()
-
-    thread = threading.Thread(
-        target=run_http_server,
-        kwargs={
-            "context": context,
-            "bind_host": "127.0.0.1",
-            "port": http_port,
-            "auth_token": "test-token",
-            "max_requests": 1,
-        },
-        daemon=True,
-    )
-    thread.start()
-
-    time.sleep(0.05)
+    thread, http_port = _start_http_server(context)
 
     connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
     request_payload = {
@@ -526,25 +540,7 @@ def test_run_http_server_rejects_missing_bearer_token(monkeypatch) -> None:
         "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
     )
 
-    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    port_socket.bind(("127.0.0.1", 0))
-    http_port = port_socket.getsockname()[1]
-    port_socket.close()
-
-    thread = threading.Thread(
-        target=run_http_server,
-        kwargs={
-            "context": context,
-            "bind_host": "127.0.0.1",
-            "port": http_port,
-            "auth_token": "test-token",
-            "max_requests": 1,
-        },
-        daemon=True,
-    )
-    thread.start()
-
-    time.sleep(0.05)
+    thread, http_port = _start_http_server(context)
 
     connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
     connection.request(
@@ -595,25 +591,7 @@ def test_run_http_server_handles_authenticated_health_get(monkeypatch) -> None:
         "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
     )
 
-    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    port_socket.bind(("127.0.0.1", 0))
-    http_port = port_socket.getsockname()[1]
-    port_socket.close()
-
-    thread = threading.Thread(
-        target=run_http_server,
-        kwargs={
-            "context": context,
-            "bind_host": "127.0.0.1",
-            "port": http_port,
-            "auth_token": "test-token",
-            "max_requests": 1,
-        },
-        daemon=True,
-    )
-    thread.start()
-
-    time.sleep(0.05)
+    thread, http_port = _start_http_server(context)
 
     connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
     connection.request(
@@ -656,25 +634,7 @@ def test_run_http_server_rejects_empty_request_body(monkeypatch) -> None:
         "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
     )
 
-    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    port_socket.bind(("127.0.0.1", 0))
-    http_port = port_socket.getsockname()[1]
-    port_socket.close()
-
-    thread = threading.Thread(
-        target=run_http_server,
-        kwargs={
-            "context": context,
-            "bind_host": "127.0.0.1",
-            "port": http_port,
-            "auth_token": "test-token",
-            "max_requests": 1,
-        },
-        daemon=True,
-    )
-    thread.start()
-
-    time.sleep(0.05)
+    thread, http_port = _start_http_server(context)
 
     connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
     connection.request(
@@ -723,25 +683,7 @@ def test_run_http_server_rejects_negative_content_length(monkeypatch) -> None:
         "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
     )
 
-    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    port_socket.bind(("127.0.0.1", 0))
-    http_port = port_socket.getsockname()[1]
-    port_socket.close()
-
-    thread = threading.Thread(
-        target=run_http_server,
-        kwargs={
-            "context": context,
-            "bind_host": "127.0.0.1",
-            "port": http_port,
-            "auth_token": "test-token",
-            "max_requests": 1,
-        },
-        daemon=True,
-    )
-    thread.start()
-
-    time.sleep(0.05)
+    thread, http_port = _start_http_server(context)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
         raw.settimeout(2.0)
@@ -790,25 +732,7 @@ def test_run_http_server_rejects_non_integer_content_length(monkeypatch) -> None
         "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
     )
 
-    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    port_socket.bind(("127.0.0.1", 0))
-    http_port = port_socket.getsockname()[1]
-    port_socket.close()
-
-    thread = threading.Thread(
-        target=run_http_server,
-        kwargs={
-            "context": context,
-            "bind_host": "127.0.0.1",
-            "port": http_port,
-            "auth_token": "test-token",
-            "max_requests": 1,
-        },
-        daemon=True,
-    )
-    thread.start()
-
-    time.sleep(0.05)
+    thread, http_port = _start_http_server(context)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
         raw.settimeout(2.0)
@@ -833,6 +757,56 @@ def test_run_http_server_rejects_non_integer_content_length(monkeypatch) -> None
     assert not thread.is_alive()
     assert b"400" in response_raw
     assert b"Content-Length must be an integer" in response_raw
+
+
+def test_run_http_server_rejects_oversized_request(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.oversized"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    thread, http_port = _start_http_server(context)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    oversized = "x" * (IPC_MAX_REQUEST_BYTES + 1)
+    connection.request(
+        "POST",
+        "/api/v1/command",
+        body=oversized,
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+            "Content-Length": str(IPC_MAX_REQUEST_BYTES + 1),
+        },
+    )
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 413
+    assert decoded["ok"] is False
+    assert decoded["error"]["code"] == "VALIDATION_ERROR"
+    assert decoded["error"]["message"] == "request too large"
 
 
 def test_run_ipc_server_rejects_empty_request(tmp_path: Path) -> None:
