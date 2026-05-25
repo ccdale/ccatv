@@ -504,7 +504,7 @@ def run_http_server(
                 return
             except OSError as exc:
                 self._json_response(
-                    status=HTTPStatus.BAD_REQUEST,
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
                     body={
                         "apiVersion": "v1alpha1",
                         "requestId": None,

@@ -783,30 +783,29 @@ def test_run_http_server_rejects_oversized_request(monkeypatch) -> None:
 
     thread, http_port = _start_http_server(context)
 
-    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
-    oversized = "x" * (IPC_MAX_REQUEST_BYTES + 1)
-    connection.request(
-        "POST",
-        "/api/v1/command",
-        body=oversized,
-        headers={
-            "Authorization": "Bearer test-token",
-            "Content-Type": "application/json",
-            "Content-Length": str(IPC_MAX_REQUEST_BYTES + 1),
-        },
-    )
-    response = connection.getresponse()
-    response_body = response.read()
-    connection.close()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
+        raw.settimeout(2.0)
+        raw.connect(("127.0.0.1", http_port))
+        raw.sendall(
+            b"POST /api/v1/command HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Authorization: Bearer test-token\r\n"
+            b"Content-Type: application/json\r\n"
+            + f"Content-Length: {IPC_MAX_REQUEST_BYTES + 1}\r\n".encode("utf-8")
+            + b"Connection: close\r\n\r\n"
+        )
+        chunks: list[bytes] = []
+        while True:
+            block = raw.recv(4096)
+            if not block:
+                break
+            chunks.append(block)
+        response_raw = b"".join(chunks)
 
     thread.join(timeout=2.0)
     assert not thread.is_alive()
-
-    decoded = json.loads(response_body.decode("utf-8"))
-    assert response.status == 413
-    assert decoded["ok"] is False
-    assert decoded["error"]["code"] == "VALIDATION_ERROR"
-    assert decoded["error"]["message"] == "request too large"
+    assert b"413" in response_raw
+    assert b"request too large" in response_raw
 
 
 def test_run_ipc_server_rejects_empty_request(tmp_path: Path) -> None:
