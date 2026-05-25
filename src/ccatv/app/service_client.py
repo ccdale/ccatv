@@ -182,6 +182,7 @@ class HttpServiceClient:
                 },
             )
             response_obj = connection.getresponse()
+            status_code = response_obj.status
             response_bytes = response_obj.read()
         except OSError as exc:
             raise ServiceClientError(
@@ -195,18 +196,30 @@ class HttpServiceClient:
         try:
             response = json.loads(response_bytes.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            retryable = status_code >= 500 or status_code in (408, 429)
             raise ServiceClientError(
                 code="TRANSPORT_ERROR",
-                message=f"HTTP response not valid JSON: {exc}",
-                retryable=True,
+                message=(
+                    f"HTTP {status_code} response not valid JSON: {exc}"
+                ),
+                retryable=retryable,
             ) from exc
 
         if not isinstance(response, dict):
             raise ServiceClientError(
                 code="TRANSPORT_ERROR",
-                message="HTTP response was not a JSON object",
+                message=f"HTTP {status_code} response was not a JSON object",
                 retryable=False,
             )
+
+        if status_code == 401 and response.get("ok") is not True:
+            error = response.get("error")
+            if not isinstance(error, dict):
+                raise ServiceClientError(
+                    code="AUTHENTICATION_REQUIRED",
+                    message="missing or invalid bearer token",
+                    retryable=False,
+                )
 
         return _extract_payload_or_raise(
             response,

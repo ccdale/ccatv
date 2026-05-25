@@ -17,7 +17,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--listen-host",
         default="127.0.0.1",
-        help="Flask bind host for the web app",
+        help=(
+            "Flask bind host for the web app "
+            "(use 0.0.0.0 to allow LAN access)"
+        ),
     )
     parser.add_argument(
         "--listen-port",

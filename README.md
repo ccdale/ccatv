@@ -103,6 +103,7 @@ Remote HTTP transport for desktop clients:
 
 Flask desktop frontend (first M6 integration):
 - `CCATV_SERVICE_AUTH_TOKEN=YOUR_TOKEN uv run ccatv-web --service-host recorder-host --service-port 8787 --listen-host 127.0.0.1 --listen-port 5000`
+- For LAN access from other machines, set `--listen-host 0.0.0.0`.
 - API routes currently exposed by the web app:
 	- `GET /api/health`
 	- `GET /api/service/info`

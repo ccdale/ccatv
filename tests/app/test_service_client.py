@@ -214,6 +214,48 @@ def test_http_service_client_rejects_invalid_token() -> None:
     thread.join(timeout=2.0)
     assert exc_info.value.code == "AUTHENTICATION_REQUIRED"
 
+
+def test_http_service_client_reports_non_json_status_context(monkeypatch) -> None:
+    class _StubHttpResponse:
+        status = 503
+
+        def read(self) -> bytes:
+            return b"<html>upstream failure</html>"
+
+    class _StubHttpConnection:
+        def __init__(self, host: str, port: int, timeout: float) -> None:
+            self.host = host
+            self.port = port
+            self.timeout = timeout
+
+        def request(self, method: str, path: str, body: bytes, headers: dict[str, str]):
+            assert method == "POST"
+            assert path == "/api/v1/command"
+            assert headers["Authorization"] == "Bearer test-token"
+
+        def getresponse(self):
+            return _StubHttpResponse()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "ccatv.app.service_client._http_client.HTTPConnection",
+        _StubHttpConnection,
+    )
+
+    client = HttpServiceClient(
+        host="127.0.0.1",
+        port=8787,
+        auth_token="test-token",
+    )
+    with pytest.raises(ServiceClientError) as exc_info:
+        client.execute("service.info.get", {})
+
+    assert exc_info.value.code == "TRANSPORT_ERROR"
+    assert exc_info.value.retryable is True
+    assert "HTTP 503 response not valid JSON" in exc_info.value.message
+
 def test_create_service_client_returns_unix_socket_client_when_path_given() -> None:
     client = create_service_client(socket_path="/tmp/_ccatv_test.sock")
     assert isinstance(client, UnixSocketServiceClient)
