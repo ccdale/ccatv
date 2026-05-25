@@ -35,10 +35,9 @@ cd /home/chris/src/ccatv
 uv build
 rm -rf .pkgroot
 mkdir -p .pkgroot/usr/lib/systemd/system
-mkdir -p .pkgroot/usr/share/ccatv
 mkdir -p .pkgroot/var/lib/ccatv/recordings
 cp systemd/ccatv.service .pkgroot/usr/lib/systemd/system/
-cp dist/*.whl .pkgroot/usr/share/ccatv/
+python -m installer --destdir=.pkgroot --prefix=/usr dist/*.whl
 ```
 
 Add a control file:
@@ -47,7 +46,7 @@ Add a control file:
 mkdir -p .pkgroot/DEBIAN
 cat > .pkgroot/DEBIAN/control <<'EOF'
 Package: ccatv
-Version: 0.1.152
+Version: 0.1.153
 Section: video
 Priority: optional
 Architecture: all
@@ -60,13 +59,13 @@ EOF
 Build the package:
 
 ```bash
-dpkg-deb --build .pkgroot ccatv_0.1.152_all.deb
+dpkg-deb --build .pkgroot ccatv_0.1.153_all.deb
 ```
 
 Install it:
 
 ```bash
-sudo dpkg -i ccatv_0.1.152_all.deb
+sudo dpkg -i ccatv_0.1.153_all.deb
 sudo systemctl daemon-reload
 sudo systemctl enable --now ccatv.service
 ```
