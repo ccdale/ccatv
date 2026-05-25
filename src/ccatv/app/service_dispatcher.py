@@ -14,8 +14,10 @@ from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.metadata import SchedulesDirectHttpClient
 from ccatv.metadata.schedules_direct_contract import (
     GuideSyncWindow,
+    SchedulesDirectApiError,
     SchedulesDirectAuthenticationError,
     SchedulesDirectRateLimitError,
+    SchedulesDirectTransportError,
 )
 from ccatv.metadata.schedules_direct_ingest import (
     SchedulesDirectIngestionService,
@@ -545,6 +547,25 @@ class ServiceCommandDispatcher:
                 retryable=True,
                 details={
                     "retryAfterSeconds": exc.retry_after_seconds,
+                },
+            ) from exc
+        except SchedulesDirectTransportError as exc:
+            raise ServiceCommandError(
+                code="SD_UPSTREAM_ERROR",
+                message=str(exc),
+                retryable=True,
+                details={
+                    "errorType": "transport",
+                },
+            ) from exc
+        except SchedulesDirectApiError as exc:
+            raise ServiceCommandError(
+                code="SD_UPSTREAM_ERROR",
+                message=str(exc),
+                retryable=True,
+                details={
+                    "errorType": "api",
+                    "providerCode": exc.code,
                 },
             ) from exc
         except TimeoutError as exc:

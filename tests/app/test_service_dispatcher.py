@@ -18,8 +18,10 @@ from ccatv.app.service_dispatcher import (
     ServiceCommandError,
 )
 from ccatv.metadata.schedules_direct_contract import (
+    SchedulesDirectApiError,
     SchedulesDirectAuthenticationError,
     SchedulesDirectRateLimitError,
+    SchedulesDirectTransportError,
 )
 from ccatv.runtime_config import RuntimeConfigStore
 from ccatv.storage import PersistenceStore, apply_migrations
@@ -711,6 +713,53 @@ def test_dispatch_metadata_sd_sync_maps_timeout(monkeypatch) -> None:
     assert response["error"]["code"] == "SD_SYNC_TIMEOUT"
     assert response["error"]["retryable"] is True
     assert response["error"]["details"]["timeoutSeconds"] == 0.001
+
+
+def test_dispatch_metadata_sd_sync_maps_upstream_transport_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    async def _raise_transport_error(**_kwargs):
+        raise SchedulesDirectTransportError("network unavailable")
+
+    monkeypatch.setattr(dispatcher, "_run_sd_sync", _raise_transport_error)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.run",
+        "payload": {
+            "lineupId": "UK-TEST",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "SD_UPSTREAM_ERROR"
+    assert response["error"]["retryable"] is True
+    assert response["error"]["details"]["errorType"] == "transport"
+
+
+def test_dispatch_metadata_sd_sync_maps_upstream_api_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    async def _raise_api_error(**_kwargs):
+        raise SchedulesDirectApiError(7020, "upstream unavailable")
+
+    monkeypatch.setattr(dispatcher, "_run_sd_sync", _raise_api_error)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.run",
+        "payload": {
+            "lineupId": "UK-TEST",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "SD_UPSTREAM_ERROR"
+    assert response["error"]["retryable"] is True
+    assert response["error"]["details"]["errorType"] == "api"
+    assert response["error"]["details"]["providerCode"] == 7020
 
 
 def test_dispatch_returns_cancelled_error_when_stop_requested() -> None:
