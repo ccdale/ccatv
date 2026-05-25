@@ -192,11 +192,35 @@ def _extract_services_by_mux(serviceinfo_output: str) -> dict[str, list[str]]:
 
 def _discover_channels_on_distinct_muxes(client: DvbCtrlClient) -> list[str]:
     try:
-        serviceinfo = client.run_command("serviceinfo")
+        services = client.run_command("lsservices")
     except DvbCtrlError:
         return []
 
-    services_by_mux = _extract_services_by_mux(serviceinfo.stdout)
+    service_names: list[str] = []
+    for line in services.stdout.splitlines():
+        name = line.strip()
+        if not name:
+            continue
+        if name not in service_names:
+            service_names.append(name)
+
+    services_by_mux: dict[str, list[str]] = {}
+    for service_name in service_names:
+        try:
+            serviceinfo = client.run_command(f"serviceinfo {shlex.quote(service_name)}")
+        except DvbCtrlError:
+            continue
+
+        for mux, names in _extract_services_by_mux(serviceinfo.stdout).items():
+            if mux not in services_by_mux:
+                services_by_mux[mux] = []
+            for name in names:
+                if name not in services_by_mux[mux]:
+                    services_by_mux[mux].append(name)
+
+        if len(services_by_mux) >= 4:
+            break
+
     channels: list[str] = []
     for mux in sorted(services_by_mux.keys()):
         if not services_by_mux[mux]:
@@ -557,7 +581,7 @@ def test_live_multi_adapter_parallel_recording_distinct_muxes() -> None:
         channels = _discover_channels_on_distinct_muxes(clients[0])
         if len(channels) < 4:
             pytest.skip(
-                "Could not discover 4 distinct-mux channels via `serviceinfo`; "
+                "Could not discover 4 distinct-mux channels via `lsservices` + `serviceinfo`; "
                 "update broadcast data or provide channel discovery support."
             )
 

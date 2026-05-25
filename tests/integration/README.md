@@ -48,9 +48,10 @@ The integration marker currently includes three live tests in `tests/integration
 The distinct-mux test has additional gates:
 
 1. `dvb_adapter_count` must be at least 4.
-2. `serviceinfo` output must allow discovery of at least 4 channels on distinct muxes.
+2. `lsservices` output must include enough channels for probing.
+3. `serviceinfo <channel>` output must allow discovery of at least 4 channels on distinct muxes.
 
-Service discovery parses channel name and mux identity from `serviceinfo`, including `Multiplex UID` output lines.
+Service discovery first enumerates channel names via `lsservices`, then parses channel name and mux identity from per-channel `serviceinfo` output, including `Multiplex UID` lines.
 
 ## Command Template Placeholders
 
