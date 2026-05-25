@@ -44,6 +44,7 @@ SERVICE_COMMANDS = [
     "recording.schedule.list",
     "recording.worker.cycle.run",
     "metadata.sd.sync.run",
+    "metadata.sd.sync.status.get",
 ]
 
 
@@ -150,6 +151,8 @@ class ServiceCommandDispatcher:
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.sd.sync.run":
             return self._metadata_sd_sync_run(payload)
+        if command == "metadata.sd.sync.status.get":
+            return self._metadata_sd_sync_status_get(payload)
         raise RuntimeError(f"unreachable dispatch branch for command: {command}")
 
     def _service_health_get(self) -> dict[str, object]:
@@ -337,7 +340,9 @@ class ServiceCommandDispatcher:
             ]
         }
 
-    def _recording_schedule_create(self, payload: dict[str, object]) -> dict[str, object]:
+    def _recording_schedule_create(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
         self._raise_if_stopping()
 
         channel_name = payload.get("channelName")
@@ -499,6 +504,57 @@ class ServiceCommandDispatcher:
                 "staleSchedulesPruned": stats.stale_schedules_pruned,
                 "ingestRunId": stats.ingest_run_id,
             }
+        }
+
+    def _metadata_sd_sync_status_get(self, payload: dict[str, object]) -> dict[str, object]:
+        source = payload.get("source")
+        if source is None:
+            source_value = "schedules_direct"
+        elif isinstance(source, str) and source.strip():
+            source_value = source.strip()
+        else:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="source must be a non-empty string when provided",
+            )
+
+        if source_value != "schedules_direct":
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="source must be 'schedules_direct'",
+            )
+
+        connection = self._context.persistence.connection
+        run_row = connection.execute(
+            """
+            SELECT id, status, finished_at_utc
+            FROM epg_ingest_runs
+            WHERE source = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (source_value,),
+        ).fetchone()
+        checkpoint_row = connection.execute(
+            """
+            SELECT last_successful_ingest_utc
+            FROM epg_source_checkpoints
+            WHERE source = ?
+            """,
+            (source_value,),
+        ).fetchone()
+
+        return {
+            "lastRun": {
+                "id": int(run_row[0]) if run_row is not None else None,
+                "status": str(run_row[1]) if run_row is not None else None,
+                "finishedAtUtc": run_row[2] if run_row is not None else None,
+            },
+            "checkpoint": {
+                "lastSuccessfulIngestUtc": (
+                    checkpoint_row[0] if checkpoint_row is not None else None
+                )
+            },
         }
 
     def _run_coroutine_blocking(self, coroutine, *, timeout_seconds: float):

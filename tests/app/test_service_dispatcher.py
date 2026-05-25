@@ -21,8 +21,8 @@ from ccatv.metadata.schedules_direct_contract import (
     SchedulesDirectRateLimitError,
 )
 from ccatv.storage import PersistenceStore, apply_migrations
-from ccatv.tvrecorder.service import TvRecorderService
 from ccatv.tvrecorder.orchestrator import OrchestratorResult
+from ccatv.tvrecorder.service import TvRecorderService
 
 
 @dataclass(slots=True)
@@ -196,6 +196,76 @@ def test_dispatch_recording_schedule_list_returns_empty_when_no_jobs() -> None:
 
     assert response["ok"] is True
     assert response["payload"]["jobs"] == []
+
+
+def test_dispatch_metadata_sd_sync_status_get_empty() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.status.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["lastRun"]["id"] is None
+    assert payload["lastRun"]["status"] is None
+    assert payload["lastRun"]["finishedAtUtc"] is None
+    assert payload["checkpoint"]["lastSuccessfulIngestUtc"] is None
+
+
+def test_dispatch_metadata_sd_sync_status_get_with_data() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_ingest_runs(source, started_at_utc, finished_at_utc, status)
+        VALUES(?, ?, ?, ?)
+        """,
+        (
+            "schedules_direct",
+            "2026-05-25T20:00:00Z",
+            "2026-05-25T20:02:00Z",
+            "ok",
+        ),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_source_checkpoints(source, last_successful_ingest_utc)
+        VALUES(?, ?)
+        """,
+        ("schedules_direct", "2026-05-25T20:02:00Z"),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.status.get",
+        "payload": {"source": "schedules_direct"},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["lastRun"]["id"] == 1
+    assert payload["lastRun"]["status"] == "ok"
+    assert payload["lastRun"]["finishedAtUtc"] == "2026-05-25T20:02:00Z"
+    assert payload["checkpoint"]["lastSuccessfulIngestUtc"] == "2026-05-25T20:02:00Z"
+
+
+def test_dispatch_metadata_sd_sync_status_get_rejects_invalid_source() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.status.get",
+        "payload": {"source": "other"},
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_dispatch_service_info_get() -> None:

@@ -126,7 +126,8 @@ Response payload:
     "recording.schedule.create",
     "recording.schedule.list",
     "recording.worker.cycle.run",
-    "metadata.sd.sync.run"
+    "metadata.sd.sync.run",
+    "metadata.sd.sync.status.get"
   ]
 }
 ```
@@ -151,7 +152,7 @@ This maps existing CLI/runtime flows to the M1 service command surface.
 | service metadata + features | `service.info.get` | Implemented | Returns app metadata, API version, and concrete capability list. |
 | `ccatv setup` runtime credential/config mutation | N/A in M1 | Deferred | Remains local CLI-side in M1; migration evaluated in M2/M4. |
 | scheduler create/list APIs | `recording.schedule.create`, `recording.schedule.list` | Implemented | Dispatcher now supports scheduling and listing jobs through service command handlers. |
-| metadata checkpoint/status read | `metadata.sd.sync.status.get` | Deferred | Contracted but not wired to dispatcher in current M1 code. |
+| metadata checkpoint/status read | `metadata.sd.sync.status.get` | Implemented | Dispatcher now returns latest ingest run and checkpoint for Schedules Direct. |
 
 ### Recorder Scheduling
 

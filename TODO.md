@@ -94,6 +94,8 @@ M2. Extract use-case orchestration from front-end glue.
 	- [x] Initial dispatcher support added for `recording.schedule.create` and `recording.schedule.list`.
 	- [ ] Remaining: migrate front-end callers to service-client path so workflow execution is service-command-only.
 - [ ] Ensure metadata sync workflows are callable through service command handlers only.
+	- [x] Added `metadata.sd.sync.status.get` dispatcher command handler.
+	- [ ] Remaining: migrate front-end callers to service-client path so metadata workflows are service-command-only.
 
 M3. Daemon transport implementation.
 - [ ] Add local IPC transport (likely Unix socket) for request/response handling.
