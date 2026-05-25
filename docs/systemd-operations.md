@@ -16,12 +16,29 @@ That means:
 
 ## Unit file
 
-The unit ships at [systemd/ccatv.service](../systemd/ccatv.service) and is installed to `/usr/lib/systemd/user/ccatv.service` by the package, making it available to any user on the system.
+The unit ships at [systemd/ccatv.service](../systemd/ccatv.service).
 
 The unit requires only:
 
 - the `ccatv-service` console script at `/usr/bin/ccatv-service`
 - your XDG config already populated with `ccatv setup`
+
+### Manual installation (no package manager)
+
+Copy the unit file to the standard user-service location and reload the daemon:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/ccatv.service ~/.config/systemd/user/ccatv.service
+systemctl --user daemon-reload
+```
+
+### Package-based installation
+
+When installed via the Arch PKGBUILD or Debian package, the unit is placed in
+`/usr/lib/systemd/user/ccatv.service`. This makes it available to every user on
+the system without any manual copying — `systemctl --user daemon-reload` is
+sufficient after installation.
 
 ## Lifecycle commands
 
