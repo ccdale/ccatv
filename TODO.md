@@ -72,7 +72,7 @@ Required before live integration runs:
 
 ## Next Milestones
 
-1. Harden process lifecycle and command reliability for runtime use:
+1. Completed: Harden process lifecycle and command reliability for runtime use.
 	- handle force-kill timeout path in manager stop() consistently
 2. Completed: Add integration tests against a live dvbstreamer process.
 	- config-driven host and adapter-count inputs support remote-host and local execution modes

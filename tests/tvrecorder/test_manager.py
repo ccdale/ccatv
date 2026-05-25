@@ -179,7 +179,7 @@ def test_stop_force_kill_timeout_raises_typed_error(
     status = manager.status()
     assert fake_process.killed is True
     assert status.state == DvbStreamerState.FAILED
-    assert status.pid is None
+    assert status.pid == 1234
 
 
 def test_health_check_preserves_failed_state_after_stop_failure(
@@ -206,6 +206,36 @@ def test_health_check_preserves_failed_state_after_stop_failure(
 
     assert status.state == DvbStreamerState.FAILED
     assert status.last_error is not None
+
+
+def test_health_check_refreshes_failed_error_after_force_kill_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(
+        poll_value=None,
+        kill_clears_timeout=False,
+        wait_raises_timeout=True,
+    )
+
+    def _popen(*args, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig(), stop_timeout_seconds=1.0)
+    manager.start()
+
+    with pytest.raises(DvbStreamerStopTimeout):
+        manager.stop(force_kill=True)
+
+    fake_process._poll_value = 9
+    fake_process._wait_raises_timeout = False
+
+    status = manager.health_check()
+
+    assert status.state == DvbStreamerState.FAILED
+    assert status.last_error == "dvbstreamer exited with returncode 9"
+    assert status.pid is None
 
 
 def test_health_check_returns_stopped_when_no_process() -> None:

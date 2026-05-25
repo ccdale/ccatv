@@ -142,7 +142,6 @@ class DvbStreamerManager:
                     "dvbstreamer did not stop after force-kill within "
                     f"{self.stop_timeout_seconds} seconds"
                 )
-                self._process = None
                 raise DvbStreamerStopTimeout(self._last_error) from kill_exc
 
         self._process = None
