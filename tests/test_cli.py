@@ -10,20 +10,77 @@ import pytest
 from ccatv.app.service_client import ServiceClientError
 from ccatv.cli import CliDependencies, main, run_setup, setup_main
 from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
-from ccatv.tvrecorder.config import TvRecorderConfigStore
+from ccatv.tvrecorder.config import (
+    DvbCtrlCredentials,
+    TvRecorderConfig,
+    TvRecorderConfigStore,
+)
+
+
+class _SetupStubServiceClient:
+    def __init__(
+        self,
+        *,
+        runtime_store: RuntimeConfigStore,
+        store: TvRecorderConfigStore,
+        failure: ServiceClientError | None = None,
+    ) -> None:
+        self.closed = False
+        self.executed: list[tuple[str, dict[str, object]]] = []
+        self._failure = failure
+        self._runtime_store = runtime_store
+        self._store = store
+
+    def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+        self.executed.append((command, payload))
+        if self._failure is not None:
+            raise self._failure
+
+        assert command == "runtime.setup.save"
+
+        adapter_count = int(payload["adapterCount"])
+        host = str(payload["host"])
+        username = str(payload["username"])
+        password = str(payload["password"])
+
+        credentials_path = self._store.save(
+            TvRecorderConfig(
+                dvbctrl_credentials=DvbCtrlCredentials(
+                    password=password,
+                    username=username,
+                )
+            )
+        )
+        runtime_path = self._runtime_store.save(
+            RuntimeConfig(
+                dvb_adapter_count=adapter_count,
+                dvbstreamer_host=host,
+            )
+        )
+        return {
+            "credentialsPath": str(credentials_path),
+            "runtimeConfigPath": str(runtime_path),
+        }
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_run_setup_persists_credentials(tmp_path: Path) -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
     prompts = iter(["secret", "secret"])
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    store = TvRecorderConfigStore(config_dir=tmp_path)
+    stub_client = _SetupStubServiceClient(runtime_store=runtime_store, store=store)
     deps = CliDependencies(
         input_fn=lambda prompt: "alice",
         password_fn=lambda prompt: next(prompts),
-        runtime_store=RuntimeConfigStore(config_dir=tmp_path),
+        runtime_store=runtime_store,
         stderr=stderr,
         stdout=stdout,
-        store=TvRecorderConfigStore(config_dir=tmp_path),
+        store=store,
+        service_client_factory=lambda: stub_client,
     )
 
     exit_code = run_setup(
@@ -40,6 +97,8 @@ def test_run_setup_persists_credentials(tmp_path: Path) -> None:
     runtime = RuntimeConfigStore(config_dir=tmp_path).load()
     assert runtime.dvbstreamer_host == "localhost"
     assert runtime.dvb_adapter_count == 1
+    assert stub_client.closed is True
+    assert stub_client.executed
 
 
 def test_run_setup_rejects_mismatched_passwords(tmp_path: Path) -> None:
@@ -69,13 +128,17 @@ def test_setup_main_routes_to_setup_command(tmp_path: Path) -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
     prompts = iter(["secret", "secret"])
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    store = TvRecorderConfigStore(config_dir=tmp_path)
+    stub_client = _SetupStubServiceClient(runtime_store=runtime_store, store=store)
     deps = CliDependencies(
         input_fn=lambda prompt: "ignored",
         password_fn=lambda prompt: next(prompts),
-        runtime_store=RuntimeConfigStore(config_dir=tmp_path),
+        runtime_store=runtime_store,
         stderr=stderr,
         stdout=stdout,
-        store=TvRecorderConfigStore(config_dir=tmp_path),
+        store=store,
+        service_client_factory=lambda: stub_client,
     )
 
     exit_code = setup_main(["--username", "alice"], deps=deps)
@@ -143,13 +206,16 @@ def test_run_setup_preserves_runtime_defaults_when_host_not_provided(
             dvbstreamer_host="druidmedia",
         )
     )
+    store = TvRecorderConfigStore(config_dir=tmp_path)
+    stub_client = _SetupStubServiceClient(runtime_store=runtime_store, store=store)
     deps = CliDependencies(
         input_fn=lambda prompt: "alice",
         password_fn=lambda prompt: next(prompts),
         runtime_store=runtime_store,
         stderr=stderr,
         stdout=stdout,
-        store=TvRecorderConfigStore(config_dir=tmp_path),
+        store=store,
+        service_client_factory=lambda: stub_client,
     )
 
     exit_code = run_setup(
@@ -160,6 +226,42 @@ def test_run_setup_preserves_runtime_defaults_when_host_not_provided(
     runtime = RuntimeConfigStore(config_dir=tmp_path).load()
     assert runtime.dvbstreamer_host == "druidmedia"
     assert runtime.dvb_adapter_count == 4
+
+
+def test_run_setup_surfaces_service_error(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    prompts = iter(["secret", "secret"])
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    store = TvRecorderConfigStore(config_dir=tmp_path)
+    stub_client = _SetupStubServiceClient(
+        runtime_store=runtime_store,
+        store=store,
+        failure=ServiceClientError(
+            code="VALIDATION_ERROR",
+            message="bad host",
+            retryable=False,
+        ),
+    )
+    deps = CliDependencies(
+        input_fn=lambda prompt: "alice",
+        password_fn=lambda prompt: next(prompts),
+        runtime_store=runtime_store,
+        stderr=stderr,
+        stdout=stdout,
+        store=store,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = run_setup(
+        Namespace(adapter_count=1, host="localhost", username="alice"),
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert "Setup failed: bad host" in stderr.getvalue()
+    assert stdout.getvalue() == ""
+    assert stub_client.closed is True
 
 
 def test_setup_main_uses_process_argv_when_no_args_provided(monkeypatch) -> None:

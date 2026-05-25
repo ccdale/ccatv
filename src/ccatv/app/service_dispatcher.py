@@ -25,7 +25,13 @@ from ccatv.metadata.schedules_direct_runtime import (
     SchedulesDirectCredentialStore,
     SchedulesDirectTokenCacheStore,
 )
+from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
 from ccatv.storage import initialize_database
+from ccatv.tvrecorder.config import (
+    DvbCtrlCredentials,
+    TvRecorderConfig,
+    TvRecorderConfigStore,
+)
 
 API_VERSION = "v1alpha1"
 
@@ -35,6 +41,7 @@ SERVICE_CAPABILITIES = [
     "recording.schedule",
     "recording.worker.cycle",
     "metadata.sd.sync",
+    "runtime.setup",
 ]
 
 SERVICE_COMMANDS = [
@@ -45,6 +52,7 @@ SERVICE_COMMANDS = [
     "recording.worker.cycle.run",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
+    "runtime.setup.save",
 ]
 
 
@@ -153,7 +161,58 @@ class ServiceCommandDispatcher:
             return self._metadata_sd_sync_run(payload)
         if command == "metadata.sd.sync.status.get":
             return self._metadata_sd_sync_status_get(payload)
+        if command == "runtime.setup.save":
+            return self._runtime_setup_save(payload)
         raise RuntimeError(f"unreachable dispatch branch for command: {command}")
+
+    def _runtime_setup_save(self, payload: dict[str, object]) -> dict[str, object]:
+        username = payload.get("username")
+        if not isinstance(username, str) or not username.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="username must be a non-empty string",
+            )
+
+        password = payload.get("password")
+        if not isinstance(password, str) or not password:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="password must be a non-empty string",
+            )
+
+        host = payload.get("host")
+        if not isinstance(host, str) or not host.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="host must be a non-empty string",
+            )
+
+        adapter_count = payload.get("adapterCount")
+        if not isinstance(adapter_count, int) or adapter_count < 1:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="adapterCount must be an integer greater than 0",
+            )
+
+        credentials_path = TvRecorderConfigStore().save(
+            TvRecorderConfig(
+                dvbctrl_credentials=DvbCtrlCredentials(
+                    password=password,
+                    username=username.strip(),
+                )
+            )
+        )
+        runtime_path = RuntimeConfigStore().save(
+            RuntimeConfig(
+                dvb_adapter_count=adapter_count,
+                dvbstreamer_host=host.strip(),
+            )
+        )
+
+        return {
+            "credentialsPath": str(credentials_path),
+            "runtimeConfigPath": str(runtime_path),
+        }
 
     def _service_health_get(self) -> dict[str, object]:
         db_path = self._context.settings.database_path

@@ -118,7 +118,8 @@ Response payload:
     "service.info",
     "recording.schedule",
     "recording.worker.cycle",
-    "metadata.sd.sync"
+    "metadata.sd.sync",
+    "runtime.setup"
   ],
   "commands": [
     "service.health.get",
@@ -127,7 +128,8 @@ Response payload:
     "recording.schedule.list",
     "recording.worker.cycle.run",
     "metadata.sd.sync.run",
-    "metadata.sd.sync.status.get"
+    "metadata.sd.sync.status.get",
+    "runtime.setup.save"
   ]
 }
 ```
@@ -150,7 +152,7 @@ This maps existing CLI/runtime flows to the M1 service command surface.
 | `ccatv epg-sync-sd --lineup-id ...` one-shot sync | `metadata.sd.sync.run` | Implemented | Lineup/window/seed path supported; timeout and shutdown cancellation hardened. |
 | service liveness/status | `service.health.get` | Implemented | Includes read/write DB readiness details and probe failure step diagnostics. |
 | service metadata + features | `service.info.get` | Implemented | Returns app metadata, API version, and concrete capability list. |
-| `ccatv setup` runtime credential/config mutation | N/A in M1 | Deferred | Remains local CLI-side in M1; migration evaluated in M2/M4. |
+| `ccatv setup` runtime credential/config mutation | `runtime.setup.save` | Implemented | CLI now routes setup persistence through service command dispatch path. |
 | scheduler create/list APIs | `recording.schedule.create`, `recording.schedule.list` | Implemented | Dispatcher now supports scheduling and listing jobs through service command handlers. |
 | metadata checkpoint/status read | `metadata.sd.sync.status.get` | Implemented | Dispatcher now returns latest ingest run and checkpoint for Schedules Direct. |
 

@@ -19,8 +19,6 @@ from ccatv.runtime_config import (
     RuntimeConfigStore,
 )
 from ccatv.tvrecorder.config import (
-    DvbCtrlCredentials,
-    TvRecorderConfig,
     TvRecorderConfigStore,
 )
 
@@ -157,21 +155,33 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
         print("Adapter count must be greater than 0.", file=deps.stderr)
         return 2
 
-    path = deps.store.save(
-        TvRecorderConfig(
-            dvbctrl_credentials=DvbCtrlCredentials(
-                password=password,
-                username=username,
-            )
+    client = deps.service_client_factory()
+    try:
+        response_payload = client.execute(
+            "runtime.setup.save",
+            {
+                "adapterCount": int(adapter_count),
+                "host": host,
+                "password": password,
+                "username": username,
+            },
         )
-    )
-    runtime_path = deps.runtime_store.save(
-        RuntimeConfig(
-            dvb_adapter_count=adapter_count,
-            dvbstreamer_host=host,
-        )
-    )
-    print(f"Saved dvbstreamer credentials to {path}", file=deps.stdout)
+        credentials_path = response_payload.get("credentialsPath")
+        runtime_path = response_payload.get("runtimeConfigPath")
+        if not isinstance(credentials_path, str) or not credentials_path:
+            raise RuntimeError("runtime.setup.save returned malformed credentialsPath")
+        if not isinstance(runtime_path, str) or not runtime_path:
+            raise RuntimeError("runtime.setup.save returned malformed runtimeConfigPath")
+    except ServiceClientError as exc:
+        print(f"Setup failed: {exc.message}", file=deps.stderr)
+        return 2
+    except Exception as exc:
+        print(f"Setup failed: {exc}", file=deps.stderr)
+        return 2
+    finally:
+        client.close()
+
+    print(f"Saved dvbstreamer credentials to {credentials_path}", file=deps.stdout)
     print(f"Saved ccatv runtime config to {runtime_path}", file=deps.stdout)
     return 0
 

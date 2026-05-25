@@ -108,8 +108,8 @@ M3. Daemon transport implementation.
 - [x] Add structured health and info commands over transport.
 
 M4. Thin CLI client conversion.
-- [ ] Convert CLI command paths to service-client calls.
-- [ ] Keep backward-compatible behavior during migration.
+- [x] Convert CLI command paths to service-client calls.
+- [x] Keep backward-compatible behavior during migration.
 
 M5. systemd operationalization.
 - [ ] Add service unit file and lifecycle docs (start/stop/restart/status).

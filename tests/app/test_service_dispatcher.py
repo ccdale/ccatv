@@ -5,6 +5,7 @@ import sqlite3
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -20,7 +21,9 @@ from ccatv.metadata.schedules_direct_contract import (
     SchedulesDirectAuthenticationError,
     SchedulesDirectRateLimitError,
 )
+from ccatv.runtime_config import RuntimeConfigStore
 from ccatv.storage import PersistenceStore, apply_migrations
+from ccatv.tvrecorder.config import TvRecorderConfigStore
 from ccatv.tvrecorder.orchestrator import OrchestratorResult
 from ccatv.tvrecorder.service import TvRecorderService
 
@@ -290,6 +293,69 @@ def test_dispatch_service_info_get() -> None:
     assert all(isinstance(command, str) for command in payload["commands"])
     assert payload["capabilities"] == SERVICE_CAPABILITIES
     assert payload["commands"] == SERVICE_COMMANDS
+
+
+def test_dispatch_runtime_setup_save_persists_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path / "ccatv")
+    recorder_store = TvRecorderConfigStore(config_dir=tmp_path / "dvbstreamer")
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.RuntimeConfigStore",
+        lambda: runtime_store,
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.TvRecorderConfigStore",
+        lambda: recorder_store,
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "runtime.setup.save",
+        "payload": {
+            "adapterCount": 4,
+            "host": "druidmedia",
+            "password": "secret",
+            "username": "alice",
+        },
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["credentialsPath"].endswith("userconfig.json")
+    assert payload["runtimeConfigPath"].endswith("runtime.json")
+
+    runtime = runtime_store.load()
+    assert runtime.dvb_adapter_count == 4
+    assert runtime.dvbstreamer_host == "druidmedia"
+
+    recorder = recorder_store.load()
+    assert recorder.dvbctrl_credentials is not None
+    assert recorder.dvbctrl_credentials.username == "alice"
+    assert recorder.dvbctrl_credentials.password == "secret"
+
+
+def test_dispatch_runtime_setup_save_rejects_invalid_payload() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "runtime.setup.save",
+        "payload": {
+            "adapterCount": 0,
+            "host": " ",
+            "password": "",
+            "username": " ",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_service_info_capabilities_map_to_command_prefixes() -> None:
