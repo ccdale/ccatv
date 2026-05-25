@@ -37,6 +37,52 @@ def select_preferred_broadcast(
     return min(candidates, key=lambda candidate: source_priority(candidate.source))
 
 
+def _candidates_agree(
+    primary: GuideBroadcastCandidate,
+    secondary: GuideBroadcastCandidate,
+) -> bool:
+    return (
+        primary.title == secondary.title
+        and primary.start_utc == secondary.start_utc
+        and primary.stop_utc == secondary.stop_utc
+    )
+
+
+def select_preferred_broadcast_merged(
+    candidates: list[GuideBroadcastCandidate],
+) -> GuideBroadcastCandidate | None:
+    """Select OTA-first candidate and merge richer data from agreeing fallbacks.
+
+    The highest-priority source remains authoritative for identity fields. Optional
+    fields are only filled from lower-priority candidates when title/start/stop
+    match exactly.
+    """
+    preferred = select_preferred_broadcast(candidates)
+    if preferred is None:
+        return None
+
+    merged_description = preferred.description
+    for candidate in sort_by_preference(candidates):
+        if candidate is preferred:
+            continue
+        if not _candidates_agree(preferred, candidate):
+            continue
+        if merged_description is None and candidate.description is not None:
+            merged_description = candidate.description
+
+    if merged_description == preferred.description:
+        return preferred
+
+    return GuideBroadcastCandidate(
+        source=preferred.source,
+        source_channel_id=preferred.source_channel_id,
+        start_utc=preferred.start_utc,
+        stop_utc=preferred.stop_utc,
+        title=preferred.title,
+        description=merged_description,
+    )
+
+
 def sort_by_preference(
     candidates: list[GuideBroadcastCandidate],
 ) -> list[GuideBroadcastCandidate]:
@@ -48,6 +94,7 @@ __all__ = [
     "GuideBroadcastCandidate",
     "SOURCE_PRIORITY",
     "select_preferred_broadcast",
+    "select_preferred_broadcast_merged",
     "sort_by_preference",
     "source_priority",
 ]

@@ -4,6 +4,7 @@ from ccatv.metadata.guide_preference import (
     SOURCE_PRIORITY,
     GuideBroadcastCandidate,
     select_preferred_broadcast,
+    select_preferred_broadcast_merged,
     sort_by_preference,
     source_priority,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "SqliteGuideRepository",
     "UrlLibJsonTransport",
     "select_preferred_broadcast",
+    "select_preferred_broadcast_merged",
     "sort_by_preference",
     "source_priority",
 ]

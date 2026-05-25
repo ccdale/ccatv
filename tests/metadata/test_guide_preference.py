@@ -3,6 +3,7 @@ from __future__ import annotations
 from ccatv.metadata import (
     GuideBroadcastCandidate,
     select_preferred_broadcast,
+    select_preferred_broadcast_merged,
     sort_by_preference,
     source_priority,
 )
@@ -113,3 +114,61 @@ def test_sort_by_preference_orders_known_sources_before_unknown() -> None:
 def test_source_priority_unknown_is_lower_priority_than_known() -> None:
     assert source_priority("dvbstreamer_ota") < source_priority("schedules_direct")
     assert source_priority("schedules_direct") < source_priority("custom_provider")
+
+
+def test_select_preferred_broadcast_merged_enriches_from_sd_when_agree() -> None:
+    candidates = [
+        GuideBroadcastCandidate(
+            source="dvbstreamer_ota",
+            source_channel_id="1:2:3",
+            start_utc="2026-05-25T20:00:00Z",
+            stop_utc="2026-05-25T20:30:00Z",
+            title="News",
+            description=None,
+        ),
+        GuideBroadcastCandidate(
+            source="schedules_direct",
+            source_channel_id="101",
+            start_utc="2026-05-25T20:00:00Z",
+            stop_utc="2026-05-25T20:30:00Z",
+            title="News",
+            description="Expanded synopsis",
+        ),
+    ]
+
+    selected = select_preferred_broadcast_merged(candidates)
+
+    assert selected is not None
+    assert selected.source == "dvbstreamer_ota"
+    assert selected.description == "Expanded synopsis"
+
+
+def test_select_preferred_broadcast_merged_does_not_merge_when_disagree() -> None:
+    candidates = [
+        GuideBroadcastCandidate(
+            source="dvbstreamer_ota",
+            source_channel_id="1:2:3",
+            start_utc="2026-05-25T20:00:00Z",
+            stop_utc="2026-05-25T20:30:00Z",
+            title="News",
+            description=None,
+        ),
+        GuideBroadcastCandidate(
+            source="schedules_direct",
+            source_channel_id="101",
+            start_utc="2026-05-25T20:00:00Z",
+            stop_utc="2026-05-25T20:30:00Z",
+            title="Weather",
+            description="Expanded synopsis",
+        ),
+    ]
+
+    selected = select_preferred_broadcast_merged(candidates)
+
+    assert selected is not None
+    assert selected.source == "dvbstreamer_ota"
+    assert selected.description is None
+
+
+def test_select_preferred_broadcast_merged_returns_none_for_empty() -> None:
+    assert select_preferred_broadcast_merged([]) is None
