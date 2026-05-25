@@ -19,7 +19,5 @@ package() {
 	cd "$startdir/.."
 	python -m installer --destdir="$pkgdir" --prefix=/usr dist/*.whl
 
-	install -Dm644 systemd/ccatv.service "$pkgdir/usr/lib/systemd/system/ccatv.service"
-	install -dm750 "$pkgdir/var/lib/ccatv"
-	install -dm750 "$pkgdir/var/lib/ccatv/recordings"
+	install -Dm644 systemd/ccatv.service "$pkgdir/usr/lib/systemd/user/ccatv.service"
 }

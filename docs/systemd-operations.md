@@ -4,45 +4,54 @@ This document covers the current M5 operational model for `ccatv-service`.
 
 ## Current scope
 
-The packaged systemd unit runs `ccatv-service` in scheduler-loop mode.
+The packaged systemd unit is a **user service**. It runs as your own login user without any `sudo` access.
 
 That means:
 
 - the long-running service continuously evaluates due recording jobs
-- recordings are written under `/var/lib/ccatv/recordings`
+- recordings are written under `~/.local/share/ccatv/recordings`
+- the database defaults to `~/.local/share/ccatv/ccatv.sqlite3`
 - local CLI commands such as `ccatv setup` and `ccatv epg-sync-sd` still use the in-process service client path introduced in M4
 - the unit does not yet expose the M3 Unix socket transport during normal service startup
 
 ## Unit file
 
-Install [systemd/ccatv.service](/home/chris/src/ccatv/systemd/ccatv.service) to `/usr/lib/systemd/system/ccatv.service` on Arch Linux or `/lib/systemd/system/ccatv.service` on Debian-family systems.
+The unit ships at [systemd/ccatv.service](../systemd/ccatv.service) and is installed to `/usr/lib/systemd/user/ccatv.service` by the package, making it available to any user on the system.
 
-The unit assumes:
+The unit requires only:
 
-- a dedicated `ccatv` user and group
-- writable state under `/var/lib/ccatv`
-- runtime files under `/run/ccatv`
-- the `ccatv-service` console script is available at `/usr/bin/ccatv-service`
+- the `ccatv-service` console script at `/usr/bin/ccatv-service`
+- your XDG config already populated with `ccatv setup`
 
 ## Lifecycle commands
 
 After installation:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now ccatv.service
-sudo systemctl status ccatv.service
+systemctl --user daemon-reload
+systemctl --user enable --now ccatv.service
+systemctl --user status ccatv.service
 ```
 
 Common lifecycle operations:
 
 ```bash
-sudo systemctl start ccatv.service
-sudo systemctl stop ccatv.service
-sudo systemctl restart ccatv.service
-sudo systemctl status ccatv.service
-sudo journalctl -u ccatv.service -f
+systemctl --user start ccatv.service
+systemctl --user stop ccatv.service
+systemctl --user restart ccatv.service
+systemctl --user status ccatv.service
+journalctl --user-unit ccatv.service -f
 ```
+
+## Running without an active login session (linger)
+
+By default systemd user services stop when you log out. To keep `ccatv-service` running even when no session is active:
+
+```bash
+loginctl enable-linger $USER
+```
+
+This is the recommended setting on a home media server where you want recordings to happen unattended.
 
 ## Readiness recommendations
 
@@ -52,28 +61,26 @@ Why:
 
 - `ccatv-service` does not yet emit `sd_notify` readiness signals
 - scheduler-loop mode is considered ready once the process has started successfully
-- deeper application health can be checked through logs and future service transport enhancements
 
 Operational guidance:
 
-- treat `systemctl is-active ccatv.service` as the process-level readiness signal
+- treat `systemctl --user is-active ccatv.service` as the process-level readiness signal
 - treat the journal as the source of truth for startup failures and scheduler-cycle errors
 - keep `Restart=on-failure` enabled so transient failures recover automatically
 
 ## Logging recommendations
 
-The service currently logs to stdout/stderr and therefore to journald under systemd.
+The service logs to stdout/stderr, which journald captures automatically.
 
 Recommended operational pattern:
 
-- use `journalctl -u ccatv.service` for history
-- use `journalctl -u ccatv.service -f` for live troubleshooting
-- keep the default journald integration rather than redirecting logs to files
+- use `journalctl --user-unit ccatv.service` for history
+- use `journalctl --user-unit ccatv.service -f` for live troubleshooting
 
-If you need more verbosity for debugging, set:
+To increase verbosity for debugging:
 
 ```bash
-sudo systemctl edit ccatv.service
+systemctl --user edit ccatv.service
 ```
 
 and add:
@@ -92,28 +99,23 @@ The supplied unit uses conservative hardening and restart defaults:
 - `NoNewPrivileges=yes`
 - `PrivateTmp=yes`
 - `ProtectSystem=strict`
-- `ProtectHome=yes`
-- `UMask=0077`
 
 Recommended adjustments only if operational evidence requires them:
 
 - shorten `RestartSec` if the host needs faster recovery
-- widen `ReadWritePaths` only if you move the database or recording directory
-- add explicit environment overrides instead of editing the unit directly when possible
+- add explicit environment overrides with `systemctl --user edit` instead of modifying the unit file directly
 
 ## Configuration placement
 
-The unit expects configuration under `/var/lib/ccatv/.config` through `XDG_CONFIG_HOME`.
+As a user service, the unit inherits your normal XDG directories. Configuration should already exist at:
 
-That means the following files should exist for the service account:
+- `~/.config/ccatv/runtime.json`
+- `~/.config/dvbstreamer/userconfig.json`
 
-- `/var/lib/ccatv/.config/ccatv/runtime.json`
-- `/var/lib/ccatv/.config/dvbstreamer/userconfig.json`
-
-Bootstrap them with the `ccatv` service user, for example:
+Bootstrap them with:
 
 ```bash
-sudo -u ccatv XDG_CONFIG_HOME=/var/lib/ccatv/.config ccatv setup --host druidmedia --adapter-count 4 --username your-user
+ccatv setup --host druidmedia --adapter-count 4 --username your-user
 ```
 
 ## Known limitation

@@ -34,9 +34,8 @@ Suggested flow:
 cd /home/chris/src/ccatv
 uv build
 rm -rf .pkgroot
-mkdir -p .pkgroot/usr/lib/systemd/system
-mkdir -p .pkgroot/var/lib/ccatv/recordings
-cp systemd/ccatv.service .pkgroot/usr/lib/systemd/system/
+mkdir -p .pkgroot/usr/lib/systemd/user
+cp systemd/ccatv.service .pkgroot/usr/lib/systemd/user/
 python -m installer --destdir=.pkgroot --prefix=/usr dist/*.whl
 ```
 
@@ -66,18 +65,18 @@ Install it:
 
 ```bash
 sudo dpkg -i ccatv_0.1.153_all.deb
-sudo systemctl daemon-reload
-sudo systemctl enable --now ccatv.service
+systemctl --user daemon-reload
+systemctl --user enable --now ccatv.service
 ```
 
 ## Operational follow-up after installation
 
 Regardless of package format:
 
-1. create the `ccatv` system user if your package manager hook does not do it automatically
-2. run `ccatv setup` as that user with `XDG_CONFIG_HOME=/var/lib/ccatv/.config`
-3. confirm the service starts and stays healthy with `systemctl status ccatv.service`
-4. inspect logs with `journalctl -u ccatv.service`
+1. run `ccatv setup` to populate `~/.config/ccatv/runtime.json` and `~/.config/dvbstreamer/userconfig.json`
+2. confirm the service starts and stays healthy with `systemctl --user status ccatv.service`
+3. inspect logs with `journalctl --user-unit ccatv.service`
+4. optionally run `loginctl enable-linger $USER` so the service persists across logouts
 
 ## Current limitation
 

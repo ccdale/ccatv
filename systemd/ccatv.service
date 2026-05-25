@@ -5,23 +5,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ccatv
-Group=ccatv
-WorkingDirectory=/var/lib/ccatv
-StateDirectory=ccatv
-RuntimeDirectory=ccatv
-RuntimeDirectoryMode=0750
-Environment=XDG_CONFIG_HOME=/var/lib/ccatv/.config
-Environment=CCATV_DATABASE_PATH=/var/lib/ccatv/ccatv.sqlite3
-ExecStart=/usr/bin/ccatv-service --output-directory /var/lib/ccatv/recordings --poll-interval-seconds 5
+ExecStart=/usr/bin/ccatv-service --output-directory %h/.local/share/ccatv/recordings --poll-interval-seconds 5
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/var/lib/ccatv /run/ccatv
-UMask=0077
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
