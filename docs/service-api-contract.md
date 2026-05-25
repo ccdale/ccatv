@@ -132,6 +132,8 @@ Capability naming rules:
 - `capabilities` are stable namespace prefixes.
 - `commands` is the exact dispatchable command list for the running service.
 - Clients MUST invoke commands from `commands` rather than inferring full command names.
+- `service.info.get` is the source of truth for currently supported commands in this runtime.
+- Commands marked as deferred in this document are contract targets and are intentionally not discoverable until implemented.
 
 ## M1 Capability Matrix and CLI Migration Mapping
 

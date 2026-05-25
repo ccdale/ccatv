@@ -89,6 +89,10 @@ def test_dispatch_service_info_get() -> None:
     assert payload["appName"] == "ccatv"
     assert isinstance(payload["appVersion"], str)
     assert payload["appVersion"]
+    assert isinstance(payload["capabilities"], list)
+    assert all(isinstance(capability, str) for capability in payload["capabilities"])
+    assert isinstance(payload["commands"], list)
+    assert all(isinstance(command, str) for command in payload["commands"])
     assert payload["capabilities"] == SERVICE_CAPABILITIES
     assert payload["commands"] == SERVICE_COMMANDS
 
@@ -111,6 +115,8 @@ def test_service_info_capabilities_map_to_command_prefixes() -> None:
     assert commands
     for capability in capabilities:
         assert any(command.startswith(f"{capability}.") for command in commands)
+    for command in commands:
+        assert any(command.startswith(f"{capability}.") for capability in capabilities)
 
 
 def test_dispatch_service_health_get_degraded_when_connection_closed() -> None:
