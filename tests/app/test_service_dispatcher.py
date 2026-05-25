@@ -611,6 +611,109 @@ def test_dispatch_recording_worker_cycle_run(monkeypatch) -> None:
     assert lock.entered == 1
 
 
+def test_dispatch_recording_worker_cycle_run_uses_defaults(monkeypatch) -> None:
+    context = _build_context()
+    lock = StubLock()
+    dispatcher = ServiceCommandDispatcher(context, worker_cycle_lock=lock)
+    captured: dict[str, object] = {}
+
+    def _create_worker(*_args, **kwargs):
+        captured.update(kwargs)
+        return StubWorker(results=[])
+
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.create_scheduler_worker",
+        _create_worker,
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.worker.cycle.run",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    assert response["payload"]["results"] == []
+    assert captured["output_directory"] == "/tmp"
+    assert captured["max_jobs_per_cycle"] is None
+
+
+def test_service_commands_are_dispatchable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.create_scheduler_worker",
+        lambda *_args, **_kwargs: StubWorker(results=[]),
+    )
+
+    async def _stub_run_sd_sync(**_kwargs):
+        return SimpleNamespace(
+            channels_upserted=1,
+            programs_upserted=1,
+            schedules_upserted=1,
+            stale_schedules_pruned=0,
+            ingest_run_id=1,
+        )
+
+    monkeypatch.setattr(dispatcher, "_run_sd_sync", _stub_run_sd_sync)
+
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path / "ccatv")
+    recorder_store = TvRecorderConfigStore(config_dir=tmp_path / "dvbstreamer")
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.RuntimeConfigStore",
+        lambda: runtime_store,
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.TvRecorderConfigStore",
+        lambda: recorder_store,
+    )
+
+    requests = [
+        ("service.health.get", {}),
+        ("service.info.get", {}),
+        (
+            "recording.schedule.create",
+            {
+                "channelName": "BBC TWO HD",
+                "startAtUtc": "2026-05-25T21:00:00Z",
+                "durationSeconds": 120,
+            },
+        ),
+        ("recording.schedule.list", {}),
+        ("recording.worker.cycle.run", {}),
+        (
+            "metadata.sd.sync.run",
+            {
+                "lineupId": "UK-TEST",
+                "windowHours": 24,
+            },
+        ),
+        ("metadata.sd.sync.status.get", {}),
+        (
+            "runtime.setup.save",
+            {
+                "adapterCount": 4,
+                "host": "druidmedia",
+                "password": "secret",
+                "username": "alice",
+            },
+        ),
+    ]
+
+    for command, payload in requests:
+        response = dispatcher.dispatch({
+            "apiVersion": API_VERSION,
+            "command": command,
+            "payload": payload,
+        })
+        if response["ok"] is False:
+            assert response["error"]["code"] != "UNSUPPORTED_COMMAND"
+
+
 def test_dispatch_metadata_sd_sync_run(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

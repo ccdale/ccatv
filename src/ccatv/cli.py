@@ -6,6 +6,8 @@ import getpass
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from queue import Queue
+from threading import Thread
 from typing import TextIO
 
 from ccatv.app.service_client import (
@@ -289,7 +291,7 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
             await asyncio.sleep(args.poll_interval_seconds)
 
     try:
-        asyncio.run(_run_forever())
+        _run_async_blocking(_run_forever())
     except ServiceClientError as exc:
         print(f"EPG sync failed: {exc.message}", file=deps.stderr)
         return 2
@@ -299,6 +301,33 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
     finally:
         client.close()
     return 0
+
+
+def _run_async_blocking(coroutine: object) -> object:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+
+    queue: Queue[tuple[bool, object]] = Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            queue.put((True, asyncio.run(coroutine)))
+        except Exception as exc:
+            queue.put((False, exc))
+
+    thread = Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join()
+
+    if queue.empty():
+        raise RuntimeError("async CLI execution did not return a result")
+
+    ok, payload = queue.get()
+    if ok:
+        return payload
+    raise payload
 
 
 __all__ = [

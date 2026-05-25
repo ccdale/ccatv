@@ -467,3 +467,54 @@ def test_epg_sync_sd_run_forever_non_retryable_error_exits(monkeypatch) -> None:
     assert "non-retryable" in stderr.getvalue()
     assert "EPG sync failed: bad credentials" in stderr.getvalue()
     assert stub_client.closed is True
+
+
+def test_epg_sync_sd_run_forever_handles_running_event_loop(monkeypatch) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            del command, payload
+            raise ServiceClientError(
+                code="SD_AUTH_FAILED",
+                message="bad credentials",
+                retryable=False,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+
+    async def _sleep(_seconds: float) -> None:
+        raise AssertionError("sleep should not run after non-retryable failure")
+
+    monkeypatch.setattr("ccatv.cli.asyncio.sleep", _sleep)
+    monkeypatch.setattr("ccatv.cli.asyncio.get_running_loop", lambda: object())
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(
+        [
+            "epg-sync-sd",
+            "--lineup-id",
+            "UK-TEST",
+            "--run-forever",
+            "--poll-interval-seconds",
+            "1",
+        ],
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert "EPG sync failed: bad credentials" in stderr.getvalue()
+    assert stub_client.closed is True
