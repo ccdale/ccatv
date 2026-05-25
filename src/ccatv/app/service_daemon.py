@@ -126,8 +126,38 @@ def _handle_ipc_request(
         }
         return json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
 
-    response = dispatcher.dispatch(request)
-    return json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
+    request_id = request.get("requestId")
+
+    try:
+        response = dispatcher.dispatch(request)
+    except Exception as exc:
+        response = {
+            "apiVersion": "v1alpha1",
+            "requestId": request_id,
+            "ok": False,
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": f"dispatcher failure: {exc}",
+                "retryable": True,
+                "details": {},
+            },
+        }
+
+    try:
+        return json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
+    except (TypeError, ValueError):
+        fallback = {
+            "apiVersion": "v1alpha1",
+            "requestId": request_id,
+            "ok": False,
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "response serialization failed",
+                "retryable": True,
+                "details": {},
+            },
+        }
+        return json.dumps(fallback, sort_keys=True).encode("utf-8") + b"\n"
 
 
 def run_ipc_server(

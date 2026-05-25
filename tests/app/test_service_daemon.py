@@ -305,6 +305,30 @@ def test_handle_ipc_request_rejects_invalid_json() -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_handle_ipc_request_maps_dispatcher_exception_to_error() -> None:
+    class _StubDispatcher:
+        def dispatch(self, _request):
+            raise RuntimeError("boom")
+
+    request = {
+        "apiVersion": "v1alpha1",
+        "command": "service.health.get",
+        "requestId": "explode-1",
+        "payload": {},
+    }
+
+    response_bytes = _handle_ipc_request(
+        json.dumps(request).encode("utf-8"),
+        _StubDispatcher(),
+    )
+    response = json.loads(response_bytes.decode("utf-8"))
+
+    assert response["ok"] is False
+    assert response["requestId"] == "explode-1"
+    assert response["error"]["code"] == "INTERNAL_ERROR"
+    assert "dispatcher failure" in response["error"]["message"]
+
+
 def test_run_ipc_server_handles_health_request(monkeypatch, tmp_path: Path) -> None:
     context = SimpleNamespace(
         logger=logging.getLogger("test.daemon.ipc"),
