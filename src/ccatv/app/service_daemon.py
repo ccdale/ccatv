@@ -300,6 +300,14 @@ def run_http_server(
 
     requests_served = 0
 
+    def _status_from_response(response: dict[str, object]) -> HTTPStatus:
+        if response.get("ok") is True:
+            return HTTPStatus.OK
+        error = response.get("error")
+        if isinstance(error, dict) and error.get("code") == "INTERNAL_ERROR":
+            return HTTPStatus.INTERNAL_SERVER_ERROR
+        return HTTPStatus.BAD_REQUEST
+
     class _Handler(BaseHTTPRequestHandler):
         server_version = "ccatv-service"
         protocol_version = "HTTP/1.1"
@@ -364,7 +372,7 @@ def run_http_server(
                     "requestId": None,
                 }
             )
-            status = HTTPStatus.OK if response.get("ok") is True else HTTPStatus.BAD_REQUEST
+            status = _status_from_response(response)
             self._json_response(status=status, body=response)
 
         def do_POST(self) -> None:  # noqa: N802
@@ -423,6 +431,40 @@ def run_http_server(
                 )
                 return
 
+            if body_length < 0:
+                self._json_response(
+                    status=HTTPStatus.BAD_REQUEST,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "Content-Length must be >= 0",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+
+            if body_length == 0:
+                self._json_response(
+                    status=HTTPStatus.BAD_REQUEST,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "request body is empty",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+
             if body_length > IPC_MAX_REQUEST_BYTES:
                 self._json_response(
                     status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
@@ -440,7 +482,7 @@ def run_http_server(
                 )
                 return
 
-            raw_body = self.rfile.read(max(0, body_length))
+            raw_body = self.rfile.read(body_length)
             response_bytes = _handle_ipc_request(raw_body, dispatcher)
             try:
                 response = json.loads(response_bytes.decode("utf-8"))
@@ -456,7 +498,7 @@ def run_http_server(
                         "details": {},
                     },
                 }
-            status = HTTPStatus.OK if response.get("ok") is True else HTTPStatus.BAD_REQUEST
+            status = _status_from_response(response)
             self._json_response(status=status, body=response)
 
         def log_message(self, _format: str, *_args) -> None:

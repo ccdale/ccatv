@@ -573,6 +573,268 @@ def test_run_http_server_rejects_missing_bearer_token(monkeypatch) -> None:
     assert decoded["error"]["code"] == "AUTHENTICATION_REQUIRED"
 
 
+def test_run_http_server_handles_authenticated_health_get(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.health"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    port_socket.bind(("127.0.0.1", 0))
+    http_port = port_socket.getsockname()[1]
+    port_socket.close()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": http_port,
+            "auth_token": "test-token",
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    time.sleep(0.05)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    connection.request(
+        "GET",
+        "/health",
+        headers={"Authorization": "Bearer test-token"},
+    )
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 200
+    assert decoded["ok"] is True
+    assert decoded["payload"]["status"] == "ok"
+
+
+def test_run_http_server_rejects_empty_request_body(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.empty"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    port_socket.bind(("127.0.0.1", 0))
+    http_port = port_socket.getsockname()[1]
+    port_socket.close()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": http_port,
+            "auth_token": "test-token",
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    time.sleep(0.05)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    connection.request(
+        "POST",
+        "/api/v1/command",
+        body="",
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+            "Content-Length": "0",
+        },
+    )
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 400
+    assert decoded["ok"] is False
+    assert decoded["error"]["code"] == "VALIDATION_ERROR"
+    assert decoded["error"]["message"] == "request body is empty"
+
+
+def test_run_http_server_rejects_negative_content_length(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.neg.length"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    port_socket.bind(("127.0.0.1", 0))
+    http_port = port_socket.getsockname()[1]
+    port_socket.close()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": http_port,
+            "auth_token": "test-token",
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    time.sleep(0.05)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
+        raw.settimeout(2.0)
+        raw.connect(("127.0.0.1", http_port))
+        raw.sendall(
+            b"POST /api/v1/command HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Authorization: Bearer test-token\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: -5\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        chunks: list[bytes] = []
+        while True:
+            block = raw.recv(4096)
+            if not block:
+                break
+            chunks.append(block)
+        response_raw = b"".join(chunks)
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    assert b"400" in response_raw
+    assert b"Content-Length must be >= 0" in response_raw
+
+
+def test_run_http_server_rejects_non_integer_content_length(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.bad.length"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    port_socket.bind(("127.0.0.1", 0))
+    http_port = port_socket.getsockname()[1]
+    port_socket.close()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": http_port,
+            "auth_token": "test-token",
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    time.sleep(0.05)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
+        raw.settimeout(2.0)
+        raw.connect(("127.0.0.1", http_port))
+        raw.sendall(
+            b"POST /api/v1/command HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Authorization: Bearer test-token\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: abc\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        chunks: list[bytes] = []
+        while True:
+            block = raw.recv(4096)
+            if not block:
+                break
+            chunks.append(block)
+        response_raw = b"".join(chunks)
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    assert b"400" in response_raw
+    assert b"Content-Length must be an integer" in response_raw
+
+
 def test_run_ipc_server_rejects_empty_request(tmp_path: Path) -> None:
     context = SimpleNamespace(
         logger=logging.getLogger("test.daemon.ipc.empty"),
