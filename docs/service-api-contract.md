@@ -111,16 +111,27 @@ Response payload:
 ```json
 {
   "appName": "ccatv",
-  "appVersion": "0.1.118",
+  "appVersion": "0.1.119",
   "apiVersion": "v1alpha1",
   "capabilities": [
     "service.health",
     "service.info",
     "recording.worker.cycle",
-    "metadata.schedulesdirect.sync"
+    "metadata.sd.sync"
+  ],
+  "commands": [
+    "service.health.get",
+    "service.info.get",
+    "recording.worker.cycle.run",
+    "metadata.sd.sync.run"
   ]
 }
 ```
+
+Capability naming rules:
+- `capabilities` are stable namespace prefixes.
+- `commands` is the exact dispatchable command list for the running service.
+- Clients MUST invoke commands from `commands` rather than inferring full command names.
 
 ## M1 Capability Matrix and CLI Migration Mapping
 

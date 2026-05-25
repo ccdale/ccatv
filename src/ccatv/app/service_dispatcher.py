@@ -33,7 +33,14 @@ SERVICE_CAPABILITIES = [
     "service.health",
     "service.info",
     "recording.worker.cycle",
-    "metadata.schedulesdirect.sync",
+    "metadata.sd.sync",
+]
+
+SERVICE_COMMANDS = [
+    "service.health.get",
+    "service.info.get",
+    "recording.worker.cycle.run",
+    "metadata.sd.sync.run",
 ]
 
 
@@ -123,6 +130,11 @@ class ServiceCommandDispatcher:
     def _dispatch_command(
         self, command: str, payload: dict[str, object]
     ) -> dict[str, object]:
+        if command not in SERVICE_COMMANDS:
+            raise ServiceCommandError(
+                code="UNSUPPORTED_COMMAND",
+                message=f"unsupported command: {command}",
+            )
         if command == "service.health.get":
             return self._service_health_get()
         if command == "service.info.get":
@@ -131,10 +143,7 @@ class ServiceCommandDispatcher:
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.sd.sync.run":
             return self._metadata_sd_sync_run(payload)
-        raise ServiceCommandError(
-            code="UNSUPPORTED_COMMAND",
-            message=f"unsupported command: {command}",
-        )
+        raise RuntimeError(f"unreachable dispatch branch for command: {command}")
 
     def _service_health_get(self) -> dict[str, object]:
         db_path = self._context.settings.database_path
@@ -162,6 +171,7 @@ class ServiceCommandDispatcher:
             "appVersion": __version__,
             "apiVersion": API_VERSION,
             "capabilities": SERVICE_CAPABILITIES,
+            "commands": SERVICE_COMMANDS,
         }
 
     def _probe_database_health(self) -> dict[str, object]:
