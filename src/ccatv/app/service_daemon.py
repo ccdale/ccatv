@@ -160,57 +160,63 @@ def run_ipc_server(
                 break
             try:
                 connection, _ = server.accept()
-            except TimeoutError:
+            except socket.timeout:
                 continue
 
-            with connection:
-                chunks: list[bytes] = []
-                total = 0
-                while True:
-                    block = connection.recv(4096)
-                    if not block:
-                        break
-                    chunks.append(block)
-                    total += len(block)
-                    if total > IPC_MAX_REQUEST_BYTES:
-                        response = {
-                            "apiVersion": "v1alpha1",
-                            "requestId": None,
-                            "ok": False,
-                            "error": {
-                                "code": "VALIDATION_ERROR",
-                                "message": "request too large",
-                                "retryable": False,
-                                "details": {
-                                    "maxBytes": IPC_MAX_REQUEST_BYTES,
+            try:
+                connection.settimeout(5.0)
+                with connection:
+                    chunks: list[bytes] = []
+                    total = 0
+                    while True:
+                        block = connection.recv(4096)
+                        if not block:
+                            break
+                        chunks.append(block)
+                        total += len(block)
+                        if total > IPC_MAX_REQUEST_BYTES:
+                            response = {
+                                "apiVersion": "v1alpha1",
+                                "requestId": None,
+                                "ok": False,
+                                "error": {
+                                    "code": "VALIDATION_ERROR",
+                                    "message": "request too large",
+                                    "retryable": False,
+                                    "details": {
+                                        "maxBytes": IPC_MAX_REQUEST_BYTES,
+                                    },
                                 },
-                            },
-                        }
-                        connection.sendall(
-                            json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
-                        )
-                        break
+                            }
+                            connection.sendall(
+                                json.dumps(response, sort_keys=True).encode("utf-8")
+                                + b"\n"
+                            )
+                            break
 
-                if total <= IPC_MAX_REQUEST_BYTES:
-                    request_bytes = b"".join(chunks).strip()
-                    if not request_bytes:
-                        response = {
-                            "apiVersion": "v1alpha1",
-                            "requestId": None,
-                            "ok": False,
-                            "error": {
-                                "code": "VALIDATION_ERROR",
-                                "message": "request body is empty",
-                                "retryable": False,
-                                "details": {},
-                            },
-                        }
-                        connection.sendall(
-                            json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
-                        )
-                    else:
-                        response_bytes = _handle_ipc_request(request_bytes, dispatcher)
-                        connection.sendall(response_bytes)
+                    if total <= IPC_MAX_REQUEST_BYTES:
+                        request_bytes = b"".join(chunks).strip()
+                        if not request_bytes:
+                            response = {
+                                "apiVersion": "v1alpha1",
+                                "requestId": None,
+                                "ok": False,
+                                "error": {
+                                    "code": "VALIDATION_ERROR",
+                                    "message": "request body is empty",
+                                    "retryable": False,
+                                    "details": {},
+                                },
+                            }
+                            connection.sendall(
+                                json.dumps(response, sort_keys=True).encode("utf-8")
+                                + b"\n"
+                            )
+                        else:
+                            response_bytes = _handle_ipc_request(request_bytes, dispatcher)
+                            connection.sendall(response_bytes)
+            except (OSError, socket.timeout) as exc:
+                logger.warning("service daemon IPC connection failed: %s", exc)
 
             requests_served += 1
 
@@ -241,16 +247,21 @@ def run_service_daemon(
     worker_cycle_lock = getattr(context, "worker_cycle_lock", None)
 
     logger.info(
-        "service daemon started (api_transport=planned, poll_interval_seconds=%s)",
+        "service daemon started (mode=scheduler_loop, poll_interval_seconds=%s)",
         poll_interval_seconds,
     )
 
     if run_once:
-        if worker_cycle_lock is None:
-            results = worker.run_cycle()
-        else:
-            with worker_cycle_lock:
+        try:
+            if worker_cycle_lock is None:
                 results = worker.run_cycle()
+            else:
+                with worker_cycle_lock:
+                    results = worker.run_cycle()
+        except Exception:
+            logger.exception("service daemon run-once cycle failed")
+            return 1
+
         logger.info("service daemon completed one cycle (jobs=%d)", len(results))
         return 0
 

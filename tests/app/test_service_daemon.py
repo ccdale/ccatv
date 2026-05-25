@@ -4,6 +4,7 @@ import json
 import logging
 import socket
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from ccatv.app.service_daemon import (
+    IPC_MAX_REQUEST_BYTES,
     _handle_ipc_request,
     main,
     run_ipc_server,
@@ -79,6 +81,28 @@ def test_run_service_daemon_once(monkeypatch) -> None:
     )
 
     assert result == 0
+    assert worker.ran_cycle is True
+    assert worker.cycle_count == 1
+
+
+def test_run_service_daemon_once_returns_error_on_cycle_failure(monkeypatch) -> None:
+    worker = StubWorker(fail_first_cycle=True)
+    context = StubContext(logger=logging.getLogger("test.daemon.once.error"))
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=True,
+    )
+
+    assert result == 1
     assert worker.ran_cycle is True
     assert worker.cycle_count == 1
 
@@ -321,6 +345,7 @@ def test_run_ipc_server_handles_health_request(monkeypatch, tmp_path: Path) -> N
     for _ in range(100):
         if socket_path.exists():
             break
+        time.sleep(0.01)
     else:
         raise AssertionError("socket did not become ready")
 
@@ -352,3 +377,83 @@ def test_main_rejects_socket_and_dispatch_json_together() -> None:
             "--dispatch-command-json",
             "{}",
         ])
+
+
+def test_run_ipc_server_rejects_empty_request(tmp_path: Path) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.ipc.empty"),
+        worker_cycle_lock=StubLock(),
+    )
+    socket_path = tmp_path / "ccatv-empty.sock"
+
+    thread = threading.Thread(
+        target=run_ipc_server,
+        kwargs={
+            "context": context,
+            "socket_path": str(socket_path),
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    for _ in range(100):
+        if socket_path.exists():
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("socket did not become ready")
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.connect(str(socket_path))
+        client.sendall(b"\n")
+        client.shutdown(socket.SHUT_WR)
+        response_raw = client.recv(4096)
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    response = json.loads(response_raw.decode("utf-8"))
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+    assert response["error"]["message"] == "request body is empty"
+
+
+def test_run_ipc_server_rejects_oversized_request(tmp_path: Path) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.ipc.oversized"),
+        worker_cycle_lock=StubLock(),
+    )
+    socket_path = tmp_path / "ccatv-oversized.sock"
+
+    thread = threading.Thread(
+        target=run_ipc_server,
+        kwargs={
+            "context": context,
+            "socket_path": str(socket_path),
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    for _ in range(100):
+        if socket_path.exists():
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("socket did not become ready")
+
+    oversized_payload = b"x" * (IPC_MAX_REQUEST_BYTES + 1)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.connect(str(socket_path))
+        client.sendall(oversized_payload)
+        client.shutdown(socket.SHUT_WR)
+        response_raw = client.recv(4096)
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    response = json.loads(response_raw.decode("utf-8"))
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+    assert response["error"]["message"] == "request too large"
+    assert response["error"]["details"]["maxBytes"] == IPC_MAX_REQUEST_BYTES
