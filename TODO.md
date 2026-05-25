@@ -112,9 +112,9 @@ M4. Thin CLI client conversion.
 - [x] Keep backward-compatible behavior during migration.
 
 M5. systemd operationalization.
-- [ ] Add service unit file and lifecycle docs (start/stop/restart/status).
-- [ ] Add readiness, logging, and failure policy recommendations.
-- [ ] Add packaging instructions for Debian and Arch Linux machines (`dpkg` and `PKGBUILD`).
+- [x] Add service unit file and lifecycle docs (start/stop/restart/status).
+- [x] Add readiness, logging, and failure policy recommendations.
+- [x] Add packaging instructions for Debian and Arch Linux machines (`dpkg` and `PKGBUILD`).
 
 M6. Multi-front-end enablement.
 - [ ] Introduce a shared service client module used by CLI/GTK4/Flask.

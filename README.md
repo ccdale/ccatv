@@ -97,3 +97,7 @@ M1 contract draft:
 
 Current daemon skeleton command:
 - `uv run ccatv-service --run-once`
+
+Systemd and packaging docs:
+- [docs/systemd-operations.md](/home/chris/src/ccatv/docs/systemd-operations.md)
+- [docs/packaging.md](/home/chris/src/ccatv/docs/packaging.md)
