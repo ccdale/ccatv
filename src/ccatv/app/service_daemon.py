@@ -73,6 +73,7 @@ def run_service_daemon(
         max_jobs_per_cycle=max_jobs_per_cycle,
         poll_interval_seconds=poll_interval_seconds,
     )
+    worker_cycle_lock = getattr(context, "worker_cycle_lock", None)
 
     logger.info(
         "service daemon started (api_transport=planned, poll_interval_seconds=%s)",
@@ -80,13 +81,21 @@ def run_service_daemon(
     )
 
     if run_once:
-        results = worker.run_cycle()
+        if worker_cycle_lock is None:
+            results = worker.run_cycle()
+        else:
+            with worker_cycle_lock:
+                results = worker.run_cycle()
         logger.info("service daemon completed one cycle (jobs=%d)", len(results))
         return 0
 
     while not stop_predicate():
         try:
-            results = worker.run_cycle()
+            if worker_cycle_lock is None:
+                results = worker.run_cycle()
+            else:
+                with worker_cycle_lock:
+                    results = worker.run_cycle()
         except Exception:
             logger.exception("service daemon cycle failed")
             results = []
@@ -128,7 +137,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parser.error(f"--dispatch-command-json must be valid JSON: {exc}")
             if not isinstance(request, dict):
                 parser.error("--dispatch-command-json must decode to an object")
-            response = ServiceCommandDispatcher(context).dispatch(request)
+            response = ServiceCommandDispatcher(
+                context,
+                should_stop=stop_requested.is_set,
+                worker_cycle_lock=getattr(context, "worker_cycle_lock", None),
+            ).dispatch(request)
             print(json.dumps(response, sort_keys=True))
             return 0
 

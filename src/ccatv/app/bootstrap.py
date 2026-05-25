@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 
 from ccatv.logging_config import configure_logging
 from ccatv.settings import AppSettings
@@ -35,6 +36,7 @@ class AppContext:
     persistence: PersistenceStore
     tvrecorder: TvRecorderService
     recorder_orchestrator: RecorderOrchestrator
+    worker_cycle_lock: object = field(default_factory=Lock)
 
 
 def close_app_context(context: AppContext) -> None:

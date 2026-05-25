@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from queue import Queue
+from threading import Lock, Thread
 
 from ccatv.app.bootstrap import AppContext
 from ccatv.app.recorder_worker import create_scheduler_worker
@@ -37,8 +40,20 @@ class ServiceCommandError(Exception):
 class ServiceCommandDispatcher:
     """Execute M1 service command envelope requests in-process."""
 
-    def __init__(self, context: AppContext) -> None:
+    def __init__(
+        self,
+        context: AppContext,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+        sd_sync_timeout_seconds: float = 300.0,
+        worker_cycle_lock=None,
+    ) -> None:
         self._context = context
+        self._should_stop = should_stop or (lambda: False)
+        self._sd_sync_timeout_seconds = sd_sync_timeout_seconds
+        self._worker_cycle_lock = (
+            worker_cycle_lock or getattr(context, "worker_cycle_lock", None) or Lock()
+        )
 
     def dispatch(self, request: dict[str, object]) -> dict[str, object]:
         request_id = request.get("requestId")
@@ -134,6 +149,7 @@ class ServiceCommandDispatcher:
     def _recording_worker_cycle_run(
         self, payload: dict[str, object]
     ) -> dict[str, object]:
+        self._raise_if_stopping()
         max_jobs = payload.get("maxJobsPerCycle")
         if max_jobs is not None:
             if not isinstance(max_jobs, int) or max_jobs < 1:
@@ -155,7 +171,9 @@ class ServiceCommandDispatcher:
             max_jobs_per_cycle=max_jobs,
             poll_interval_seconds=5.0,
         )
-        results = worker.run_cycle()
+        with self._worker_cycle_lock:
+            self._raise_if_stopping()
+            results = worker.run_cycle()
         return {
             "results": [
                 {
@@ -209,15 +227,25 @@ class ServiceCommandDispatcher:
                 message="databasePath must be a non-empty string when provided",
             )
 
+        timeout_seconds = payload.get("timeoutSeconds", self._sd_sync_timeout_seconds)
+        if not isinstance(timeout_seconds, int | float) or timeout_seconds <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="timeoutSeconds must be greater than 0",
+            )
+
+        self._raise_if_stopping()
+
         try:
-            stats = asyncio.run(
+            stats = self._run_coroutine_blocking(
                 self._run_sd_sync(
                     lineup_id=lineup_id.strip(),
                     seed=seed,
                     window_hours=float(window_hours),
                     credentials_path=credentials_path,
                     database_path=database_path,
-                )
+                ),
+                timeout_seconds=float(timeout_seconds),
             )
         except SchedulesDirectAuthenticationError as exc:
             raise ServiceCommandError(
@@ -234,6 +262,13 @@ class ServiceCommandDispatcher:
                     "retryAfterSeconds": exc.retry_after_seconds,
                 },
             ) from exc
+        except TimeoutError as exc:
+            raise ServiceCommandError(
+                code="SD_SYNC_TIMEOUT",
+                message="metadata.sd.sync.run timed out",
+                retryable=True,
+                details={"timeoutSeconds": float(timeout_seconds)},
+            ) from exc
 
         return {
             "stats": {
@@ -244,6 +279,45 @@ class ServiceCommandDispatcher:
                 "ingestRunId": stats.ingest_run_id,
             }
         }
+
+    def _run_coroutine_blocking(self, coroutine, *, timeout_seconds: float):
+        async def _timed():
+            return await asyncio.wait_for(coroutine, timeout=timeout_seconds)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return self._execute_with_asyncio_run(_timed())
+
+        queue: Queue[tuple[bool, object]] = Queue(maxsize=1)
+
+        def _target() -> None:
+            try:
+                queue.put((True, self._execute_with_asyncio_run(_timed())))
+            except Exception as exc:
+                queue.put((False, exc))
+
+        thread = Thread(target=_target, daemon=True)
+        thread.start()
+        thread.join()
+        ok, payload = queue.get()
+        if ok:
+            return payload
+        raise payload
+
+    def _execute_with_asyncio_run(self, coroutine):
+        try:
+            return asyncio.run(coroutine)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError() from exc
+
+    def _raise_if_stopping(self) -> None:
+        if self._should_stop():
+            raise ServiceCommandError(
+                code="COMMAND_CANCELLED",
+                message="command cancelled because service shutdown was requested",
+                retryable=True,
+            )
 
     async def _run_sd_sync(
         self,
@@ -257,6 +331,7 @@ class ServiceCommandDispatcher:
         credential_store = SchedulesDirectCredentialStore(
             path=Path(credentials_path) if credentials_path else None
         )
+        self._raise_if_stopping()
         credentials = credential_store.load()
 
         target_db_path = database_path or self._context.settings.database_path
@@ -268,7 +343,9 @@ class ServiceCommandDispatcher:
         service = SchedulesDirectIngestionService(client=client, repository=repository)
 
         try:
+            self._raise_if_stopping()
             await client.authenticate(credentials)
+            self._raise_if_stopping()
             now = datetime.now(timezone.utc)
             if seed:
                 effective_window_hours = float(service.seed_window_hours)
@@ -278,6 +355,7 @@ class ServiceCommandDispatcher:
                 start_utc=now,
                 end_utc=now + timedelta(hours=effective_window_hours),
             )
+            self._raise_if_stopping()
             return await service.sync_incremental_with_stats(
                 lineup_id=lineup_id,
                 window=window,

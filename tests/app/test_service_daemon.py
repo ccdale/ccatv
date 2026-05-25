@@ -29,6 +29,18 @@ class StubContext:
     logger: logging.Logger
 
 
+@dataclass(slots=True)
+class StubLock:
+    entered: int = 0
+
+    def __enter__(self):
+        self.entered += 1
+        return self
+
+    def __exit__(self, _exc_type, _exc, _tb):
+        return False
+
+
 def test_run_service_daemon_once(monkeypatch) -> None:
     worker = StubWorker(
         cycle_results=[
@@ -59,6 +71,32 @@ def test_run_service_daemon_once(monkeypatch) -> None:
     assert result == 0
     assert worker.ran_cycle is True
     assert worker.cycle_count == 1
+
+
+def test_run_service_daemon_uses_context_worker_lock(monkeypatch) -> None:
+    worker = StubWorker()
+    lock = StubLock()
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.lock"),
+        worker_cycle_lock=lock,
+    )
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=True,
+    )
+
+    assert result == 0
+    assert worker.cycle_count == 1
+    assert lock.entered == 1
 
 
 def test_run_service_daemon_forever_runs_cycles(monkeypatch) -> None:
@@ -134,7 +172,13 @@ def test_main_dispatch_command_json(monkeypatch, capsys) -> None:
     )
 
     class _StubDispatcher:
-        def __init__(self, _context) -> None:
+        def __init__(
+            self,
+            _context,
+            *,
+            should_stop=None,
+            worker_cycle_lock=None,
+        ) -> None:
             self.context = _context
 
         def dispatch(self, request):
@@ -166,3 +210,50 @@ def test_main_dispatch_command_json(monkeypatch, capsys) -> None:
     response = json.loads(output)
     assert response["ok"] is True
     assert response["requestId"] == "abc-123"
+
+
+def test_main_dispatch_command_json_passes_stop_predicate(monkeypatch, capsys) -> None:
+    context = SimpleNamespace(
+        settings=SimpleNamespace(database_path=":memory:"),
+        persistence=SimpleNamespace(connection=SimpleNamespace(close=lambda: None)),
+        dvbstreamer=SimpleNamespace(stop=lambda force_kill=True: None),
+        logger=logging.getLogger("test.daemon.dispatch.stop"),
+        worker_cycle_lock=StubLock(),
+    )
+    captured = {}
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            captured["should_stop"] = should_stop
+            captured["worker_cycle_lock"] = worker_cycle_lock
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr("ccatv.app.service_daemon.bootstrap_app", lambda: context)
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.close_app_context", lambda _context: None
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    request = {
+        "apiVersion": "v1alpha1",
+        "command": "service.health.get",
+        "requestId": "stop-1",
+        "payload": {},
+    }
+    result = main(["--dispatch-command-json", json.dumps(request)])
+
+    assert result == 0
+    output = capsys.readouterr().out.strip()
+    response = json.loads(output)
+    assert response["ok"] is True
+    assert callable(captured["should_stop"])
+    assert captured["worker_cycle_lock"] is context.worker_cycle_lock

@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from ccatv.app.service_dispatcher import API_VERSION, ServiceCommandDispatcher
+from ccatv.app.service_dispatcher import (
+    API_VERSION,
+    ServiceCommandDispatcher,
+    ServiceCommandError,
+)
+from ccatv.metadata.schedules_direct_contract import (
+    SchedulesDirectAuthenticationError,
+    SchedulesDirectRateLimitError,
+)
 from ccatv.tvrecorder.orchestrator import OrchestratorResult
 
 
@@ -14,6 +23,18 @@ class StubWorker:
 
     def run_cycle(self):
         return self.results
+
+
+@dataclass(slots=True)
+class StubLock:
+    entered: int = 0
+
+    def __enter__(self):
+        self.entered += 1
+        return self
+
+    def __exit__(self, _exc_type, _exc, _tb):
+        return False
 
 
 def _build_context() -> SimpleNamespace:
@@ -44,7 +65,8 @@ def test_dispatch_service_health_get() -> None:
 
 def test_dispatch_recording_worker_cycle_run(monkeypatch) -> None:
     context = _build_context()
-    dispatcher = ServiceCommandDispatcher(context)
+    lock = StubLock()
+    dispatcher = ServiceCommandDispatcher(context, worker_cycle_lock=lock)
 
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.create_scheduler_worker",
@@ -75,6 +97,7 @@ def test_dispatch_recording_worker_cycle_run(monkeypatch) -> None:
     assert len(results) == 1
     assert results[0]["jobId"] == 10
     assert results[0]["schedulerState"] == "completed"
+    assert lock.entered == 1
 
 
 def test_dispatch_metadata_sd_sync_run(monkeypatch) -> None:
@@ -110,6 +133,149 @@ def test_dispatch_metadata_sd_sync_run(monkeypatch) -> None:
     assert sd_stats["schedulesUpserted"] == 3
     assert sd_stats["staleSchedulesPruned"] == 4
     assert sd_stats["ingestRunId"] == 9
+
+
+def test_dispatch_metadata_sd_sync_maps_auth_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    async def _raise_auth_error(**_kwargs):
+        raise SchedulesDirectAuthenticationError("bad credentials")
+
+    monkeypatch.setattr(dispatcher, "_run_sd_sync", _raise_auth_error)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.run",
+        "payload": {
+            "lineupId": "UK-TEST",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "SD_AUTH_FAILED"
+    assert response["error"]["retryable"] is False
+
+
+def test_dispatch_metadata_sd_sync_maps_rate_limit_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    async def _raise_rate_limit(**_kwargs):
+        raise SchedulesDirectRateLimitError("too many requests", retry_after_seconds=42)
+
+    monkeypatch.setattr(dispatcher, "_run_sd_sync", _raise_rate_limit)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.run",
+        "payload": {
+            "lineupId": "UK-TEST",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "SD_RATE_LIMITED"
+    assert response["error"]["retryable"] is True
+    assert response["error"]["details"]["retryAfterSeconds"] == 42
+
+
+def test_dispatch_metadata_sd_sync_maps_timeout(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    async def _slow_sync(**_kwargs):
+        await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(dispatcher, "_run_sd_sync", _slow_sync)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.run",
+        "payload": {
+            "lineupId": "UK-TEST",
+            "timeoutSeconds": 0.001,
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "SD_SYNC_TIMEOUT"
+    assert response["error"]["retryable"] is True
+    assert response["error"]["details"]["timeoutSeconds"] == 0.001
+
+
+def test_dispatch_returns_cancelled_error_when_stop_requested() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context, should_stop=lambda: True)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.worker.cycle.run",
+        "payload": {
+            "outputDirectory": "/tmp",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "COMMAND_CANCELLED"
+    assert response["error"]["retryable"] is True
+
+
+def test_dispatch_metadata_sd_sync_rejects_non_positive_timeout() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.run",
+        "payload": {
+            "lineupId": "UK-TEST",
+            "timeoutSeconds": 0,
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_run_coroutine_blocking_uses_thread_when_loop_running(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    async def _sample_coroutine():
+        return "ok"
+
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.asyncio.get_running_loop",
+        lambda: object(),
+    )
+    result = dispatcher._run_coroutine_blocking(
+        _sample_coroutine(), timeout_seconds=1.0
+    )
+
+    assert result == "ok"
+
+
+def test_dispatch_generic_service_command_error_surfaces(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(
+        dispatcher,
+        "_dispatch_command",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ServiceCommandError(code="TEST", message="boom", retryable=False)
+        ),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.health.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "TEST"
 
 
 def test_dispatch_invalid_request_returns_validation_error() -> None:
