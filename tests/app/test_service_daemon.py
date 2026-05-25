@@ -418,6 +418,45 @@ def test_run_ipc_server_rejects_empty_request(tmp_path: Path) -> None:
     assert response["error"]["message"] == "request body is empty"
 
 
+def test_run_ipc_server_rejects_whitespace_only_request(tmp_path: Path) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.ipc.empty.whitespace"),
+        worker_cycle_lock=StubLock(),
+    )
+    socket_path = tmp_path / "ccatv-empty-whitespace.sock"
+
+    thread = threading.Thread(
+        target=run_ipc_server,
+        kwargs={
+            "context": context,
+            "socket_path": str(socket_path),
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    for _ in range(100):
+        if socket_path.exists():
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("socket did not become ready")
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.connect(str(socket_path))
+        client.sendall(b"   \n   ")
+        client.shutdown(socket.SHUT_WR)
+        response_raw = client.recv(4096)
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    response = json.loads(response_raw.decode("utf-8"))
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+    assert response["error"]["message"] == "request body is empty"
+
+
 def test_run_ipc_server_rejects_oversized_request(tmp_path: Path) -> None:
     context = SimpleNamespace(
         logger=logging.getLogger("test.daemon.ipc.oversized"),

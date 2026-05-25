@@ -213,10 +213,14 @@ def run_ipc_server(
                                 + b"\n"
                             )
                         else:
-                            response_bytes = _handle_ipc_request(request_bytes, dispatcher)
+                            response_bytes = _handle_ipc_request(
+                                request_bytes, dispatcher
+                            )
                             connection.sendall(response_bytes)
             except (OSError, socket.timeout) as exc:
                 logger.warning("service daemon IPC connection failed: %s", exc)
+            except Exception:
+                logger.exception("service daemon IPC connection unexpected failure")
 
             requests_served += 1
 
