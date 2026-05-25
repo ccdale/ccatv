@@ -32,6 +32,7 @@ API_VERSION = "v1alpha1"
 SERVICE_CAPABILITIES = [
     "service.health",
     "service.info",
+    "recording.schedule",
     "recording.worker.cycle",
     "metadata.sd.sync",
 ]
@@ -39,6 +40,8 @@ SERVICE_CAPABILITIES = [
 SERVICE_COMMANDS = [
     "service.health.get",
     "service.info.get",
+    "recording.schedule.create",
+    "recording.schedule.list",
     "recording.worker.cycle.run",
     "metadata.sd.sync.run",
 ]
@@ -139,6 +142,10 @@ class ServiceCommandDispatcher:
             return self._service_health_get()
         if command == "service.info.get":
             return self._service_info_get()
+        if command == "recording.schedule.create":
+            return self._recording_schedule_create(payload)
+        if command == "recording.schedule.list":
+            return self._recording_schedule_list(payload)
         if command == "recording.worker.cycle.run":
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.sd.sync.run":
@@ -327,6 +334,77 @@ class ServiceCommandDispatcher:
                     "error": result.error,
                 }
                 for result in results
+            ]
+        }
+
+    def _recording_schedule_create(self, payload: dict[str, object]) -> dict[str, object]:
+        self._raise_if_stopping()
+
+        channel_name = payload.get("channelName")
+        if not isinstance(channel_name, str) or not channel_name.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channelName must be a non-empty string",
+            )
+
+        start_at_utc = payload.get("startAtUtc")
+        if not isinstance(start_at_utc, str) or not start_at_utc.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="startAtUtc must be a non-empty UTC timestamp string",
+            )
+
+        duration_seconds = payload.get("durationSeconds")
+        if not isinstance(duration_seconds, int) or duration_seconds < 1:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="durationSeconds must be an integer greater than 0",
+            )
+
+        try:
+            job = self._context.tvrecorder.schedule_recording(
+                channel_name=channel_name.strip(),
+                start_at_utc=start_at_utc.strip(),
+                duration_seconds=duration_seconds,
+            )
+        except ValueError as exc:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message=str(exc),
+            ) from exc
+
+        return {
+            "job": {
+                "id": job.id,
+                "state": job.state,
+            }
+        }
+
+    def _recording_schedule_list(self, payload: dict[str, object]) -> dict[str, object]:
+        state_filter = payload.get("state")
+        if state_filter is not None and (
+            not isinstance(state_filter, str) or not state_filter.strip()
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="state must be a non-empty string when provided",
+            )
+
+        target_state = state_filter.strip() if isinstance(state_filter, str) else None
+        jobs = self._context.persistence.list_scheduler_jobs()
+        if target_state is not None:
+            jobs = [job for job in jobs if job.state == target_state]
+
+        return {
+            "jobs": [
+                {
+                    "id": job.id,
+                    "channelName": job.channel_name,
+                    "startAtUtc": job.start_at_utc,
+                    "durationSeconds": job.duration_seconds,
+                    "state": job.state,
+                }
+                for job in jobs
             ]
         }
 

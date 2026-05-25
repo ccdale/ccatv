@@ -20,6 +20,8 @@ from ccatv.metadata.schedules_direct_contract import (
     SchedulesDirectAuthenticationError,
     SchedulesDirectRateLimitError,
 )
+from ccatv.storage import PersistenceStore, apply_migrations
+from ccatv.tvrecorder.service import TvRecorderService
 from ccatv.tvrecorder.orchestrator import OrchestratorResult
 
 
@@ -45,10 +47,17 @@ class StubLock:
 
 def _build_context() -> SimpleNamespace:
     connection = sqlite3.connect(":memory:")
+    apply_migrations(connection)
+    persistence = PersistenceStore(connection=connection)
+    tvrecorder = TvRecorderService(
+        dvbctrl=SimpleNamespace(),
+        persistence=persistence,
+    )
     return SimpleNamespace(
         logger=SimpleNamespace(info=lambda *args, **kwargs: None),
-        persistence=SimpleNamespace(connection=connection),
+        persistence=persistence,
         settings=SimpleNamespace(database_path=":memory:"),
+        tvrecorder=tvrecorder,
     )
 
 
@@ -71,6 +80,72 @@ def test_dispatch_service_health_get() -> None:
     assert payload["database"]["error"] is None
     assert payload["database"]["failedAt"] is None
     assert payload["recorder"]["workerEnabled"] is True
+
+
+def test_dispatch_recording_schedule_create() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.create",
+        "payload": {
+            "channelName": "BBC TWO HD",
+            "startAtUtc": "2026-05-25T21:00:00Z",
+            "durationSeconds": 3600,
+        },
+    })
+
+    assert response["ok"] is True
+    job = response["payload"]["job"]
+    assert job["id"] == 1
+    assert job["state"] == "scheduled"
+
+
+def test_dispatch_recording_schedule_create_rejects_invalid_timestamp() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.create",
+        "payload": {
+            "channelName": "BBC TWO HD",
+            "startAtUtc": "2026/05/25 21:00:00",
+            "durationSeconds": 3600,
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_recording_schedule_list_filters_state() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    context.tvrecorder.schedule_recording(
+        channel_name="BBC TWO HD",
+        start_at_utc="2026-05-25T21:00:00Z",
+        duration_seconds=3600,
+    )
+    context.persistence.create_scheduler_job(
+        channel_name="BBC ONE HD",
+        start_at_utc="2026-05-25T22:00:00Z",
+        duration_seconds=1800,
+        state="completed",
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.list",
+        "payload": {"state": "scheduled"},
+    })
+
+    assert response["ok"] is True
+    jobs = response["payload"]["jobs"]
+    assert len(jobs) == 1
+    assert jobs[0]["channelName"] == "BBC TWO HD"
+    assert jobs[0]["state"] == "scheduled"
 
 
 def test_dispatch_service_info_get() -> None:

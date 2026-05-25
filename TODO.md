@@ -91,6 +91,8 @@ M1. Service API surface and boundary definitions.
 
 M2. Extract use-case orchestration from front-end glue.
 - [ ] Ensure recording and scheduling workflows are callable through service command handlers only.
+	- [x] Initial dispatcher support added for `recording.schedule.create` and `recording.schedule.list`.
+	- [ ] Remaining: migrate front-end callers to service-client path so workflow execution is service-command-only.
 - [ ] Ensure metadata sync workflows are callable through service command handlers only.
 
 M3. Daemon transport implementation.
