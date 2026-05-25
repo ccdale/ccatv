@@ -118,7 +118,7 @@ M5. systemd operationalization.
 
 M6. Multi-front-end enablement.
 - [x] Introduce a shared service client module used by CLI/GTK4/Flask.
-- [ ] Add first GTK4 command-path integration against local Unix socket service transport.
+- [x] Add first GTK4 command-path integration against local Unix socket service transport.
 - [x] Add first Flask/FastAPI command-path integration against remote API transport.
 - [x] Add remote transport security baseline (disabled by default, explicit bind host, auth requirement).
 
