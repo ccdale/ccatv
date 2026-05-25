@@ -172,3 +172,30 @@ def test_select_preferred_broadcast_merged_does_not_merge_when_disagree() -> Non
 
 def test_select_preferred_broadcast_merged_returns_none_for_empty() -> None:
     assert select_preferred_broadcast_merged([]) is None
+
+
+def test_select_preferred_broadcast_merged_preserves_primary_description() -> None:
+    candidates = [
+        GuideBroadcastCandidate(
+            source="dvbstreamer_ota",
+            source_channel_id="1:2:3",
+            start_utc="2026-05-25T20:00:00Z",
+            stop_utc="2026-05-25T20:30:00Z",
+            title="News",
+            description="OTA synopsis",
+        ),
+        GuideBroadcastCandidate(
+            source="schedules_direct",
+            source_channel_id="101",
+            start_utc="2026-05-25T20:00:00Z",
+            stop_utc="2026-05-25T20:30:00Z",
+            title="News",
+            description="SD synopsis",
+        ),
+    ]
+
+    selected = select_preferred_broadcast_merged(candidates)
+
+    assert selected is not None
+    assert selected.source == "dvbstreamer_ota"
+    assert selected.description == "OTA synopsis"
