@@ -170,7 +170,10 @@ def _extract_services_by_mux(serviceinfo_output: str) -> dict[str, list[str]]:
             continue
 
         name_match = re.search(r"(?i)\b(?:service|name)\b\s*[:=]\s*(.+)", line)
-        mux_match = re.search(r"(?i)\bmux(?:\s+id)?\b\s*[:=]\s*(.+)", line)
+        mux_match = re.search(
+            r"(?i)\b(?:mux(?:\s+id)?|multiplex\s+uid)\b\s*[:=]\s*(.+)",
+            line,
+        )
 
         if name_match:
             current_name = name_match.group(1).strip().strip('"')
