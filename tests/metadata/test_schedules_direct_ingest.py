@@ -5,16 +5,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from ccatv.metadata.schedules_direct_ingest import (
-    SchedulesDirectIngestionService,
-    SqliteGuideRepository,
-)
 
 from ccatv.metadata.schedules_direct_contract import (
     GuideSyncWindow,
     SDProgram,
     SDScheduleEntry,
     SDStation,
+)
+from ccatv.metadata.schedules_direct_ingest import (
+    SchedulesDirectIngestionService,
+    SqliteGuideRepository,
 )
 from ccatv.storage import initialize_database
 
@@ -228,3 +228,197 @@ def test_sync_incremental_marks_ingest_failed_on_error(tmp_path) -> None:
     assert run_row is not None
     assert run_row[0] == "failed"
     assert "station lookup failed" in str(run_row[1])
+
+
+def test_list_preferred_broadcasts_merges_sd_description_into_ota(tmp_path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    repository = SqliteGuideRepository(connection=connection)
+
+    connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        )
+        VALUES(?, ?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "1:2:3", "BBC One", "BBC1", "1"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        )
+        VALUES(?, ?, ?, ?, ?)
+        """,
+        ("schedules_direct", "101", "BBC One", "BBC1", "1"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, description_long)
+        VALUES(?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "OTA-P1", "Evening News", None),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, description_long)
+        VALUES(?, ?, ?, ?)
+        """,
+        ("schedules_direct", "SD-P1", "Evening News", "Long SD synopsis"),
+    )
+
+    ota_channel_id = int(
+        connection.execute(
+            "SELECT id FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+            ("dvbstreamer_ota", "1:2:3"),
+        ).fetchone()[0]
+    )
+    sd_channel_id = int(
+        connection.execute(
+            "SELECT id FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+            ("schedules_direct", "101"),
+        ).fetchone()[0]
+    )
+    ota_program_id = int(
+        connection.execute(
+            "SELECT id FROM epg_programs WHERE source = ? AND source_program_id = ?",
+            ("dvbstreamer_ota", "OTA-P1"),
+        ).fetchone()[0]
+    )
+    sd_program_id = int(
+        connection.execute(
+            "SELECT id FROM epg_programs WHERE source = ? AND source_program_id = ?",
+            ("schedules_direct", "SD-P1"),
+        ).fetchone()[0]
+    )
+
+    connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc)
+        VALUES(?, ?, ?, ?)
+        """,
+        (
+            ota_channel_id,
+            ota_program_id,
+            "2026-05-24T20:00:00Z",
+            "2026-05-24T20:30:00Z",
+        ),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc)
+        VALUES(?, ?, ?, ?)
+        """,
+        (sd_channel_id, sd_program_id, "2026-05-24T20:00:00Z", "2026-05-24T20:30:00Z"),
+    )
+    connection.commit()
+
+    results = repository.list_preferred_broadcasts(
+        window_start_utc=datetime(2026, 5, 24, 19, 0, tzinfo=timezone.utc),
+        window_end_utc=datetime(2026, 5, 24, 21, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(results) == 1
+    assert results[0].source == "dvbstreamer_ota"
+    assert results[0].description == "Long SD synopsis"
+
+
+def test_list_preferred_broadcasts_keeps_disagreeing_slots_separate(tmp_path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    repository = SqliteGuideRepository(connection=connection)
+
+    connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "1:2:3", "BBC One"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "101", "BBC One"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, description_long)
+        VALUES(?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "OTA-P1", "Evening News", None),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, description_long)
+        VALUES(?, ?, ?, ?)
+        """,
+        ("schedules_direct", "SD-P1", "Evening Weather", "Long SD synopsis"),
+    )
+
+    ota_channel_id = int(
+        connection.execute(
+            "SELECT id FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+            ("dvbstreamer_ota", "1:2:3"),
+        ).fetchone()[0]
+    )
+    sd_channel_id = int(
+        connection.execute(
+            "SELECT id FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+            ("schedules_direct", "101"),
+        ).fetchone()[0]
+    )
+    ota_program_id = int(
+        connection.execute(
+            "SELECT id FROM epg_programs WHERE source = ? AND source_program_id = ?",
+            ("dvbstreamer_ota", "OTA-P1"),
+        ).fetchone()[0]
+    )
+    sd_program_id = int(
+        connection.execute(
+            "SELECT id FROM epg_programs WHERE source = ? AND source_program_id = ?",
+            ("schedules_direct", "SD-P1"),
+        ).fetchone()[0]
+    )
+
+    connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc)
+        VALUES(?, ?, ?, ?)
+        """,
+        (
+            ota_channel_id,
+            ota_program_id,
+            "2026-05-24T20:00:00Z",
+            "2026-05-24T20:30:00Z",
+        ),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc)
+        VALUES(?, ?, ?, ?)
+        """,
+        (sd_channel_id, sd_program_id, "2026-05-24T20:00:00Z", "2026-05-24T20:30:00Z"),
+    )
+    connection.commit()
+
+    results = repository.list_preferred_broadcasts(
+        window_start_utc=datetime(2026, 5, 24, 19, 0, tzinfo=timezone.utc),
+        window_end_utc=datetime(2026, 5, 24, 21, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(results) == 2
+    assert sorted(result.title for result in results) == [
+        "Evening News",
+        "Evening Weather",
+    ]

@@ -6,6 +6,10 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from ccatv.metadata.guide_preference import (
+    GuideBroadcastCandidate,
+    select_preferred_broadcast_merged,
+)
 from ccatv.metadata.schedules_direct_contract import (
     GuideDataSource,
     GuideIngestionService,
@@ -68,6 +72,73 @@ class SDGuideIngestResult:
 @dataclass(slots=True)
 class SqliteGuideRepository(GuideRepository):
     connection: sqlite3.Connection
+
+    def list_preferred_broadcasts(
+        self,
+        *,
+        window_start_utc: datetime,
+        window_end_utc: datetime,
+    ) -> list[GuideBroadcastCandidate]:
+        rows = self.connection.execute(
+            """
+            SELECT
+                c.source,
+                c.source_channel_id,
+                c.display_name,
+                c.callsign,
+                c.logical_channel_number,
+                b.start_utc,
+                b.stop_utc,
+                p.title,
+                p.description_long
+            FROM epg_broadcasts AS b
+            JOIN epg_channels AS c ON c.id = b.channel_id
+            JOIN epg_programs AS p ON p.id = b.program_id
+            WHERE b.start_utc >= ? AND b.start_utc < ?
+            ORDER BY b.start_utc ASC, c.id ASC
+            """,
+            (_to_utc_iso(window_start_utc), _to_utc_iso(window_end_utc)),
+        ).fetchall()
+
+        grouped: dict[
+            tuple[str, str, str | None, str], list[GuideBroadcastCandidate]
+        ] = {}
+        for row in rows:
+            source = str(row[0])
+            source_channel_id = str(row[1])
+            display_name = str(row[2]) if row[2] is not None else ""
+            callsign = str(row[3]) if row[3] is not None else ""
+            logical_channel_number = str(row[4]) if row[4] is not None else ""
+            start_utc = str(row[5])
+            stop_utc = str(row[6]) if row[6] is not None else None
+            title = str(row[7])
+            description = str(row[8]) if row[8] is not None else None
+
+            channel_identity = (
+                logical_channel_number or callsign or display_name or source_channel_id
+            )
+            key = (channel_identity, start_utc, stop_utc, title)
+            grouped.setdefault(key, []).append(
+                GuideBroadcastCandidate(
+                    source=source,
+                    source_channel_id=source_channel_id,
+                    start_utc=start_utc,
+                    stop_utc=stop_utc,
+                    title=title,
+                    description=description,
+                )
+            )
+
+        preferred: list[GuideBroadcastCandidate] = []
+        for group_key in sorted(grouped.keys()):
+            selected = select_preferred_broadcast_merged(grouped[group_key])
+            if selected is not None:
+                preferred.append(selected)
+
+        preferred.sort(
+            key=lambda item: (item.start_utc, item.source_channel_id, item.title)
+        )
+        return preferred
 
     async def upsert_stations(
         self, source: GuideDataSource, stations: list[SDStation]
