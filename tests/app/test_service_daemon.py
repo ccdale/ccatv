@@ -301,7 +301,9 @@ def test_run_ipc_server_handles_health_request(monkeypatch, tmp_path: Path) -> N
                 },
             }
 
-    monkeypatch.setattr("ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher)
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
 
     socket_path = tmp_path / "ccatv.sock"
 
@@ -344,11 +346,9 @@ def test_run_ipc_server_handles_health_request(monkeypatch, tmp_path: Path) -> N
 
 def test_main_rejects_socket_and_dispatch_json_together() -> None:
     with pytest.raises(SystemExit):
-        main(
-            [
-                "--socket-path",
-                "/tmp/ccatv.sock",
-                "--dispatch-command-json",
-                "{}",
-            ]
-        )
+        main([
+            "--socket-path",
+            "/tmp/ccatv.sock",
+            "--dispatch-command-json",
+            "{}",
+        ])

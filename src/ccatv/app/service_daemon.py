@@ -77,7 +77,9 @@ def _build_dispatcher(context: AppContext, *, should_stop: Callable[[], bool]):
     )
 
 
-def _handle_ipc_request(raw_payload: bytes, dispatcher: ServiceCommandDispatcher) -> bytes:
+def _handle_ipc_request(
+    raw_payload: bytes, dispatcher: ServiceCommandDispatcher
+) -> bytes:
     try:
         request_text = raw_payload.decode("utf-8")
     except UnicodeDecodeError:
@@ -185,8 +187,7 @@ def run_ipc_server(
                             },
                         }
                         connection.sendall(
-                            json.dumps(response, sort_keys=True).encode("utf-8")
-                            + b"\n"
+                            json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
                         )
                         break
 
@@ -205,8 +206,7 @@ def run_ipc_server(
                             },
                         }
                         connection.sendall(
-                            json.dumps(response, sort_keys=True).encode("utf-8")
-                            + b"\n"
+                            json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
                         )
                     else:
                         response_bytes = _handle_ipc_request(request_bytes, dispatcher)
