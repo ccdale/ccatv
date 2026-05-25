@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from ccatv.app.service_client import ServiceClientError
 from ccatv.cli import CliDependencies, main, run_setup, setup_main
 from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
 from ccatv.tvrecorder.config import TvRecorderConfigStore
@@ -281,3 +282,86 @@ def test_epg_sync_sd_command_rejects_invalid_window(
     assert exit_code == 2
     assert "--window-hours must be greater than 0" in stderr.getvalue()
     assert stub_client.executed == []
+
+
+def test_epg_sync_sd_run_forever_rejects_invalid_window_without_client() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    calls = {"factory": 0}
+
+    def _factory():
+        calls["factory"] += 1
+        raise AssertionError("service client should not be created")
+
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=_factory,
+    )
+
+    exit_code = main(
+        [
+            "epg-sync-sd",
+            "--lineup-id",
+            "UK-TEST",
+            "--run-forever",
+            "--window-hours",
+            "0",
+        ],
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert "--window-hours must be greater than 0" in stderr.getvalue()
+    assert calls["factory"] == 0
+
+
+def test_epg_sync_sd_run_forever_non_retryable_error_exits(monkeypatch) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            del command, payload
+            raise ServiceClientError(
+                code="SD_AUTH_FAILED",
+                message="bad credentials",
+                retryable=False,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+
+    async def _sleep(_seconds: float) -> None:
+        raise AssertionError("sleep should not run after non-retryable failure")
+
+    monkeypatch.setattr("ccatv.cli.asyncio.sleep", _sleep)
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(
+        [
+            "epg-sync-sd",
+            "--lineup-id",
+            "UK-TEST",
+            "--run-forever",
+            "--poll-interval-seconds",
+            "1",
+        ],
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert "non-retryable" in stderr.getvalue()
+    assert "EPG sync failed: bad credentials" in stderr.getvalue()
+    assert stub_client.closed is True

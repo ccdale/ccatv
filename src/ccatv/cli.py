@@ -10,6 +10,7 @@ from typing import TextIO
 
 from ccatv.app.service_client import (
     ServiceClient,
+    ServiceClientError,
     create_local_service_client,
 )
 from ccatv.runtime_config import (
@@ -225,24 +226,24 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
             print(f"EPG sync failed: {exc}", file=deps.stderr)
             return 2
 
+    if args.window_hours <= 0:
+        print("--window-hours must be greater than 0", file=deps.stderr)
+        return 2
+
     client = deps.service_client_factory()
+    payload = {
+        "lineupId": args.lineup_id,
+        "seed": bool(args.seed),
+        "windowHours": float(args.window_hours),
+    }
+    if args.database_path:
+        payload["databasePath"] = str(args.database_path)
+    if args.credentials_path:
+        payload["credentialsPath"] = str(args.credentials_path)
 
     async def _run_forever() -> None:
-        if args.window_hours <= 0:
-            raise ValueError("--window-hours must be greater than 0")
-
         while True:
             try:
-                payload = {
-                    "lineupId": args.lineup_id,
-                    "seed": bool(args.seed),
-                    "windowHours": float(args.window_hours),
-                }
-                if args.database_path:
-                    payload["databasePath"] = str(args.database_path)
-                if args.credentials_path:
-                    payload["credentialsPath"] = str(args.credentials_path)
-
                 response_payload = client.execute("metadata.sd.sync.run", payload)
                 stats = response_payload.get("stats")
                 if not isinstance(stats, dict):
@@ -262,12 +263,26 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
                     ),
                     file=deps.stdout,
                 )
+            except ServiceClientError as exc:
+                if not exc.retryable:
+                    print(
+                        (
+                            "EPG sync cycle failed with non-retryable error: "
+                            f"{exc.message}"
+                        ),
+                        file=deps.stderr,
+                    )
+                    raise
+                print(f"EPG sync cycle failed: {exc}", file=deps.stderr)
             except Exception as exc:
                 print(f"EPG sync cycle failed: {exc}", file=deps.stderr)
             await asyncio.sleep(args.poll_interval_seconds)
 
     try:
         asyncio.run(_run_forever())
+    except ServiceClientError as exc:
+        print(f"EPG sync failed: {exc.message}", file=deps.stderr)
+        return 2
     except ValueError as exc:
         print(str(exc), file=deps.stderr)
         return 2

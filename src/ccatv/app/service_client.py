@@ -38,12 +38,14 @@ class LocalInProcessServiceClient(ServiceClient):
         )
 
     def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
-        response = self._dispatcher.dispatch({
-            "apiVersion": API_VERSION,
-            "command": command,
-            "payload": payload,
-        })
-        if not bool(response.get("ok")):
+        response = self._dispatcher.dispatch(
+            {
+                "apiVersion": API_VERSION,
+                "command": command,
+                "payload": payload,
+            }
+        )
+        if response.get("ok") is not True:
             error = response.get("error")
             if isinstance(error, dict):
                 raise ServiceClientError(
@@ -58,7 +60,7 @@ class LocalInProcessServiceClient(ServiceClient):
                 )
             raise ServiceClientError(
                 code="INTERNAL_ERROR",
-                message="service returned malformed error response",
+                message=f"service returned malformed response: {response}",
             )
 
         payload_obj = response.get("payload")
