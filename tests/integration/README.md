@@ -60,7 +60,7 @@ The following placeholders are supported in `start_command`, `stop_command`, and
 - `{adapter_count}`
 - `{host}`
 
-Using any other placeholder raises a config validation error.
+Using any other placeholder raises a ValueError when rendering commands.
 
 ## Expected Runtime
 
