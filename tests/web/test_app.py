@@ -148,7 +148,7 @@ def test_schedule_create_maps_service_error(monkeypatch) -> None:
         ("SD_RATE_LIMITED", 429),
         ("SD_SYNC_TIMEOUT", 504),
         ("SD_UPSTREAM_ERROR", 502),
-        ("AUTHENTICATION_REQUIRED", 503),
+        ("AUTHENTICATION_REQUIRED", 401),
         ("TRANSPORT_ERROR", 503),
     ],
 )

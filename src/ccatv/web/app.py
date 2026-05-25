@@ -23,7 +23,7 @@ def _status_for_service_error(code: str) -> int:
     if code == "SD_AUTH_FAILED":
         return 502
     if code == "AUTHENTICATION_REQUIRED":
-        return 503
+        return 401
     if code == "TRANSPORT_ERROR":
         return 503
     if code == "INTERNAL_ERROR":
