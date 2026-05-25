@@ -3,15 +3,20 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import signal
+import socket
 import sys
 import time
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from threading import Event
 
 from ccatv.app.bootstrap import AppContext, bootstrap_app, close_app_context
 from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.app.service_dispatcher import ServiceCommandDispatcher
+
+IPC_MAX_REQUEST_BYTES = 1024 * 1024
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,7 +58,167 @@ def build_parser() -> argparse.ArgumentParser:
             "use for M1 in-process command validation"
         ),
     )
+    parser.add_argument(
+        "--socket-path",
+        default=None,
+        help=(
+            "unix socket path for local JSON request/response transport; "
+            "when set, daemon serves service command envelopes over IPC"
+        ),
+    )
     return parser
+
+
+def _build_dispatcher(context: AppContext, *, should_stop: Callable[[], bool]):
+    return ServiceCommandDispatcher(
+        context,
+        should_stop=should_stop,
+        worker_cycle_lock=getattr(context, "worker_cycle_lock", None),
+    )
+
+
+def _handle_ipc_request(raw_payload: bytes, dispatcher: ServiceCommandDispatcher) -> bytes:
+    try:
+        request_text = raw_payload.decode("utf-8")
+    except UnicodeDecodeError:
+        response = {
+            "apiVersion": "v1alpha1",
+            "requestId": None,
+            "ok": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "request must be valid UTF-8 JSON",
+                "retryable": False,
+                "details": {},
+            },
+        }
+        return json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
+
+    try:
+        request = json.loads(request_text)
+    except json.JSONDecodeError as exc:
+        response = {
+            "apiVersion": "v1alpha1",
+            "requestId": None,
+            "ok": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": f"invalid JSON request: {exc}",
+                "retryable": False,
+                "details": {},
+            },
+        }
+        return json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
+
+    if not isinstance(request, dict):
+        response = {
+            "apiVersion": "v1alpha1",
+            "requestId": None,
+            "ok": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "request must decode to an object",
+                "retryable": False,
+                "details": {},
+            },
+        }
+        return json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
+
+    response = dispatcher.dispatch(request)
+    return json.dumps(response, sort_keys=True).encode("utf-8") + b"\n"
+
+
+def run_ipc_server(
+    context: AppContext,
+    *,
+    socket_path: str,
+    should_stop: Callable[[], bool] | None = None,
+    max_requests: int | None = None,
+) -> int:
+    logger = context.logger
+    stop_predicate = should_stop or (lambda: False)
+    dispatcher = _build_dispatcher(context, should_stop=stop_predicate)
+
+    target_path = Path(socket_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if target_path.exists():
+        target_path.unlink()
+
+    requests_served = 0
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        server.bind(str(target_path))
+        os.chmod(target_path, 0o600)
+        server.listen(16)
+        server.settimeout(0.5)
+        logger.info("service daemon IPC transport listening on %s", target_path)
+
+        while not stop_predicate():
+            if max_requests is not None and requests_served >= max_requests:
+                break
+            try:
+                connection, _ = server.accept()
+            except TimeoutError:
+                continue
+
+            with connection:
+                chunks: list[bytes] = []
+                total = 0
+                while True:
+                    block = connection.recv(4096)
+                    if not block:
+                        break
+                    chunks.append(block)
+                    total += len(block)
+                    if total > IPC_MAX_REQUEST_BYTES:
+                        response = {
+                            "apiVersion": "v1alpha1",
+                            "requestId": None,
+                            "ok": False,
+                            "error": {
+                                "code": "VALIDATION_ERROR",
+                                "message": "request too large",
+                                "retryable": False,
+                                "details": {
+                                    "maxBytes": IPC_MAX_REQUEST_BYTES,
+                                },
+                            },
+                        }
+                        connection.sendall(
+                            json.dumps(response, sort_keys=True).encode("utf-8")
+                            + b"\n"
+                        )
+                        break
+
+                if total <= IPC_MAX_REQUEST_BYTES:
+                    request_bytes = b"".join(chunks).strip()
+                    if not request_bytes:
+                        response = {
+                            "apiVersion": "v1alpha1",
+                            "requestId": None,
+                            "ok": False,
+                            "error": {
+                                "code": "VALIDATION_ERROR",
+                                "message": "request body is empty",
+                                "retryable": False,
+                                "details": {},
+                            },
+                        }
+                        connection.sendall(
+                            json.dumps(response, sort_keys=True).encode("utf-8")
+                            + b"\n"
+                        )
+                    else:
+                        response_bytes = _handle_ipc_request(request_bytes, dispatcher)
+                        connection.sendall(response_bytes)
+
+            requests_served += 1
+
+    finally:
+        server.close()
+        if target_path.exists():
+            target_path.unlink()
+    return 0
 
 
 def run_service_daemon(
@@ -115,6 +280,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--poll-interval-seconds must be greater than 0")
     if args.max_jobs_per_cycle is not None and args.max_jobs_per_cycle < 1:
         parser.error("--max-jobs-per-cycle must be at least 1 when provided")
+    if args.socket_path and args.dispatch_command_json is not None:
+        parser.error("--socket-path cannot be combined with --dispatch-command-json")
 
     context = bootstrap_app()
     stop_requested = Event()
@@ -137,13 +304,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parser.error(f"--dispatch-command-json must be valid JSON: {exc}")
             if not isinstance(request, dict):
                 parser.error("--dispatch-command-json must decode to an object")
-            response = ServiceCommandDispatcher(
+            response = _build_dispatcher(
                 context,
                 should_stop=stop_requested.is_set,
-                worker_cycle_lock=getattr(context, "worker_cycle_lock", None),
             ).dispatch(request)
             print(json.dumps(response, sort_keys=True))
             return 0
+
+        if args.socket_path:
+            return run_ipc_server(
+                context,
+                socket_path=args.socket_path,
+                should_stop=stop_requested.is_set,
+            )
 
         return run_service_daemon(
             context,

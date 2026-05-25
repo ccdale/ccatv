@@ -104,8 +104,8 @@ M2. Extract use-case orchestration from front-end glue.
 	- [x] `ccatv epg-sync-sd` now uses the local service-client dispatch path (`metadata.sd.sync.run`) instead of direct ingestion wiring.
 
 M3. Daemon transport implementation.
-- [ ] Add local IPC transport (likely Unix socket) for request/response handling.
-- [ ] Add structured health and info commands over transport.
+- [x] Add local IPC transport (Unix socket) for request/response handling.
+- [x] Add structured health and info commands over transport.
 
 M4. Thin CLI client conversion.
 - [ ] Convert CLI command paths to service-client calls.

@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
+import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
 
-from ccatv.app.service_daemon import main, run_service_daemon
+import pytest
+
+from ccatv.app.service_daemon import (
+    _handle_ipc_request,
+    main,
+    run_ipc_server,
+    run_service_daemon,
+)
 from ccatv.tvrecorder.orchestrator import OrchestratorResult
 
 
@@ -257,3 +267,88 @@ def test_main_dispatch_command_json_passes_stop_predicate(monkeypatch, capsys) -
     assert response["ok"] is True
     assert callable(captured["should_stop"])
     assert captured["worker_cycle_lock"] is context.worker_cycle_lock
+
+
+def test_handle_ipc_request_rejects_invalid_json() -> None:
+    class _StubDispatcher:
+        def dispatch(self, _request):
+            return {"ok": True}
+
+    response_bytes = _handle_ipc_request(b"{", _StubDispatcher())
+    response = json.loads(response_bytes.decode("utf-8"))
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_run_ipc_server_handles_health_request(monkeypatch, tmp_path: Path) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.ipc"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {
+                    "status": "ok",
+                },
+            }
+
+    monkeypatch.setattr("ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher)
+
+    socket_path = tmp_path / "ccatv.sock"
+
+    thread = threading.Thread(
+        target=run_ipc_server,
+        kwargs={
+            "context": context,
+            "socket_path": str(socket_path),
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    for _ in range(100):
+        if socket_path.exists():
+            break
+    else:
+        raise AssertionError("socket did not become ready")
+
+    request = {
+        "apiVersion": "v1alpha1",
+        "command": "service.health.get",
+        "requestId": "ipc-1",
+        "payload": {},
+    }
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.connect(str(socket_path))
+        client.sendall(json.dumps(request).encode("utf-8"))
+        client.shutdown(socket.SHUT_WR)
+        response_raw = client.recv(4096)
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    response = json.loads(response_raw.decode("utf-8"))
+    assert response["ok"] is True
+    assert response["requestId"] == "ipc-1"
+    assert response["payload"]["status"] == "ok"
+
+
+def test_main_rejects_socket_and_dispatch_json_together() -> None:
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "--socket-path",
+                "/tmp/ccatv.sock",
+                "--dispatch-command-json",
+                "{}",
+            ]
+        )

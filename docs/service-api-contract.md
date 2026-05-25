@@ -325,3 +325,17 @@ M2:
 
 M3:
 - Expose the contract over daemon transport.
+
+## Local IPC Transport (M3)
+
+The daemon now supports local Unix socket transport for request/response
+envelopes.
+
+- Transport: `AF_UNIX` stream socket.
+- Request body: one JSON command envelope per connection.
+- Response body: one JSON response envelope per connection.
+- Encoding: UTF-8 JSON.
+- Recommended socket permissions: owner read/write only.
+
+The same command contract and response envelope definitions in this document
+apply unchanged over the Unix socket transport.
