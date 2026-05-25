@@ -181,6 +181,7 @@ Response payload:
 
 #### `recording.schedule.list`
 - Purpose: List scheduler jobs.
+- Payload `state` filter is optional. When omitted, service returns all jobs.
 
 Payload:
 

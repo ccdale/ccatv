@@ -148,6 +148,56 @@ def test_dispatch_recording_schedule_list_filters_state() -> None:
     assert jobs[0]["state"] == "scheduled"
 
 
+def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    create_response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.create",
+        "payload": {
+            "channelName": "C4 HD",
+            "startAtUtc": "2026-05-25T21:00:00Z",
+            "durationSeconds": 1800,
+        },
+    })
+
+    assert create_response["ok"] is True
+    created_job_id = create_response["payload"]["job"]["id"]
+
+    list_response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.list",
+        "payload": {},
+    })
+
+    assert list_response["ok"] is True
+    jobs = list_response["payload"]["jobs"]
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job["id"] == created_job_id
+    assert job["channelName"] == "C4 HD"
+    assert isinstance(job["startAtUtc"], str)
+    assert job["startAtUtc"]
+    assert isinstance(job["durationSeconds"], int)
+    assert job["durationSeconds"] > 0
+    assert job["state"] == "scheduled"
+
+
+def test_dispatch_recording_schedule_list_returns_empty_when_no_jobs() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.list",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    assert response["payload"]["jobs"] == []
+
+
 def test_dispatch_service_info_get() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
