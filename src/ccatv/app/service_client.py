@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from ccatv.app.bootstrap import AppContext, bootstrap_app, close_app_context
@@ -29,6 +29,7 @@ class ServiceClient(Protocol):
 class LocalInProcessServiceClient(ServiceClient):
     context: AppContext
     should_stop: Callable[[], bool] = lambda: False
+    _dispatcher: ServiceCommandDispatcher = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._dispatcher = ServiceCommandDispatcher(
