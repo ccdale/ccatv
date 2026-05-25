@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import threading
+import time
 from dataclasses import dataclass
 from types import SimpleNamespace
+
+import pytest
 
 from ccatv.app.service_dispatcher import (
     API_VERSION,
@@ -304,3 +308,88 @@ def test_dispatch_unsupported_command_returns_error() -> None:
 
     assert response["ok"] is False
     assert response["error"]["code"] == "UNSUPPORTED_COMMAND"
+
+
+def test_dispatch_recording_worker_cycle_run_serializes_concurrent_calls(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    lock = threading.Lock()
+    dispatcher = ServiceCommandDispatcher(context, worker_cycle_lock=lock)
+
+    hold_first_cycle = threading.Event()
+    first_cycle_started = threading.Event()
+
+    class _BlockingWorker:
+        def run_cycle(self):
+            first_cycle_started.set()
+            hold_first_cycle.wait(timeout=1.0)
+            return []
+
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.create_scheduler_worker",
+        lambda *_args, **_kwargs: _BlockingWorker(),
+    )
+
+    thread_results: list[dict[str, object]] = []
+
+    def _run_dispatch() -> None:
+        thread_results.append(
+            dispatcher.dispatch({
+                "apiVersion": API_VERSION,
+                "command": "recording.worker.cycle.run",
+                "payload": {
+                    "outputDirectory": "/tmp",
+                },
+            })
+        )
+
+    first = threading.Thread(target=_run_dispatch)
+    second = threading.Thread(target=_run_dispatch)
+
+    first.start()
+    assert first_cycle_started.wait(timeout=1.0) is True
+    second.start()
+
+    time.sleep(0.05)
+    assert len(thread_results) == 0
+
+    hold_first_cycle.set()
+    first.join(timeout=1.0)
+    second.join(timeout=1.0)
+
+    assert len(thread_results) == 2
+    assert all(result["ok"] is True for result in thread_results)
+
+
+def test_run_coroutine_blocking_stops_when_shutdown_requested(monkeypatch) -> None:
+    stop_requested = {"value": False}
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(
+        context,
+        should_stop=lambda: stop_requested["value"],
+    )
+
+    async def _slow_coroutine():
+        await asyncio.sleep(0.2)
+        return "done"
+
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.asyncio.get_running_loop",
+        lambda: object(),
+    )
+
+    def _trigger_stop() -> None:
+        time.sleep(0.05)
+        stop_requested["value"] = True
+
+    stopper = threading.Thread(target=_trigger_stop)
+    stopper.start()
+    try:
+        with pytest.raises(ServiceCommandError) as exc:
+            dispatcher._run_coroutine_blocking(_slow_coroutine(), timeout_seconds=5.0)
+    finally:
+        stopper.join(timeout=1.0)
+
+    assert exc.value.code == "COMMAND_CANCELLED"
+    assert "shutdown" in exc.value.message

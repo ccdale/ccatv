@@ -281,6 +281,8 @@ class ServiceCommandDispatcher:
         }
 
     def _run_coroutine_blocking(self, coroutine, *, timeout_seconds: float):
+        self._raise_if_stopping()
+
         async def _timed():
             return await asyncio.wait_for(coroutine, timeout=timeout_seconds)
 
@@ -299,7 +301,13 @@ class ServiceCommandDispatcher:
 
         thread = Thread(target=_target, daemon=True)
         thread.start()
-        thread.join()
+        while thread.is_alive():
+            thread.join(timeout=0.05)
+            self._raise_if_stopping()
+
+        if queue.empty():
+            raise RuntimeError("async command execution did not return a result")
+
         ok, payload = queue.get()
         if ok:
             return payload
