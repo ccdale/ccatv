@@ -1,5 +1,12 @@
 """Metadata integrations and guide ingestion contracts."""
 
+from ccatv.metadata.guide_preference import (
+    SOURCE_PRIORITY,
+    GuideBroadcastCandidate,
+    select_preferred_broadcast,
+    sort_by_preference,
+    source_priority,
+)
 from ccatv.metadata.schedules_direct_api import (
     JsonHttpTransport,
     SchedulesDirectHttpClient,
@@ -21,9 +28,11 @@ from ccatv.metadata.schedules_direct_runtime import (
 )
 
 __all__ = [
+    "GuideBroadcastCandidate",
     "JsonHttpTransport",
     "SDGuideIngestResult",
     "SDGuideIngestStats",
+    "SOURCE_PRIORITY",
     "SDResponseCacheEntry",
     "SDTokenCache",
     "SchedulesDirectConfigError",
@@ -34,4 +43,7 @@ __all__ = [
     "SchedulesDirectTokenCacheStore",
     "SqliteGuideRepository",
     "UrlLibJsonTransport",
+    "select_preferred_broadcast",
+    "sort_by_preference",
+    "source_priority",
 ]

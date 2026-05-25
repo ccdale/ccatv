@@ -304,6 +304,17 @@ Response payload:
   error details.
 - Local transport should rely on filesystem permissions initially.
 
+## Guide Source Priority Policy
+
+When the same logical programme slot is available from multiple guide sources,
+source precedence is:
+
+1. `dvbstreamer_ota` (over-the-air broadcaster EPG)
+2. `schedules_direct`
+
+The service should prefer OTA guide data and only fall back to Schedules Direct
+for slots not covered by OTA data.
+
 ## Milestone Mapping
 
 M1 (this draft):

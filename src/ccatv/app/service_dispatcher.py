@@ -506,7 +506,9 @@ class ServiceCommandDispatcher:
             }
         }
 
-    def _metadata_sd_sync_status_get(self, payload: dict[str, object]) -> dict[str, object]:
+    def _metadata_sd_sync_status_get(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
         source = payload.get("source")
         if source is None:
             source_value = "schedules_direct"
