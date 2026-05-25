@@ -128,22 +128,57 @@ class ServiceCommandDispatcher:
 
     def _service_health_get(self) -> dict[str, object]:
         db_path = self._context.settings.database_path
-        db_reachable = True
-        try:
-            self._context.persistence.connection.execute("SELECT 1")
-        except Exception:
-            db_reachable = False
+        db_status = self._probe_database_health()
 
         return {
-            "status": "ok" if db_reachable else "degraded",
+            "status": "ok" if db_status["reachable"] else "degraded",
             "timeUtc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "database": {
                 "path": db_path,
-                "reachable": db_reachable,
+                "reachable": db_status["reachable"],
+                "readable": db_status["readable"],
+                "writable": db_status["writable"],
+                "error": db_status["error"],
             },
             "recorder": {
                 "workerEnabled": True,
             },
+        }
+
+    def _probe_database_health(self) -> dict[str, object]:
+        connection = self._context.persistence.connection
+        readable = False
+        writable = False
+        error: str | None = None
+
+        try:
+            connection.execute("SELECT 1")
+            readable = True
+        except Exception as exc:
+            error = str(exc)
+            return {
+                "reachable": False,
+                "readable": readable,
+                "writable": writable,
+                "error": error,
+            }
+
+        try:
+            # Use a savepoint-based write probe to avoid mutating persistent state.
+            connection.execute("SAVEPOINT ccatv_health_check")
+            connection.execute("CREATE TEMP TABLE IF NOT EXISTS ccatv_health_probe (v INTEGER)")
+            connection.execute("INSERT INTO ccatv_health_probe (v) VALUES (1)")
+            connection.execute("ROLLBACK TO ccatv_health_check")
+            connection.execute("RELEASE ccatv_health_check")
+            writable = True
+        except Exception as exc:
+            error = str(exc)
+
+        return {
+            "reachable": readable and writable,
+            "readable": readable,
+            "writable": writable,
+            "error": error,
         }
 
     def _recording_worker_cycle_run(

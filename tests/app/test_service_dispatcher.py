@@ -64,7 +64,59 @@ def test_dispatch_service_health_get() -> None:
     payload = response["payload"]
     assert payload["status"] == "ok"
     assert payload["database"]["reachable"] is True
+    assert payload["database"]["readable"] is True
+    assert payload["database"]["writable"] is True
+    assert payload["database"]["error"] is None
     assert payload["recorder"]["workerEnabled"] is True
+
+
+def test_dispatch_service_health_get_degraded_when_connection_closed() -> None:
+    context = _build_context()
+    context.persistence.connection.close()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.health.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["status"] == "degraded"
+    assert payload["database"]["reachable"] is False
+    assert payload["database"]["readable"] is False
+    assert payload["database"]["writable"] is False
+    assert payload["database"]["error"]
+
+
+def test_dispatch_service_health_get_degraded_when_write_probe_fails() -> None:
+    class _ReadOnlyLikeConnection:
+        def execute(self, sql: str):
+            if sql == "SELECT 1":
+                return None
+            raise sqlite3.OperationalError("attempt to write a readonly database")
+
+    context = SimpleNamespace(
+        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+        persistence=SimpleNamespace(connection=_ReadOnlyLikeConnection()),
+        settings=SimpleNamespace(database_path=":memory:"),
+    )
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "service.health.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["status"] == "degraded"
+    assert payload["database"]["reachable"] is False
+    assert payload["database"]["readable"] is True
+    assert payload["database"]["writable"] is False
+    assert "readonly" in payload["database"]["error"].lower()
 
 
 def test_dispatch_recording_worker_cycle_run(monkeypatch) -> None:
