@@ -50,6 +50,10 @@ These pieces exist but are not yet wired to application runtime workflows:
 - Jellyfin integration implementation.
 - inputlirc remote mapping implementation.
 - Recording scheduler and conflict policy implementation.
+- Recording metadata sidecar generation (`.nfo`) for completed captures.
+	- Write an `.nfo` file with the same basename as the recording file (only extension changes to `.nfo`).
+	- Populate as much metadata as possible from OTA EPG plus Schedules Direct where available.
+	- Trigger `.nfo` write only after initial recording output-file health checks pass green.
 - Future recorder efficiency enhancement: support multiple concurrent recordings on a single adapter when channels share the same mux by using dvbstreamer service filters (`setsfmrl`/`getsfmrl`).
 	- Current target-machine strategy remains one adapter per recording (4 adapters => up to 4 simultaneous recordings).
 	- Introduce after base recorder orchestration is stable, since this adds non-trivial control-flow/state complexity.
@@ -90,14 +94,14 @@ M1. Service API surface and boundary definitions.
 - [x] Define command capability matrix and migration mapping from existing CLI flows.
 
 M2. Extract use-case orchestration from front-end glue.
-- [ ] Ensure recording and scheduling workflows are callable through service command handlers only.
+- [x] Ensure recording and scheduling workflows are callable through service command handlers only.
 	- [x] Initial dispatcher support added for `recording.schedule.create` and `recording.schedule.list`.
-	- [ ] Remaining: migrate front-end callers to service-client path so workflow execution is service-command-only.
-- [ ] Ensure metadata sync workflows are callable through service command handlers only.
+	- [x] Front-end workflow execution now routes through service command dispatch path.
+- [x] Ensure metadata sync workflows are callable through service command handlers only.
 	- [x] Added `metadata.sd.sync.status.get` dispatcher command handler.
 	- [x] Scaffolded explicit guide source precedence policy (prefer `dvbstreamer_ota` over `schedules_direct` where both provide a slot).
 	- [x] Integrated source precedence policy into metadata workflow read paths via repository preferred-broadcast query.
-	- [ ] Remaining: migrate front-end callers to service-client path so metadata workflows are service-command-only.
+	- [x] `ccatv epg-sync-sd` now uses the local service-client dispatch path (`metadata.sd.sync.run`) instead of direct ingestion wiring.
 
 M3. Daemon transport implementation.
 - [ ] Add local IPC transport (likely Unix socket) for request/response handling.

@@ -6,27 +6,17 @@ import getpass
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import TextIO
 
-from ccatv.metadata import SchedulesDirectHttpClient
-from ccatv.metadata.schedules_direct_contract import GuideSyncWindow
-from ccatv.metadata.schedules_direct_ingest import (
-    SchedulesDirectIngestionService,
-    SqliteGuideRepository,
-)
-from ccatv.metadata.schedules_direct_runtime import (
-    SchedulesDirectCredentialStore,
-    SchedulesDirectTokenCacheStore,
+from ccatv.app.service_client import (
+    ServiceClient,
+    create_local_service_client,
 )
 from ccatv.runtime_config import (
     RuntimeConfig,
     RuntimeConfigError,
     RuntimeConfigStore,
 )
-from ccatv.settings import AppSettings
-from ccatv.storage import initialize_database
 from ccatv.tvrecorder.config import (
     DvbCtrlCredentials,
     TvRecorderConfig,
@@ -45,6 +35,7 @@ class CliDependencies:
     stderr: TextIO = sys.stderr
     stdout: TextIO = sys.stdout
     runtime_store: RuntimeConfigStore = RuntimeConfigStore()
+    service_client_factory: Callable[[], ServiceClient] = create_local_service_client
     store: TvRecorderConfigStore = TvRecorderConfigStore()
 
 
@@ -185,60 +176,40 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
 
 
 def _run_epg_sync_sd_once(args: argparse.Namespace, deps: CliDependencies) -> int:
-    settings = AppSettings.from_env()
-    database_path = args.database_path or settings.database_path
-    credential_path = Path(args.credentials_path) if args.credentials_path else None
+    if args.window_hours <= 0:
+        raise ValueError("--window-hours must be greater than 0")
 
-    connection = initialize_database(Path(database_path))
-    repository = SqliteGuideRepository(connection=connection)
-    client = SchedulesDirectHttpClient(
-        token_cache_store=SchedulesDirectTokenCacheStore()
-    )
-    service = SchedulesDirectIngestionService(client=client, repository=repository)
+    client = deps.service_client_factory()
+    try:
+        payload = {
+            "lineupId": args.lineup_id,
+            "seed": bool(args.seed),
+            "windowHours": float(args.window_hours),
+        }
+        if args.database_path:
+            payload["databasePath"] = str(args.database_path)
+        if args.credentials_path:
+            payload["credentialsPath"] = str(args.credentials_path)
 
-    credentials = SchedulesDirectCredentialStore(path=credential_path).load()
+        response_payload = client.execute("metadata.sd.sync.run", payload)
+        stats = response_payload.get("stats")
+        if not isinstance(stats, dict):
+            raise RuntimeError("metadata.sd.sync.run returned malformed stats payload")
 
-    async def _sync_cycle() -> None:
-        now = datetime.now(timezone.utc)
-        if args.seed:
-            window_hours = service.seed_window_hours
-        else:
-            if args.window_hours <= 0:
-                raise ValueError("--window-hours must be greater than 0")
-            window_hours = args.window_hours
-
-        window = GuideSyncWindow(
-            start_utc=now,
-            end_utc=now + timedelta(hours=window_hours),
-        )
-        stats = await service.sync_incremental_with_stats(
-            lineup_id=args.lineup_id,
-            window=window,
-        )
         print(
             (
                 "Schedules Direct sync complete "
                 f"(lineup={args.lineup_id}, "
-                f"channels={stats.channels_upserted}, "
-                f"programs={stats.programs_upserted}, "
-                f"schedules={stats.schedules_upserted}, "
-                f"pruned={stats.stale_schedules_pruned}, "
-                f"run_id={stats.ingest_run_id})"
+                f"channels={stats.get('channelsUpserted')}, "
+                f"programs={stats.get('programsUpserted')}, "
+                f"schedules={stats.get('schedulesUpserted')}, "
+                f"pruned={stats.get('staleSchedulesPruned')}, "
+                f"run_id={stats.get('ingestRunId')})"
             ),
             file=deps.stdout,
         )
-
-    async def _run_once() -> None:
-        try:
-            await client.authenticate(credentials)
-            await _sync_cycle()
-        finally:
-            await client.close()
-
-    try:
-        asyncio.run(_run_once())
     finally:
-        connection.close()
+        client.close()
     return 0
 
 
@@ -254,60 +225,54 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
             print(f"EPG sync failed: {exc}", file=deps.stderr)
             return 2
 
-    settings = AppSettings.from_env()
-    database_path = args.database_path or settings.database_path
-    credential_path = Path(args.credentials_path) if args.credentials_path else None
-    connection = initialize_database(Path(database_path))
-    repository = SqliteGuideRepository(connection=connection)
-    client = SchedulesDirectHttpClient(
-        token_cache_store=SchedulesDirectTokenCacheStore()
-    )
-    service = SchedulesDirectIngestionService(client=client, repository=repository)
-    credentials = SchedulesDirectCredentialStore(path=credential_path).load()
+    client = deps.service_client_factory()
 
     async def _run_forever() -> None:
-        try:
-            await client.authenticate(credentials)
-            while True:
-                try:
-                    now = datetime.now(timezone.utc)
-                    if args.seed:
-                        window_hours = service.seed_window_hours
-                    else:
-                        if args.window_hours <= 0:
-                            raise ValueError("--window-hours must be greater than 0")
-                        window_hours = args.window_hours
+        if args.window_hours <= 0:
+            raise ValueError("--window-hours must be greater than 0")
 
-                    window = GuideSyncWindow(
-                        start_utc=now,
-                        end_utc=now + timedelta(hours=window_hours),
+        while True:
+            try:
+                payload = {
+                    "lineupId": args.lineup_id,
+                    "seed": bool(args.seed),
+                    "windowHours": float(args.window_hours),
+                }
+                if args.database_path:
+                    payload["databasePath"] = str(args.database_path)
+                if args.credentials_path:
+                    payload["credentialsPath"] = str(args.credentials_path)
+
+                response_payload = client.execute("metadata.sd.sync.run", payload)
+                stats = response_payload.get("stats")
+                if not isinstance(stats, dict):
+                    raise RuntimeError(
+                        "metadata.sd.sync.run returned malformed stats payload"
                     )
-                    stats = await service.sync_incremental_with_stats(
-                        lineup_id=args.lineup_id,
-                        window=window,
-                    )
-                    print(
-                        (
-                            "Schedules Direct sync complete "
-                            f"(lineup={args.lineup_id}, "
-                            f"channels={stats.channels_upserted}, "
-                            f"programs={stats.programs_upserted}, "
-                            f"schedules={stats.schedules_upserted}, "
-                            f"pruned={stats.stale_schedules_pruned}, "
-                            f"run_id={stats.ingest_run_id})"
-                        ),
-                        file=deps.stdout,
-                    )
-                except Exception as exc:
-                    print(f"EPG sync cycle failed: {exc}", file=deps.stderr)
-                await asyncio.sleep(args.poll_interval_seconds)
-        finally:
-            await client.close()
+
+                print(
+                    (
+                        "Schedules Direct sync complete "
+                        f"(lineup={args.lineup_id}, "
+                        f"channels={stats.get('channelsUpserted')}, "
+                        f"programs={stats.get('programsUpserted')}, "
+                        f"schedules={stats.get('schedulesUpserted')}, "
+                        f"pruned={stats.get('staleSchedulesPruned')}, "
+                        f"run_id={stats.get('ingestRunId')})"
+                    ),
+                    file=deps.stdout,
+                )
+            except Exception as exc:
+                print(f"EPG sync cycle failed: {exc}", file=deps.stderr)
+            await asyncio.sleep(args.poll_interval_seconds)
 
     try:
         asyncio.run(_run_forever())
+    except ValueError as exc:
+        print(str(exc), file=deps.stderr)
+        return 2
     finally:
-        connection.close()
+        client.close()
     return 0
 
 

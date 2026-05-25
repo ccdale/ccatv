@@ -3,20 +3,12 @@ from __future__ import annotations
 import io
 import sys
 from argparse import Namespace
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from ccatv.cli import CliDependencies, main, run_setup, setup_main
-from ccatv.metadata.schedules_direct_contract import (
-    SDCredentials,
-    SDProgram,
-    SDScheduleEntry,
-    SDStation,
-)
 from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
-from ccatv.storage import initialize_database
 from ccatv.tvrecorder.config import TvRecorderConfigStore
 
 
@@ -189,61 +181,37 @@ def test_main_without_subcommand_returns_usage_error() -> None:
 
 
 def test_epg_sync_sd_command_runs_once(tmp_path: Path, monkeypatch) -> None:
-    class _StubCredentialStore:
-        def __init__(self, path: Path | None = None) -> None:
-            self.path = path
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+            self.closed = False
 
-        def load(self) -> SDCredentials:
-            return SDCredentials(username="alice", password="secret")
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "channelsUpserted": 1,
+                    "programsUpserted": 1,
+                    "schedulesUpserted": 1,
+                    "staleSchedulesPruned": 0,
+                    "ingestRunId": 7,
+                }
+            }
 
-    class _StubClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
+        def close(self) -> None:
+            self.closed = True
 
-        async def authenticate(self, credentials: SDCredentials) -> None:
-            assert credentials.username == "alice"
+    stub_client = _StubServiceClient()
 
-        async def get_lineup_stations(self, lineup_id: str) -> list[SDStation]:
-            assert lineup_id == "UK-TEST"
-            return [
-                SDStation(
-                    station_id="101",
-                    callsign="BBC1",
-                    name="BBC One",
-                    channel="1",
-                )
-            ]
-
-        async def get_schedules(self, lineup_id, window) -> list[SDScheduleEntry]:
-            del lineup_id
-            assert window.end_utc > window.start_utc
-            start_utc = datetime(2026, 5, 24, 10, 0, tzinfo=timezone.utc)
-            return [
-                SDScheduleEntry(
-                    station_id="101",
-                    program_id="EP0001",
-                    start_utc=start_utc,
-                    end_utc=start_utc + timedelta(minutes=30),
-                    duration_seconds=1800,
-                )
-            ]
-
-        async def get_programs(self, program_ids: list[str]) -> list[SDProgram]:
-            assert program_ids == ["EP0001"]
-            return [SDProgram(program_id="EP0001", title="Morning News")]
-
-        async def close(self) -> None:
-            return None
-
-    monkeypatch.setattr(
-        "ccatv.cli.SchedulesDirectCredentialStore", _StubCredentialStore
-    )
-    monkeypatch.setattr("ccatv.cli.SchedulesDirectHttpClient", _StubClient)
-
-    db_path = tmp_path / "ccatv.sqlite3"
     stdout = io.StringIO()
     stderr = io.StringIO()
-    deps = CliDependencies(stdout=stdout, stderr=stderr)
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
 
     exit_code = main(
         [
@@ -253,7 +221,7 @@ def test_epg_sync_sd_command_runs_once(tmp_path: Path, monkeypatch) -> None:
             "--window-hours",
             "24",
             "--database-path",
-            str(db_path),
+            str(tmp_path / "ccatv.sqlite3"),
             "--credentials-path",
             str(tmp_path / "tvrecorder.json"),
         ],
@@ -263,46 +231,39 @@ def test_epg_sync_sd_command_runs_once(tmp_path: Path, monkeypatch) -> None:
     assert exit_code == 0
     assert stderr.getvalue() == ""
     assert "Schedules Direct sync complete" in stdout.getvalue()
-
-    connection = initialize_database(db_path)
-    try:
-        row = connection.execute(
-            "SELECT status FROM epg_ingest_runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-    finally:
-        connection.close()
-    assert row is not None
-    assert row[0] == "ok"
+    assert stub_client.closed is True
+    assert len(stub_client.executed) == 1
+    command, payload = stub_client.executed[0]
+    assert command == "metadata.sd.sync.run"
+    assert payload["lineupId"] == "UK-TEST"
+    assert payload["windowHours"] == 24.0
 
 
 def test_epg_sync_sd_command_rejects_invalid_window(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
 ) -> None:
-    class _StubCredentialStore:
-        def __init__(self, path: Path | None = None) -> None:
-            self.path = path
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
 
-        def load(self) -> SDCredentials:
-            return SDCredentials(username="alice", password="secret")
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {"stats": {}}
 
-    class _StubClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def authenticate(self, credentials: SDCredentials) -> None:
-            del credentials
-
-        async def close(self) -> None:
+        def close(self) -> None:
             return None
 
-    monkeypatch.setattr(
-        "ccatv.cli.SchedulesDirectCredentialStore", _StubCredentialStore
-    )
-    monkeypatch.setattr("ccatv.cli.SchedulesDirectHttpClient", _StubClient)
+    stub_client = _StubServiceClient()
 
     stdout = io.StringIO()
     stderr = io.StringIO()
-    deps = CliDependencies(stdout=stdout, stderr=stderr)
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
 
     exit_code = main(
         [
@@ -319,3 +280,4 @@ def test_epg_sync_sd_command_rejects_invalid_window(
 
     assert exit_code == 2
     assert "--window-hours must be greater than 0" in stderr.getvalue()
+    assert stub_client.executed == []
