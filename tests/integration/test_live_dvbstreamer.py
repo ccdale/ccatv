@@ -178,7 +178,7 @@ def _extract_services_by_mux(serviceinfo_output: str) -> dict[str, list[str]]:
         if name_match:
             current_name = name_match.group(1).strip().strip('"')
         if mux_match:
-            current_mux = mux_match.group(1).strip()
+            current_mux = mux_match.group(1).strip().strip('"')
 
         if current_name and current_mux:
             services_by_mux.setdefault(current_mux, [])
