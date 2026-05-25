@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -255,6 +256,53 @@ def test_http_service_client_reports_non_json_status_context(monkeypatch) -> Non
     assert exc_info.value.code == "TRANSPORT_ERROR"
     assert exc_info.value.retryable is True
     assert "HTTP 503 response not valid JSON" in exc_info.value.message
+
+
+def test_http_service_client_treats_401_as_auth_failure_even_on_ok_body(
+    monkeypatch,
+) -> None:
+    class _StubHttpResponse:
+        status = 401
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "ok": True,
+                    "payload": {"status": "unexpected"},
+                }
+            ).encode("utf-8")
+
+    class _StubHttpConnection:
+        def __init__(self, host: str, port: int, timeout: float) -> None:
+            self.host = host
+            self.port = port
+            self.timeout = timeout
+
+        def request(self, method: str, path: str, body: bytes, headers: dict[str, str]):
+            assert method == "POST"
+            assert path == "/api/v1/command"
+
+        def getresponse(self):
+            return _StubHttpResponse()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "ccatv.app.service_client._http_client.HTTPConnection",
+        _StubHttpConnection,
+    )
+
+    client = HttpServiceClient(
+        host="127.0.0.1",
+        port=8787,
+        auth_token="test-token",
+    )
+    with pytest.raises(ServiceClientError) as exc_info:
+        client.execute("service.info.get", {})
+
+    assert exc_info.value.code == "AUTHENTICATION_REQUIRED"
+    assert exc_info.value.retryable is False
 
 def test_create_service_client_returns_unix_socket_client_when_path_given() -> None:
     client = create_service_client(socket_path="/tmp/_ccatv_test.sock")

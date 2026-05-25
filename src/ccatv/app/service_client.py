@@ -212,7 +212,7 @@ class HttpServiceClient:
                 retryable=False,
             )
 
-        if status_code == 401 and response.get("ok") is not True:
+        if status_code == 401:
             error = response.get("error")
             if not isinstance(error, dict):
                 raise ServiceClientError(
