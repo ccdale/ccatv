@@ -1,11 +1,11 @@
-# Integration Test Configuration
+# Integration Tests
 
-The live integration smoke test is opt-in and reads JSON config from:
+Live integration tests are opt-in and read JSON config from one of:
 
-- `$CCATV_INTEGRATION_CONFIG` (if set), otherwise
-- `$XDG_CONFIG_HOME/ccatv/integration.json` (fallback `~/.config/ccatv/integration.json`)
+- `CCATV_INTEGRATION_CONFIG` (if set)
+- `XDG_CONFIG_HOME/ccatv/integration.json` (fallback `~/.config/ccatv/integration.json`)
 
-Example config for your remote host:
+## Example Config
 
 ```json
 {
@@ -16,7 +16,7 @@ Example config for your remote host:
   "remote_port": 22,
   "remote_workdir": null,
   "dvbstreamer_host": "druidmedia",
-  "dvb_adapter_count": 1,
+  "dvb_adapter_count": 4,
   "dvb_adapter_index": 0,
   "dvbctrl_path": "dvbctrl",
   "dvbctrl_timeout_seconds": 10.0,
@@ -30,27 +30,39 @@ Example config for your remote host:
 }
 ```
 
-Run integration-only tests:
+## Run
 
-`uv run pytest -m integration`
+- Integration-only: `uv run pytest -m integration -q`
+- Include skip reasons: `uv run pytest -m integration -q -rs`
 
-## What The Live Integration Test Verifies
+## Current Integration Coverage
 
-The live smoke test exercises a full remote dvbstreamer lifecycle and recording flow:
+The integration marker currently includes three live tests in `tests/integration/test_live_dvbstreamer.py`:
 
-1. Check remote SSH connectivity (when `mode` is `ssh`).
-2. Check whether dvbstreamer is already running and stop it if found.
-3. Start dvbstreamer on adapter `0` using the configured `start_command`.
-4. Probe dvbctrl readiness with `readiness_command` (default: `lsmuxes`).
-5. Run `select "BBC TWO HD"`.
-6. Poll `festatus` until lock is reported.
-7. Poll `stats` until activity increases.
-8. Run `setmrl file:///tmp/...` to begin writing transport stream output.
-9. Confirm the output file is created and grows during the capture window.
-10. Run `setmrl null://` to stop file output.
-11. Run `file /tmp/...` and check that output identifies an MPEG transport stream.
-12. Cleanup in `finally`: reset `setmrl null://`, stop dvbstreamer, remove the temp file, and verify dvbstreamer is no longer running.
+1. `test_live_dvbstreamer_lifecycle_smoke`
+2. `test_live_orchestrator_runs_due_scheduler_job`
+3. `test_live_multi_adapter_parallel_recording_distinct_muxes`
+
+## Multi-Adapter Test Prerequisites
+
+The distinct-mux test has additional gates:
+
+1. `dvb_adapter_count` must be at least 4.
+2. `serviceinfo` output must allow discovery of at least 4 channels on distinct muxes.
+
+Service discovery parses channel name and mux identity from `serviceinfo`, including `Multiplex UID` output lines.
+
+## Command Template Placeholders
+
+The following placeholders are supported in `start_command`, `stop_command`, and `status_command`:
+
+- `{adapter_index}`
+- `{adapter_count}`
+- `{host}`
+
+Using any other placeholder raises a config validation error.
 
 ## Expected Runtime
 
-This test is intentionally end-to-end and includes a recording-growth window, so expect roughly **1 minute** per run (often around 30-70 seconds, depending on signal and host performance).
+- The smoke and orchestrator tests are typically around 30 to 70 seconds each.
+- The multi-adapter test is longer because it starts four adapters and verifies parallel file growth across all of them.
