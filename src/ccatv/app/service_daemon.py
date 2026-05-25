@@ -9,6 +9,8 @@ import socket
 import sys
 import time
 from collections.abc import Callable, Sequence
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event
 
@@ -64,6 +66,28 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "unix socket path for local JSON request/response transport; "
             "when set, daemon serves service command envelopes over IPC"
+        ),
+    )
+    parser.add_argument(
+        "--http-bind-host",
+        default=None,
+        help=(
+            "bind host for HTTP JSON transport (disabled by default); "
+            "for example 127.0.0.1 or 0.0.0.0"
+        ),
+    )
+    parser.add_argument(
+        "--http-port",
+        type=int,
+        default=8787,
+        help="port for HTTP JSON transport when --http-bind-host is set",
+    )
+    parser.add_argument(
+        "--http-auth-token",
+        default=None,
+        help=(
+            "Bearer token required by HTTP JSON transport; "
+            "required when --http-bind-host is set"
         ),
     )
     return parser
@@ -261,6 +285,201 @@ def run_ipc_server(
     return 0
 
 
+def run_http_server(
+    context: AppContext,
+    *,
+    bind_host: str,
+    port: int,
+    auth_token: str,
+    should_stop: Callable[[], bool] | None = None,
+    max_requests: int | None = None,
+) -> int:
+    logger = context.logger
+    stop_predicate = should_stop or (lambda: False)
+    dispatcher = _build_dispatcher(context, should_stop=stop_predicate)
+
+    requests_served = 0
+
+    class _Handler(BaseHTTPRequestHandler):
+        server_version = "ccatv-service"
+        protocol_version = "HTTP/1.1"
+
+        def _json_response(self, *, status: HTTPStatus, body: dict[str, object]) -> None:
+            payload = json.dumps(body, sort_keys=True).encode("utf-8") + b"\n"
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def _is_authorized(self) -> bool:
+            header = self.headers.get("Authorization")
+            return header == f"Bearer {auth_token}"
+
+        def _record_request(self) -> None:
+            nonlocal requests_served
+            requests_served += 1
+
+        def do_GET(self) -> None:  # noqa: N802
+            self._record_request()
+            if self.path != "/health":
+                self._json_response(
+                    status=HTTPStatus.NOT_FOUND,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "NOT_FOUND",
+                            "message": "unknown endpoint",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+
+            if not self._is_authorized():
+                self._json_response(
+                    status=HTTPStatus.UNAUTHORIZED,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "AUTHENTICATION_REQUIRED",
+                            "message": "missing or invalid bearer token",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+
+            response = dispatcher.dispatch(
+                {
+                    "apiVersion": "v1alpha1",
+                    "command": "service.health.get",
+                    "payload": {},
+                    "requestId": None,
+                }
+            )
+            status = HTTPStatus.OK if response.get("ok") is True else HTTPStatus.BAD_REQUEST
+            self._json_response(status=status, body=response)
+
+        def do_POST(self) -> None:  # noqa: N802
+            self._record_request()
+            if self.path != "/api/v1/command":
+                self._json_response(
+                    status=HTTPStatus.NOT_FOUND,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "NOT_FOUND",
+                            "message": "unknown endpoint",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+
+            if not self._is_authorized():
+                self._json_response(
+                    status=HTTPStatus.UNAUTHORIZED,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "AUTHENTICATION_REQUIRED",
+                            "message": "missing or invalid bearer token",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+
+            length_header = self.headers.get("Content-Length", "0")
+            try:
+                body_length = int(length_header)
+            except ValueError:
+                self._json_response(
+                    status=HTTPStatus.BAD_REQUEST,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "Content-Length must be an integer",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+
+            if body_length > IPC_MAX_REQUEST_BYTES:
+                self._json_response(
+                    status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "request too large",
+                            "retryable": False,
+                            "details": {"maxBytes": IPC_MAX_REQUEST_BYTES},
+                        },
+                    },
+                )
+                return
+
+            raw_body = self.rfile.read(max(0, body_length))
+            response_bytes = _handle_ipc_request(raw_body, dispatcher)
+            try:
+                response = json.loads(response_bytes.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                response = {
+                    "apiVersion": "v1alpha1",
+                    "requestId": None,
+                    "ok": False,
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "response serialization failed",
+                        "retryable": True,
+                        "details": {},
+                    },
+                }
+            status = HTTPStatus.OK if response.get("ok") is True else HTTPStatus.BAD_REQUEST
+            self._json_response(status=status, body=response)
+
+        def log_message(self, _format: str, *_args) -> None:
+            # Keep service logs in the app logger instead of stderr spam.
+            return
+
+    server = ThreadingHTTPServer((bind_host, port), _Handler)
+    server.timeout = 0.5
+    try:
+        logger.info(
+            "service daemon HTTP transport listening on %s:%s",
+            bind_host,
+            server.server_port,
+        )
+        while not stop_predicate():
+            if max_requests is not None and requests_served >= max_requests:
+                break
+            server.handle_request()
+    finally:
+        server.server_close()
+    return 0
+
+
 def run_service_daemon(
     context: AppContext,
     *,
@@ -323,10 +542,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.poll_interval_seconds <= 0:
         parser.error("--poll-interval-seconds must be greater than 0")
+    if args.http_port < 1 or args.http_port > 65535:
+        parser.error("--http-port must be in range 1..65535")
     if args.max_jobs_per_cycle is not None and args.max_jobs_per_cycle < 1:
         parser.error("--max-jobs-per-cycle must be at least 1 when provided")
     if args.socket_path and args.dispatch_command_json is not None:
         parser.error("--socket-path cannot be combined with --dispatch-command-json")
+    if args.socket_path and args.http_bind_host:
+        parser.error("--socket-path cannot be combined with --http-bind-host")
+    if args.http_bind_host and args.dispatch_command_json is not None:
+        parser.error("--http-bind-host cannot be combined with --dispatch-command-json")
+    if args.http_bind_host and not args.http_auth_token:
+        parser.error("--http-auth-token is required when --http-bind-host is set")
+    if args.http_auth_token and not args.http_bind_host:
+        parser.error("--http-auth-token requires --http-bind-host")
 
     context = bootstrap_app()
     stop_requested = Event()
@@ -360,6 +589,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_ipc_server(
                 context,
                 socket_path=args.socket_path,
+                should_stop=stop_requested.is_set,
+            )
+
+        if args.http_bind_host:
+            return run_http_server(
+                context,
+                bind_host=args.http_bind_host,
+                port=args.http_port,
+                auth_token=args.http_auth_token,
                 should_stop=stop_requested.is_set,
             )
 

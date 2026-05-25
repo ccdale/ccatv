@@ -117,10 +117,10 @@ M5. systemd operationalization.
 - [x] Add packaging instructions for Debian and Arch Linux machines (`dpkg` and `PKGBUILD`).
 
 M6. Multi-front-end enablement.
-- [ ] Introduce a shared service client module used by CLI/GTK4/Flask.
+- [x] Introduce a shared service client module used by CLI/GTK4/Flask.
 - [ ] Add first GTK4 command-path integration against local Unix socket service transport.
 - [ ] Add first Flask/FastAPI command-path integration against remote API transport.
-- [ ] Add remote transport security baseline (disabled by default, explicit bind host, auth requirement).
+- [x] Add remote transport security baseline (disabled by default, explicit bind host, auth requirement).
 
 ## Later Milestones (After Recorder + Persistence)
 

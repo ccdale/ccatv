@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from http import client as http_client
 import socket
 import threading
 import time
@@ -15,6 +16,7 @@ from ccatv.app.service_daemon import (
     IPC_MAX_REQUEST_BYTES,
     _handle_ipc_request,
     main,
+    run_http_server,
     run_ipc_server,
     run_service_daemon,
 )
@@ -401,6 +403,174 @@ def test_main_rejects_socket_and_dispatch_json_together() -> None:
             "--dispatch-command-json",
             "{}",
         ])
+
+
+def test_main_rejects_http_without_auth_token() -> None:
+    with pytest.raises(SystemExit):
+        main([
+            "--http-bind-host",
+            "127.0.0.1",
+        ])
+
+
+def test_main_rejects_http_and_socket_together() -> None:
+    with pytest.raises(SystemExit):
+        main([
+            "--socket-path",
+            "/tmp/ccatv.sock",
+            "--http-bind-host",
+            "127.0.0.1",
+            "--http-auth-token",
+            "test-token",
+        ])
+
+
+def test_run_http_server_handles_authenticated_command_request(
+    monkeypatch, tmp_path: Path
+) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {
+                    "status": "ok",
+                    "echoCommand": request.get("command"),
+                },
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    port_socket.bind(("127.0.0.1", 0))
+    http_port = port_socket.getsockname()[1]
+    port_socket.close()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": http_port,
+            "auth_token": "test-token",
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    time.sleep(0.05)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    request_payload = {
+        "apiVersion": "v1alpha1",
+        "command": "service.info.get",
+        "requestId": "http-1",
+        "payload": {},
+    }
+    connection.request(
+        "POST",
+        "/api/v1/command",
+        body=json.dumps(request_payload),
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+        },
+    )
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 200
+    assert decoded["ok"] is True
+    assert decoded["requestId"] == "http-1"
+    assert decoded["payload"]["echoCommand"] == "service.info.get"
+
+
+def test_run_http_server_rejects_missing_bearer_token(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.auth"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _StubDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {
+                    "status": "ok",
+                },
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    port_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    port_socket.bind(("127.0.0.1", 0))
+    http_port = port_socket.getsockname()[1]
+    port_socket.close()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": http_port,
+            "auth_token": "test-token",
+            "max_requests": 1,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    time.sleep(0.05)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    connection.request(
+        "POST",
+        "/api/v1/command",
+        body=json.dumps(
+            {
+                "apiVersion": "v1alpha1",
+                "command": "service.health.get",
+                "requestId": "http-unauth",
+                "payload": {},
+            }
+        ),
+        headers={"Content-Type": "application/json"},
+    )
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 401
+    assert decoded["ok"] is False
+    assert decoded["error"]["code"] == "AUTHENTICATION_REQUIRED"
 
 
 def test_run_ipc_server_rejects_empty_request(tmp_path: Path) -> None:
