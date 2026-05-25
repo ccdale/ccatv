@@ -486,7 +486,7 @@ def run_http_server(
             self.connection.settimeout(5.0)
             try:
                 raw_body = self.rfile.read(body_length)
-            except OSError:
+            except socket.timeout:
                 self._json_response(
                     status=HTTPStatus.REQUEST_TIMEOUT,
                     body={
@@ -496,6 +496,22 @@ def run_http_server(
                         "error": {
                             "code": "TRANSPORT_ERROR",
                             "message": "request body read timed out",
+                            "retryable": True,
+                            "details": {},
+                        },
+                    },
+                )
+                return
+            except OSError as exc:
+                self._json_response(
+                    status=HTTPStatus.BAD_REQUEST,
+                    body={
+                        "apiVersion": "v1alpha1",
+                        "requestId": None,
+                        "ok": False,
+                        "error": {
+                            "code": "TRANSPORT_ERROR",
+                            "message": f"request body read failed: {exc}",
                             "retryable": True,
                             "details": {},
                         },
