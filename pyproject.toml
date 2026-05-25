@@ -1,6 +1,6 @@
 [project]
 name = "ccatv"
-version = "0.1.162"
+version = "0.1.163"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -9,6 +9,7 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
 ]
 dependencies = [
+    "flask>=3.1.0",
     "platformdirs>=4.5.0",
 ]
 
@@ -21,6 +22,7 @@ ccatv = "ccatv.cli:main"
 ccatv-setup = "ccatv.cli:setup_main"
 ccatv-recorder-worker = "ccatv.app.recorder_worker:main"
 ccatv-service = "ccatv.app.service_daemon:main"
+ccatv-web = "ccatv.web.server:main"
 
 [dependency-groups]
 dev = [

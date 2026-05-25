@@ -9,12 +9,13 @@ from types import SimpleNamespace
 import pytest
 
 from ccatv.app.service_client import (
+    HttpServiceClient,
     LocalInProcessServiceClient,
     ServiceClientError,
     UnixSocketServiceClient,
     create_service_client,
 )
-from ccatv.app.service_daemon import run_ipc_server
+from ccatv.app.service_daemon import run_http_server, run_ipc_server
 from ccatv.storage import PersistenceStore, apply_migrations
 from ccatv.tvrecorder.service import TvRecorderService
 
@@ -85,6 +86,38 @@ def _start_ipc_server(context, socket_path: Path, *, max_requests: int = 1) -> t
     raise AssertionError("socket did not become ready in time")
 
 
+def _start_http_server(
+    context,
+    *,
+    auth_token: str = "test-token",
+    max_requests: int = 1,
+) -> tuple[threading.Thread, int]:
+    listened_port: dict[str, int] = {}
+    ready = threading.Event()
+
+    def _on_listening(port: int) -> None:
+        listened_port["value"] = port
+        ready.set()
+
+    thread = threading.Thread(
+        target=run_http_server,
+        kwargs={
+            "context": context,
+            "bind_host": "127.0.0.1",
+            "port": 0,
+            "auth_token": auth_token,
+            "max_requests": max_requests,
+            "on_listening": _on_listening,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    if not ready.wait(timeout=2.0):
+        raise AssertionError("HTTP server did not become ready in time")
+    return thread, listened_port["value"]
+
+
 # ---------------------------------------------------------------------------
 # UnixSocketServiceClient
 # ---------------------------------------------------------------------------
@@ -134,6 +167,53 @@ def test_unix_socket_service_client_close_is_noop() -> None:
 # create_service_client factory
 # ---------------------------------------------------------------------------
 
+def test_http_service_client_executes_command() -> None:
+    context = _build_context()
+    thread, http_port = _start_http_server(context)
+
+    client = HttpServiceClient(
+        host="127.0.0.1",
+        port=http_port,
+        auth_token="test-token",
+    )
+    payload = client.execute("service.info.get", {})
+
+    thread.join(timeout=2.0)
+    assert payload["apiVersion"] == "v1alpha1"
+    assert payload["appName"] == "ccatv"
+
+
+def test_http_service_client_maps_service_errors() -> None:
+    context = _build_context()
+    thread, http_port = _start_http_server(context)
+
+    client = HttpServiceClient(
+        host="127.0.0.1",
+        port=http_port,
+        auth_token="test-token",
+    )
+    with pytest.raises(ServiceClientError) as exc_info:
+        client.execute("unknown.command", {})
+
+    thread.join(timeout=2.0)
+    assert exc_info.value.code == "UNSUPPORTED_COMMAND"
+
+
+def test_http_service_client_rejects_invalid_token() -> None:
+    context = _build_context()
+    thread, http_port = _start_http_server(context)
+
+    client = HttpServiceClient(
+        host="127.0.0.1",
+        port=http_port,
+        auth_token="wrong-token",
+    )
+    with pytest.raises(ServiceClientError) as exc_info:
+        client.execute("service.info.get", {})
+
+    thread.join(timeout=2.0)
+    assert exc_info.value.code == "AUTHENTICATION_REQUIRED"
+
 def test_create_service_client_returns_unix_socket_client_when_path_given() -> None:
     client = create_service_client(socket_path="/tmp/_ccatv_test.sock")
     assert isinstance(client, UnixSocketServiceClient)
@@ -145,3 +225,19 @@ def test_create_service_client_returns_local_client_when_no_path(monkeypatch) ->
 
     client = create_service_client()
     assert isinstance(client, LocalInProcessServiceClient)
+
+
+def test_create_service_client_returns_http_client_when_host_given() -> None:
+    client = create_service_client(
+        http_host="127.0.0.1",
+        http_port=8787,
+        http_auth_token="test-token",
+    )
+    assert isinstance(client, HttpServiceClient)
+    assert client.host == "127.0.0.1"
+    assert client.port == 8787
+
+
+def test_create_service_client_requires_http_auth_token() -> None:
+    with pytest.raises(ValueError):
+        create_service_client(http_host="127.0.0.1")

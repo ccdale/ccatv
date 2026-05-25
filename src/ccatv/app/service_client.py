@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from http import client as _http_client
 import json
 import socket as _socket
 from collections.abc import Callable
@@ -27,6 +28,38 @@ class ServiceClient(Protocol):
     def close(self) -> None: ...
 
 
+def _extract_payload_or_raise(
+    response: dict[str, object],
+    *,
+    malformed_prefix: str,
+) -> dict[str, object]:
+    if response.get("ok") is not True:
+        error = response.get("error")
+        if isinstance(error, dict):
+            raise ServiceClientError(
+                code=str(error.get("code", "INTERNAL_ERROR")),
+                message=str(error.get("message", "unknown service error")),
+                retryable=bool(error.get("retryable", False)),
+                details=(
+                    error.get("details")
+                    if isinstance(error.get("details"), dict)
+                    else {}
+                ),
+            )
+        raise ServiceClientError(
+            code="INTERNAL_ERROR",
+            message=f"{malformed_prefix}: {response}",
+        )
+
+    payload_obj = response.get("payload")
+    if not isinstance(payload_obj, dict):
+        raise ServiceClientError(
+            code="INTERNAL_ERROR",
+            message="service returned malformed payload",
+        )
+    return payload_obj
+
+
 @dataclass(slots=True)
 class LocalInProcessServiceClient(ServiceClient):
     context: AppContext
@@ -46,31 +79,10 @@ class LocalInProcessServiceClient(ServiceClient):
             "command": command,
             "payload": payload,
         })
-        if response.get("ok") is not True:
-            error = response.get("error")
-            if isinstance(error, dict):
-                raise ServiceClientError(
-                    code=str(error.get("code", "INTERNAL_ERROR")),
-                    message=str(error.get("message", "unknown service error")),
-                    retryable=bool(error.get("retryable", False)),
-                    details=(
-                        error.get("details")
-                        if isinstance(error.get("details"), dict)
-                        else {}
-                    ),
-                )
-            raise ServiceClientError(
-                code="INTERNAL_ERROR",
-                message=f"service returned malformed response: {response}",
-            )
-
-        payload_obj = response.get("payload")
-        if not isinstance(payload_obj, dict):
-            raise ServiceClientError(
-                code="INTERNAL_ERROR",
-                message="service returned malformed payload",
-            )
-        return payload_obj
+        return _extract_payload_or_raise(
+            response,
+            malformed_prefix="service returned malformed response",
+        )
 
     def close(self) -> None:
         close_app_context(self.context)
@@ -132,31 +144,74 @@ class UnixSocketServiceClient:
                 retryable=False,
             )
 
-        if response.get("ok") is not True:
-            error = response.get("error")
-            if isinstance(error, dict):
-                raise ServiceClientError(
-                    code=str(error.get("code", "INTERNAL_ERROR")),
-                    message=str(error.get("message", "unknown service error")),
-                    retryable=bool(error.get("retryable", False)),
-                    details=(
-                        error.get("details")
-                        if isinstance(error.get("details"), dict)
-                        else {}
-                    ),
-                )
+        return _extract_payload_or_raise(
+            response,
+            malformed_prefix="service returned malformed response",
+        )
+
+    def close(self) -> None:
+        pass  # stateless; no persistent connection to close
+
+
+@dataclass(frozen=True, slots=True)
+class HttpServiceClient:
+    host: str
+    port: int
+    auth_token: str
+    timeout_seconds: float = 10.0
+
+    def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+        request_bytes = json.dumps(
+            {"apiVersion": API_VERSION, "command": command, "payload": payload},
+            sort_keys=True,
+        ).encode("utf-8")
+
+        connection = _http_client.HTTPConnection(
+            host=self.host,
+            port=self.port,
+            timeout=self.timeout_seconds,
+        )
+        try:
+            connection.request(
+                "POST",
+                "/api/v1/command",
+                body=request_bytes,
+                headers={
+                    "Authorization": f"Bearer {self.auth_token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response_obj = connection.getresponse()
+            response_bytes = response_obj.read()
+        except OSError as exc:
             raise ServiceClientError(
-                code="INTERNAL_ERROR",
-                message=f"service returned malformed response: {response}",
+                code="TRANSPORT_ERROR",
+                message=f"HTTP transport error: {exc}",
+                retryable=True,
+            ) from exc
+        finally:
+            connection.close()
+
+        try:
+            response = json.loads(response_bytes.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ServiceClientError(
+                code="TRANSPORT_ERROR",
+                message=f"HTTP response not valid JSON: {exc}",
+                retryable=True,
+            ) from exc
+
+        if not isinstance(response, dict):
+            raise ServiceClientError(
+                code="TRANSPORT_ERROR",
+                message="HTTP response was not a JSON object",
+                retryable=False,
             )
 
-        payload_obj = response.get("payload")
-        if not isinstance(payload_obj, dict):
-            raise ServiceClientError(
-                code="INTERNAL_ERROR",
-                message="service returned malformed payload",
-            )
-        return payload_obj
+        return _extract_payload_or_raise(
+            response,
+            malformed_prefix="service returned malformed HTTP response",
+        )
 
     def close(self) -> None:
         pass  # stateless; no persistent connection to close
@@ -166,9 +221,25 @@ def create_local_service_client() -> LocalInProcessServiceClient:
     return LocalInProcessServiceClient(context=bootstrap_app())
 
 
-def create_service_client(*, socket_path: str | None = None) -> ServiceClient:
+def create_service_client(
+    *,
+    socket_path: str | None = None,
+    http_host: str | None = None,
+    http_port: int = 8787,
+    http_auth_token: str | None = None,
+) -> ServiceClient:
     """Return a :class:`UnixSocketServiceClient` when *socket_path* is given,
     otherwise fall back to a :class:`LocalInProcessServiceClient`."""
+    if socket_path and http_host:
+        raise ValueError("socket_path and http_host cannot both be set")
+    if http_host:
+        if not http_auth_token:
+            raise ValueError("http_auth_token is required when http_host is set")
+        return HttpServiceClient(
+            host=http_host,
+            port=http_port,
+            auth_token=http_auth_token,
+        )
     if socket_path:
         return UnixSocketServiceClient(socket_path=socket_path)
     return create_local_service_client()
@@ -176,6 +247,7 @@ def create_service_client(*, socket_path: str | None = None) -> ServiceClient:
 
 __all__ = [
     "LocalInProcessServiceClient",
+    "HttpServiceClient",
     "ServiceClient",
     "ServiceClientError",
     "UnixSocketServiceClient",

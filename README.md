@@ -98,6 +98,17 @@ M1 contract draft:
 Current daemon skeleton command:
 - `uv run ccatv-service --run-once`
 
+Remote HTTP transport for desktop clients:
+- `uv run ccatv-service --http-bind-host 0.0.0.0 --http-port 8787 --http-auth-token YOUR_TOKEN`
+
+Flask desktop frontend (first M6 integration):
+- `CCATV_SERVICE_AUTH_TOKEN=YOUR_TOKEN uv run ccatv-web --service-host recorder-host --service-port 8787 --listen-host 127.0.0.1 --listen-port 5000`
+- API routes currently exposed by the web app:
+	- `GET /api/health`
+	- `GET /api/service/info`
+	- `GET /api/schedules?state=...`
+	- `POST /api/schedules`
+
 Systemd and packaging docs:
 - [docs/systemd-operations.md](/home/chris/src/ccatv/docs/systemd-operations.md)
 - [docs/packaging.md](/home/chris/src/ccatv/docs/packaging.md)
