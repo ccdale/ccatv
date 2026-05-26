@@ -154,6 +154,30 @@ def test_open_play_failure_keeps_loaded_state() -> None:
     assert state.current_url == "http://example.test/live"
 
 
+def test_open_failure_preserves_initial_state() -> None:
+    backend = _StubBackend(fail_on={"open"})
+    service = PlaybackSessionService(backend)
+
+    with pytest.raises(PlaybackError):
+        service.open("http://example.test/live")
+
+    state = service.get_state()
+    assert state.status == "idle"
+    assert state.current_url is None
+
+
+def test_open_pause_failure_keeps_loaded_state() -> None:
+    backend = _StubBackend(fail_on={"pause"})
+    service = PlaybackSessionService(backend)
+
+    with pytest.raises(PlaybackError):
+        service.open("http://example.test/live", auto_play=False)
+
+    state = service.get_state()
+    assert state.status == "loaded"
+    assert state.current_url == "http://example.test/live"
+
+
 @pytest.mark.parametrize(
     ("method_name", "open_auto_play"),
     [("play", False), ("pause", True), ("stop", False)],
@@ -183,3 +207,11 @@ def test_failed_set_volume_preserves_state() -> None:
         service.set_volume(10)
 
     assert service.get_state() == before
+
+
+def test_close_failure_is_propagated() -> None:
+    backend = _StubBackend(fail_on={"close"})
+    service = PlaybackSessionService(backend)
+
+    with pytest.raises(PlaybackError):
+        service.close()
