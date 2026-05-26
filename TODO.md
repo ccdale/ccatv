@@ -125,6 +125,7 @@ M6. Multi-front-end enablement.
 ## Later Milestones (After Recorder + Persistence)
 
 - Playback backend abstraction (mpv first).
+	- [x] Initial playback interface and mpv IPC backend scaffold.
 - GTK4 live TV / guide shell UI.
 - inputlirc remote mapping.
 - Jellyfin integration.
