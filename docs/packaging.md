@@ -32,6 +32,7 @@ Suggested flow:
 ```bash
 cd /home/chris/src/ccatv
 uv build
+PKGVER=$(uv version --short)
 rm -rf .pkgroot
 mkdir -p .pkgroot/usr/lib/systemd/user
 cp systemd/ccatv.service .pkgroot/usr/lib/systemd/user/
@@ -44,7 +45,7 @@ Add a control file:
 mkdir -p .pkgroot/DEBIAN
 cat > .pkgroot/DEBIAN/control <<'EOF'
 Package: ccatv
-Version: 0.1.174
+Version: __PKGVER__
 Section: video
 Priority: optional
 Architecture: all
@@ -52,18 +53,20 @@ Maintainer: ccatv maintainers
 Depends: python3, systemd
 Description: ccatv scheduler daemon and CLI tools
 EOF
+
+sed -i "s/__PKGVER__/${PKGVER}/" .pkgroot/DEBIAN/control
 ```
 
 Build the package:
 
 ```bash
-dpkg-deb --build .pkgroot ccatv_0.1.174_all.deb
+dpkg-deb --build .pkgroot "ccatv_${PKGVER}_all.deb"
 ```
 
 Install it:
 
 ```bash
-sudo dpkg -i ccatv_0.1.174_all.deb
+sudo dpkg -i "ccatv_${PKGVER}_all.deb"
 systemctl --user daemon-reload
 systemctl --user enable --now ccatv.service
 ```
