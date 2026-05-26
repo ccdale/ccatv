@@ -1,5 +1,5 @@
 pkgname=ccatv
-pkgver=0.1.176
+pkgver=0.1.182
 pkgrel=1
 pkgdesc="ccatv scheduler daemon and CLI tools"
 arch=(any)
@@ -17,7 +17,7 @@ build() {
 
 package() {
 	cd "$startdir/.."
-	python -m installer --destdir="$pkgdir" --prefix=/usr dist/*.whl
+	python -m installer --destdir="$pkgdir" --prefix=/usr/local dist/*.whl
 
 	install -Dm644 systemd/ccatv.service "$pkgdir/usr/lib/systemd/user/ccatv.service"
 }
