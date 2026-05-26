@@ -13,7 +13,13 @@ class PlaybackSessionState:
 
 
 class PlaybackSessionService:
-    """Stateful orchestration layer above playback backend primitives."""
+    """Stateful orchestration layer above playback backend primitives.
+
+    State updates follow a success-first policy for most operations: if a backend
+    command raises, the state remains unchanged. The one exception is `open()`,
+    where a successful load updates the session to `loaded` before attempting
+    auto-play/auto-pause.
+    """
 
     def __init__(
         self,
@@ -36,7 +42,13 @@ class PlaybackSessionService:
     def open(self, url: str, *, auto_play: bool = True) -> PlaybackSessionState:
         if not url.strip():
             raise ValueError("url must be a non-empty string")
-        self._backend.open(url.strip())
+        url_value = url.strip()
+        self._backend.open(url_value)
+        self._state = PlaybackSessionState(
+            status="loaded",
+            current_url=url_value,
+            volume_percent=self._state.volume_percent,
+        )
         next_status = "playing" if auto_play else "paused"
         if auto_play:
             self._backend.play()
@@ -44,7 +56,7 @@ class PlaybackSessionService:
             self._backend.pause()
         self._state = PlaybackSessionState(
             status=next_status,
-            current_url=url.strip(),
+            current_url=url_value,
             volume_percent=self._state.volume_percent,
         )
         return self._state
