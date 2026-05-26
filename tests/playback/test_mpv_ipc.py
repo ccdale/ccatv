@@ -207,6 +207,20 @@ def test_command_error_field_is_mapped(monkeypatch) -> None:
     assert "command failed" in str(exc_info.value)
 
 
+def test_error_null_response_is_treated_as_success(monkeypatch) -> None:
+    stub = _StubSocket([b'{"error":null}\n'])
+    monkeypatch.setattr(
+        "ccatv.playback.mpv_ipc.socket.socket",
+        lambda *_args, **_kwargs: stub,
+    )
+
+    backend = MpvIpcBackend(socket_path="/tmp/mpv.sock")
+    backend.stop()
+
+    sent_payload = json.loads(stub.sent[0].decode("utf-8").strip())
+    assert sent_payload["command"] == ["stop"]
+
+
 def test_close_does_not_raise() -> None:
     backend = MpvIpcBackend(socket_path="/tmp/mpv.sock")
     backend.close()
