@@ -40,6 +40,8 @@ class MpvIpcBackend:
     def _command(self, args: list[object]) -> dict[str, object]:
         request = json.dumps({"command": args}, sort_keys=True).encode("utf-8") + b"\n"
         response = self._send(request)
+        if "error" not in response:
+            raise PlaybackError("mpv IPC response missing required 'error' field")
         error_value = response.get("error")
         if error_value not in (None, "success"):
             raise PlaybackError(f"mpv IPC command failed: {error_value}")

@@ -50,6 +50,14 @@ def test_open_sends_loadfile_command(monkeypatch) -> None:
     assert sent_payload["command"] == ["loadfile", "http://example.test/stream", "replace"]
     assert stub.connected_to == "/tmp/mpv.sock"
     assert stub.closed is True
+    assert stub.timeout == backend.timeout_seconds
+
+
+def test_open_rejects_empty_url() -> None:
+    backend = MpvIpcBackend(socket_path="/tmp/mpv.sock")
+
+    with pytest.raises(ValueError):
+        backend.open("   ")
 
 
 @pytest.mark.parametrize(
@@ -132,6 +140,58 @@ def test_invalid_json_response_is_mapped(monkeypatch) -> None:
     assert "invalid JSON" in str(exc_info.value)
 
 
+@pytest.mark.parametrize(
+    "raw_json",
+    [
+        b"[]\n",
+        b'"text"\n',
+        b"null\n",
+    ],
+)
+def test_non_object_json_response_is_rejected(monkeypatch, raw_json: bytes) -> None:
+    stub = _StubSocket([raw_json])
+    monkeypatch.setattr(
+        "ccatv.playback.mpv_ipc.socket.socket",
+        lambda *_args, **_kwargs: stub,
+    )
+
+    backend = MpvIpcBackend(socket_path="/tmp/mpv.sock")
+
+    with pytest.raises(PlaybackError) as exc_info:
+        backend.stop()
+
+    assert "JSON object" in str(exc_info.value)
+
+
+def test_response_missing_error_field_is_rejected(monkeypatch) -> None:
+    stub = _StubSocket([b'{"data":true}\n'])
+    monkeypatch.setattr(
+        "ccatv.playback.mpv_ipc.socket.socket",
+        lambda *_args, **_kwargs: stub,
+    )
+
+    backend = MpvIpcBackend(socket_path="/tmp/mpv.sock")
+
+    with pytest.raises(PlaybackError) as exc_info:
+        backend.play()
+
+    assert "missing required 'error' field" in str(exc_info.value)
+
+
+def test_chunked_response_is_assembled(monkeypatch) -> None:
+    stub = _StubSocket([b'{"error":', b'"success"}\n'])
+    monkeypatch.setattr(
+        "ccatv.playback.mpv_ipc.socket.socket",
+        lambda *_args, **_kwargs: stub,
+    )
+
+    backend = MpvIpcBackend(socket_path="/tmp/mpv.sock")
+    backend.pause()
+
+    sent_payload = json.loads(stub.sent[0].decode("utf-8").strip())
+    assert sent_payload["command"] == ["set_property", "pause", True]
+
+
 def test_command_error_field_is_mapped(monkeypatch) -> None:
     stub = _StubSocket([b'{"error":"invalid parameter"}\n'])
     monkeypatch.setattr(
@@ -145,3 +205,8 @@ def test_command_error_field_is_mapped(monkeypatch) -> None:
         backend.pause()
 
     assert "command failed" in str(exc_info.value)
+
+
+def test_close_does_not_raise() -> None:
+    backend = MpvIpcBackend(socket_path="/tmp/mpv.sock")
+    backend.close()
