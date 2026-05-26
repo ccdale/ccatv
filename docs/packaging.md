@@ -44,7 +44,7 @@ Add a control file:
 mkdir -p .pkgroot/DEBIAN
 cat > .pkgroot/DEBIAN/control <<'EOF'
 Package: ccatv
-Version: 0.1.173
+Version: 0.1.174
 Section: video
 Priority: optional
 Architecture: all
@@ -57,13 +57,13 @@ EOF
 Build the package:
 
 ```bash
-dpkg-deb --build .pkgroot ccatv_0.1.173_all.deb
+dpkg-deb --build .pkgroot ccatv_0.1.174_all.deb
 ```
 
 Install it:
 
 ```bash
-sudo dpkg -i ccatv_0.1.173_all.deb
+sudo dpkg -i ccatv_0.1.174_all.deb
 systemctl --user daemon-reload
 systemctl --user enable --now ccatv.service
 ```
