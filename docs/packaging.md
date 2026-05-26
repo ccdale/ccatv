@@ -27,6 +27,18 @@ Notes:
 
 The repo does not yet ship full debhelper packaging metadata. The supported M5 path is a small manual `dpkg-deb` build.
 
+Install runtime dependencies from `pyproject.toml` using apt:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-flask python3-platformdirs systemd
+```
+
+Dependency mapping:
+
+- `flask` -> `python3-flask`
+- `platformdirs` -> `python3-platformdirs`
+
 Suggested flow:
 
 ```bash
@@ -55,6 +67,12 @@ Description: ccatv scheduler daemon and CLI tools
 EOF
 
 sed -i "s/__PKGVER__/${PKGVER}/" .pkgroot/DEBIAN/control
+```
+
+Set Debian runtime package dependencies from `pyproject.toml`:
+
+```bash
+sed -i 's/^Depends:.*/Depends: python3, python3-flask, python3-platformdirs, systemd/' .pkgroot/DEBIAN/control
 ```
 
 Build the package:
