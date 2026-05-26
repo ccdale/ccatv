@@ -114,3 +114,121 @@ Flask desktop frontend (first M6 integration):
 Systemd and packaging docs:
 - [docs/systemd-operations.md](/home/chris/src/ccatv/docs/systemd-operations.md)
 - [docs/packaging.md](/home/chris/src/ccatv/docs/packaging.md)
+
+## Installation and Runbook
+
+This section is the current end-to-end setup path for:
+
+- `ccatv-service` (recorder/scheduler daemon)
+- Flask backend (`ccatv-web`) for remote scheduling/recording dashboard APIs
+- GTK4 app status and developer setup notes
+
+### 1. Install ccatv
+
+From source in a development checkout:
+
+```bash
+cd /home/chris/src/ccatv
+uv sync
+```
+
+Optional smoke checks:
+
+```bash
+uv run pytest -q
+uv run ruff check .
+```
+
+### 2. Configure runtime and dvbctrl credentials
+
+Run setup once on the recorder host:
+
+```bash
+uv run ccatv setup --host your-dvbstreamer-host --adapter-count 4 --username your-user
+```
+
+This writes:
+
+- `~/.config/dvbstreamer/userconfig.json`
+- `~/.config/ccatv/runtime.json`
+
+### 3. Install and run ccatv-service (user service)
+
+Manual install of the systemd user unit:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/ccatv.service ~/.config/systemd/user/ccatv.service
+systemctl --user daemon-reload
+systemctl --user enable --now ccatv.service
+systemctl --user status ccatv.service
+```
+
+Useful operations:
+
+```bash
+systemctl --user restart ccatv.service
+journalctl --user-unit ccatv.service -f
+```
+
+If the host should keep recording after logout:
+
+```bash
+loginctl enable-linger $USER
+```
+
+### 4. Run ccatv-service HTTP transport for remote Flask clients
+
+If you want a remote desktop Flask UI to talk to the recorder host, run service HTTP transport:
+
+```bash
+uv run ccatv-service --http-bind-host 0.0.0.0 --http-port 8787 --http-auth-token YOUR_SERVICE_TOKEN
+```
+
+Security guidance:
+
+- Use a strong random token for `--http-auth-token`.
+- Prefer LAN-only exposure plus firewall rules.
+- If possible, terminate TLS at a reverse proxy on the recorder host.
+
+### 5. Install and run Flask backend (remote desktop)
+
+On your desktop machine:
+
+```bash
+cd /home/chris/src/ccatv
+uv sync
+```
+
+Run Flask backend pointing to the recorder host:
+
+```bash
+CCATV_SERVICE_AUTH_TOKEN=YOUR_SERVICE_TOKEN \
+CCATV_WEB_AUTH_TOKEN=YOUR_WEB_TOKEN \
+uv run ccatv-web \
+	--service-host recorder-host-or-ip \
+	--service-port 8787 \
+	--listen-host 127.0.0.1 \
+	--listen-port 5000
+```
+
+Notes:
+
+- `CCATV_SERVICE_AUTH_TOKEN` is required (matches service `--http-auth-token`).
+- `CCATV_WEB_AUTH_TOKEN` is optional but recommended, especially if you use `--listen-host 0.0.0.0`.
+- Current API routes:
+	- `GET /api/health`
+	- `GET /api/service/info`
+	- `GET /api/schedules?state=...`
+	- `POST /api/schedules`
+
+### 6. GTK4 app installation status
+
+GTK4 live UI shell is not fully implemented yet, so there is currently no end-user `ccatv-gtk` entrypoint to install/run.
+
+Current completed groundwork:
+
+- playback abstraction and mpv IPC backend under `src/ccatv/playback/`
+- GTK-facing service gateway under `src/ccatv/ui/service_gateway.py`
+
+When the GTK4 executable entrypoint lands, this section should be updated with full package/dependency and launch instructions.

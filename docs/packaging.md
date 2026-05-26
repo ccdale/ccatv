@@ -20,8 +20,7 @@ makepkg -si
 
 Notes:
 
-- the package installs the Python application, the `ccatv-service` entrypoint, and the systemd unit
-- the package also creates the `/var/lib/ccatv` and `/var/lib/ccatv/recordings` directories
+- the package installs the Python application, `ccatv-service`, `ccatv-web`, and the systemd user unit
 - review `depends` and `makedepends` against the target machine before publishing
 
 ## Debian-family systems
@@ -45,7 +44,7 @@ Add a control file:
 mkdir -p .pkgroot/DEBIAN
 cat > .pkgroot/DEBIAN/control <<'EOF'
 Package: ccatv
-Version: 0.1.153
+Version: 0.1.173
 Section: video
 Priority: optional
 Architecture: all
@@ -58,13 +57,13 @@ EOF
 Build the package:
 
 ```bash
-dpkg-deb --build .pkgroot ccatv_0.1.153_all.deb
+dpkg-deb --build .pkgroot ccatv_0.1.173_all.deb
 ```
 
 Install it:
 
 ```bash
-sudo dpkg -i ccatv_0.1.153_all.deb
+sudo dpkg -i ccatv_0.1.173_all.deb
 systemctl --user daemon-reload
 systemctl --user enable --now ccatv.service
 ```

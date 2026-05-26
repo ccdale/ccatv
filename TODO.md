@@ -126,6 +126,8 @@ M6. Multi-front-end enablement.
 
 - Playback backend abstraction (mpv first).
 	- [x] Initial playback interface and mpv IPC backend scaffold.
+- Build Flask app for remote scheduling/recording dashboard.
+- Publish full installation instructions for `ccatv-service`, Flask dashboard, and GTK4 app entrypoint.
 - GTK4 live TV / guide shell UI.
 - inputlirc remote mapping.
 - Jellyfin integration.
