@@ -20,7 +20,7 @@ The unit ships at [systemd/ccatv.service](../systemd/ccatv.service).
 
 The unit requires only:
 
-- the `ccatv-service` console script at `/usr/bin/ccatv-service`
+- the `ccatv-service` console script at `/usr/local/bin/ccatv-service`
 - your XDG config already populated with `ccatv setup`
 
 ### Manual installation (no package manager)

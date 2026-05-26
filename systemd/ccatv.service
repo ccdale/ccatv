@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/ccatv-service --output-directory %h/.local/share/ccatv/recordings --poll-interval-seconds 5
+ExecStart=/usr/local/bin/ccatv-service --output-directory %h/.local/share/ccatv/recordings --poll-interval-seconds 5
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
