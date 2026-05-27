@@ -10,7 +10,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Event
 
@@ -554,7 +554,9 @@ def run_http_server(
             # Keep service logs in the app logger instead of stderr spam.
             return
 
-    server = ThreadingHTTPServer((bind_host, port), _Handler)
+    # Keep request handling on the same thread as the bootstrap-created
+    # sqlite connection to avoid sqlite thread-affinity errors.
+    server = HTTPServer((bind_host, port), _Handler)
     server.timeout = 0.5
     try:
         logger.info(

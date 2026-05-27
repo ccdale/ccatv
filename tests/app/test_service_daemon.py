@@ -516,6 +516,62 @@ def test_run_http_server_handles_authenticated_command_request(
     assert decoded["payload"]["echoCommand"] == "service.info.get"
 
 
+def test_run_http_server_dispatches_on_single_thread(monkeypatch) -> None:
+    context = SimpleNamespace(
+        logger=logging.getLogger("test.daemon.http.thread_affinity"),
+        worker_cycle_lock=StubLock(),
+    )
+
+    class _ThreadAffinityDispatcher:
+        def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
+            self._thread_id = threading.get_ident()
+
+        def dispatch(self, request):
+            if threading.get_ident() != self._thread_id:
+                raise RuntimeError("dispatch ran on a different thread")
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher",
+        _ThreadAffinityDispatcher,
+    )
+
+    thread, http_port = _start_http_server(context)
+
+    connection = http_client.HTTPConnection("127.0.0.1", http_port, timeout=2.0)
+    request_payload = {
+        "apiVersion": "v1alpha1",
+        "command": "service.health.get",
+        "requestId": "thread-affinity-1",
+        "payload": {},
+    }
+    connection.request(
+        "POST",
+        "/api/v1/command",
+        body=json.dumps(request_payload),
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+        },
+    )
+    response = connection.getresponse()
+    response_body = response.read()
+    connection.close()
+
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+
+    decoded = json.loads(response_body.decode("utf-8"))
+    assert response.status == 200
+    assert decoded["ok"] is True
+    assert decoded["requestId"] == "thread-affinity-1"
+
+
 def test_run_http_server_rejects_missing_bearer_token(monkeypatch) -> None:
     context = SimpleNamespace(
         logger=logging.getLogger("test.daemon.http.auth"),
