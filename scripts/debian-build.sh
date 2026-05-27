@@ -9,7 +9,7 @@ uv build
 PKGVER=$(uv version --short)
 mkdir -p .pkgroot/usr/lib/systemd/user
 cp systemd/ccatv.service .pkgroot/usr/lib/systemd/user/
-python -m installer --destdir=.pkgroot --prefix=/usr dist/*.whl
+python3 -m installer --destdir=.pkgroot --prefix=/usr dist/*.whl
 
 # Add a control file
 mkdir -p .pkgroot/DEBIAN
