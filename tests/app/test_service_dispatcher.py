@@ -300,6 +300,7 @@ def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None
             "logicalChannelNumber": "2",
             "source": "dvbstreamer_ota",
             "sourceChannelId": "200",
+            "dvbstreamerServiceName": None,
         },
         {
             "name": "BBC FOUR",
@@ -307,8 +308,62 @@ def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None
             "logicalChannelNumber": "9",
             "source": "schedules_direct",
             "sourceChannelId": "300",
+            "dvbstreamerServiceName": None,
         },
     ]
+
+
+def test_dispatch_metadata_channels_service_name_set_updates_mapping() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("schedules_direct", "100", "Quest", "QUEST", "12"),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.service-name.set",
+            "payload": {
+                "channelName": "Quest",
+                "serviceName": "QUEST",
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"] == {"channelName": "Quest", "updatedRows": 1}
+    assert context.persistence.get_dvbstreamer_service_name("Quest") == "QUEST"
+
+
+def test_dispatch_metadata_channels_service_name_set_returns_not_found() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.service-name.set",
+            "payload": {
+                "channelName": "Unknown",
+                "serviceName": "UNKNOWN",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "NOT_FOUND"
 
 
 def test_dispatch_metadata_guide_list_validates_channel() -> None:

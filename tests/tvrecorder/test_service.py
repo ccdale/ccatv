@@ -522,3 +522,76 @@ def test_default_growth_and_stability_policy_methods(tmp_path: Path) -> None:
         assert stable.state == "capture_completed"
     finally:
         connection.close()
+
+
+def test_resolve_service_name_uses_database_mapping_when_present(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    service_list = "BBC ONE East\nQUEST\n5 HD\n"
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str) -> DvbCtrlResult:
+            return DvbCtrlResult(
+                command=tuple(command.split()),
+                returncode=0,
+                stdout=service_list,
+                stderr="",
+            )
+
+    connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number,
+            dvbstreamer_service_name
+        ) VALUES(?, ?, ?, ?, ?, ?)
+        """,
+        ("schedules_direct", "100", "Quest", "QUEST HD", "12", "QUEST HD"),
+    )
+    connection.commit()
+
+    service = TvRecorderService(
+        _StubDvbCtrl(),
+        persistence=PersistenceStore(connection=connection),
+    )
+
+    try:
+        assert service.resolve_service_name("Quest") == "QUEST HD"
+    finally:
+        connection.close()
+
+
+def test_resolve_service_name_matches_case_insensitively() -> None:
+    service_list = "BBC ONE East\nQUEST\n5 HD\n"
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str) -> DvbCtrlResult:
+            return DvbCtrlResult(
+                command=tuple(command.split()),
+                returncode=0,
+                stdout=service_list,
+                stderr="",
+            )
+
+    service = TvRecorderService(_StubDvbCtrl())
+
+    assert service.resolve_service_name("Quest") == "QUEST"
+    assert service.resolve_service_name("bbc one east") == "BBC ONE East"
+    assert service.resolve_service_name("5 hd") == "5 HD"
+
+
+def test_resolve_service_name_returns_original_when_not_found() -> None:
+    class _StubDvbCtrl:
+        def run_command(self, command: str) -> DvbCtrlResult:
+            return DvbCtrlResult(
+                command=tuple(command.split()),
+                returncode=0,
+                stdout="BBC ONE East\nQUEST\n",
+                stderr="",
+            )
+
+    service = TvRecorderService(_StubDvbCtrl())
+
+    assert service.resolve_service_name("Unknown Channel") == "Unknown Channel"

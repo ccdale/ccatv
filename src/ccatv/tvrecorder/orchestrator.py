@@ -72,7 +72,8 @@ class DvbCtrlCaptureController:
         channel_name: str,
         output_path: str,
     ) -> None:
-        self.service.select_service(channel_name)
+        resolved = self.service.resolve_service_name(channel_name)
+        self.service.select_service(resolved)
         output_mrl = f"file://{output_path}"
         self.service.run_raw(f"setmrl {shlex.quote(output_mrl)}")
 

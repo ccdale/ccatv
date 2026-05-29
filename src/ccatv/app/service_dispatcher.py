@@ -56,6 +56,7 @@ SERVICE_COMMANDS = [
     "recording.schedule.list",
     "recording.worker.cycle.run",
     "metadata.channels.list",
+    "metadata.channels.service-name.set",
     "metadata.guide.list",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
@@ -166,6 +167,8 @@ class ServiceCommandDispatcher:
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.channels.list":
             return self._metadata_channels_list(payload)
+        if command == "metadata.channels.service-name.set":
+            return self._metadata_channels_service_name_set(payload)
         if command == "metadata.guide.list":
             return self._metadata_guide_list(payload)
         if command == "metadata.sd.sync.run":
@@ -490,7 +493,8 @@ class ServiceCommandDispatcher:
 
         rows = self._context.persistence.connection.execute(
             """
-            SELECT source, source_channel_id, display_name, callsign, logical_channel_number
+            SELECT source, source_channel_id, display_name, callsign,
+                   logical_channel_number, dvbstreamer_service_name
             FROM epg_channels
             WHERE trim(display_name) != ''
             ORDER BY display_name COLLATE NOCASE ASC
@@ -500,12 +504,14 @@ class ServiceCommandDispatcher:
         channels_by_name: dict[str, dict[str, object]] = {}
         for row in rows:
             display_name = str(row[2]).strip()
+            dvb_name = str(row[5]).strip() if row[5] is not None else None
             channel = {
                 "name": display_name,
                 "callsign": str(row[3]) if row[3] is not None else None,
                 "logicalChannelNumber": str(row[4]) if row[4] is not None else None,
                 "source": str(row[0]),
                 "sourceChannelId": str(row[1]),
+                "dvbstreamerServiceName": dvb_name or None,
             }
             key = display_name.casefold()
             current = channels_by_name.get(key)
@@ -524,6 +530,34 @@ class ServiceCommandDispatcher:
                 ),
             )
         }
+
+    def _metadata_channels_service_name_set(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        channel_name = payload.get("channelName")
+        if not isinstance(channel_name, str) or not channel_name.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channelName must be a non-empty string",
+            )
+
+        service_name = payload.get("serviceName")
+        if service_name is not None and not isinstance(service_name, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="serviceName must be a string or null",
+            )
+
+        updated = self._context.persistence.set_dvbstreamer_service_name(
+            channel_name.strip(),
+            service_name if isinstance(service_name, str) else None,
+        )
+        if updated == 0:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=f"no EPG channel found with name: {channel_name.strip()!r}",
+            )
+        return {"channelName": channel_name.strip(), "updatedRows": updated}
 
     def _metadata_guide_list(self, payload: dict[str, object]) -> dict[str, object]:
         channel = payload.get("channel")

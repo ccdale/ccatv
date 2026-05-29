@@ -130,6 +130,16 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=4,
+        name="epg_channel_dvbstreamer_name_v4",
+        statements=(
+            """
+            ALTER TABLE epg_channels
+            ADD COLUMN dvbstreamer_service_name TEXT
+            """,
+        ),
+    ),
 )
 
 

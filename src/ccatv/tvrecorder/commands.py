@@ -37,10 +37,16 @@ def select_command(service_name: str) -> DvbCtrlCommand:
     return DvbCtrlCommand(name="select", args=(service_name,))
 
 
+def lsservices_command() -> DvbCtrlCommand:
+    """Build the `lsservices` command."""
+    return DvbCtrlCommand(name="lsservices")
+
+
 __all__ = [
     "DvbCtrlCommand",
     "current_command",
     "festatus_command",
+    "lsservices_command",
     "select_command",
     "stats_command",
 ]

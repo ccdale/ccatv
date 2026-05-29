@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from ccatv.app.service_client import ServiceClientError
-from ccatv.cli import CliDependencies, main, run_setup, setup_main
+from ccatv.cli import CliDependencies, main, run_channel_map, run_setup, setup_main
 from ccatv.runtime_config import RuntimeConfig, RuntimeConfigStore
 from ccatv.tvrecorder.config import (
     DvbCtrlCredentials,
@@ -517,4 +517,79 @@ def test_epg_sync_sd_run_forever_handles_running_event_loop(monkeypatch) -> None
 
     assert exit_code == 2
     assert "EPG sync failed: bad credentials" in stderr.getvalue()
+    assert stub_client.closed is True
+
+
+def test_run_channel_map_sets_mapping() -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.closed = False
+            self.executed: list[tuple[str, dict[str, object]]] = []
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {"channelName": "Quest", "updatedRows": 1}
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = run_channel_map(
+        Namespace(channel_name="Quest", service_name="QUEST"),
+        deps,
+    )
+
+    assert exit_code == 0
+    assert stub_client.closed is True
+    assert stub_client.executed == [
+        (
+            "metadata.channels.service-name.set",
+            {"channelName": "Quest", "serviceName": "QUEST"},
+        )
+    ]
+    assert "Mapped 'Quest'" in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
+def test_main_channel_map_returns_error_on_service_failure() -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            del command, payload
+            raise ServiceClientError(
+                code="NOT_FOUND",
+                message="no EPG channel found",
+                retryable=False,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["channel-map", "Unknown", "UNKNOWN"], deps=deps)
+
+    assert exit_code == 2
+    assert "channel-map failed: no EPG channel found" in stderr.getvalue()
     assert stub_client.closed is True

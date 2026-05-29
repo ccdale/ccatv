@@ -96,6 +96,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="override schedulesdirect credentials file path",
     )
     sync_parser.set_defaults(handler=run_epg_sync_sd)
+
+    channel_map_parser = subparsers.add_parser(
+        "channel-map",
+        help="Set or clear the dvbstreamer service name for an EPG channel",
+    )
+    channel_map_parser.add_argument(
+        "channel_name",
+        metavar="CHANNEL_NAME",
+        help="EPG display name of the channel (e.g. 'Quest')",
+    )
+    channel_map_parser.add_argument(
+        "service_name",
+        metavar="SERVICE_NAME",
+        nargs="?",
+        default=None,
+        help="dvbstreamer service name to map to (omit or pass '' to clear)",
+    )
+    channel_map_parser.set_defaults(handler=run_channel_map)
+
     return parser
 
 
@@ -303,6 +322,39 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
     return 0
 
 
+def run_channel_map(args: argparse.Namespace, deps: CliDependencies) -> int:
+    """Set or clear the dvbstreamer service name mapping for an EPG channel."""
+    channel_name = args.channel_name
+    service_name = args.service_name or None  # empty string → clear
+
+    client = deps.service_client_factory()
+    try:
+        payload = client.execute(
+            "metadata.channels.service-name.set",
+            {"channelName": channel_name, "serviceName": service_name},
+        )
+        updated = payload.get("updatedRows", 0)
+        if service_name:
+            print(
+                f"Mapped {channel_name!r} → {service_name!r} ({updated} row(s) updated)",
+                file=deps.stdout,
+            )
+        else:
+            print(
+                f"Cleared dvbstreamer service name for {channel_name!r} ({updated} row(s) updated)",
+                file=deps.stdout,
+            )
+    except ServiceClientError as exc:
+        print(f"channel-map failed: {exc.message}", file=deps.stderr)
+        return 2
+    except Exception as exc:
+        print(f"channel-map failed: {exc}", file=deps.stderr)
+        return 2
+    finally:
+        client.close()
+    return 0
+
+
 def _run_async_blocking(coroutine: object) -> object:
     try:
         asyncio.get_running_loop()
@@ -334,6 +386,7 @@ __all__ = [
     "CliDependencies",
     "build_parser",
     "main",
+    "run_channel_map",
     "run_epg_sync_sd",
     "run_setup",
     "setup_main",

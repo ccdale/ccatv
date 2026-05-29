@@ -11,6 +11,7 @@ from ccatv.tvrecorder.commands import (
     DvbCtrlCommand,
     current_command,
     festatus_command,
+    lsservices_command,
     select_command,
     stats_command,
 )
@@ -94,6 +95,31 @@ class TvRecorderService:
     def run(self, command: DvbCtrlCommand) -> DvbCtrlResult:
         """Run a typed dvbctrl command."""
         return self._dvbctrl.run_command(command.render())
+
+    def list_services(self) -> list[str]:
+        """Return all service names known to dvbstreamer."""
+        result = self.run(lsservices_command())
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    def resolve_service_name(self, name: str) -> str:
+        """Return the exact dvbstreamer service name for the EPG channel *name*.
+
+        Resolution order:
+        1. DB mapping in ``epg_channels.dvbstreamer_service_name`` (explicit).
+        2. Case-insensitive match against the live ``lsservices`` output.
+        3. *name* unchanged as a last resort.
+        """
+        if self._persistence is not None:
+            mapped = self._persistence.get_dvbstreamer_service_name(name)
+            if mapped is not None:
+                return mapped
+
+        services = self.list_services()
+        name_lower = name.casefold()
+        for svc in services:
+            if svc.casefold() == name_lower:
+                return svc
+        return name
 
     def select_service(self, service_name: str) -> DvbCtrlResult:
         """Select a primary service by name."""
