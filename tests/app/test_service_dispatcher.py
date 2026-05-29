@@ -460,6 +460,44 @@ def test_dispatch_metadata_channels_favorite_set_rejects_non_boolean() -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_dispatch_metadata_channels_favorite_set_rejects_empty_channel_name() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.favorite.set",
+            "payload": {
+                "channelName": "   ",
+                "favorite": True,
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_metadata_channels_favorite_set_returns_not_found() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.favorite.set",
+            "payload": {
+                "channelName": "Unknown",
+                "favorite": True,
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "NOT_FOUND"
+
+
 def test_dispatch_metadata_channels_dvbservices_list_returns_sorted_unique_services() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

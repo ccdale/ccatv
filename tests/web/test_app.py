@@ -337,6 +337,28 @@ def test_channel_favorite_route_forwards_payload(monkeypatch) -> None:
     ]
 
 
+def test_channel_favorite_route_rejects_non_object_json(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post("/api/channels/favorite", json=["bad"]) 
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
 def test_schedule_list_forwards_state_query(monkeypatch) -> None:
     stub = _StubServiceClient()
     monkeypatch.setattr(
