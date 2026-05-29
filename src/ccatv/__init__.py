@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata as importlib_metadata
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -19,11 +20,30 @@ def _git_root() -> Path | None:
     """Return the git repository root, or None if unavailable."""
     try:
         root = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"], text=True
+            ["git", "rev-parse", "--show-toplevel"],
+            stderr=subprocess.DEVNULL,
+            text=True,
         ).strip()
     except Exception:
         return None
     return Path(root)
+
+
+def _app_info_from_installed_metadata() -> AppInfo | None:
+    """Read app metadata from installed package metadata when available."""
+    try:
+        package_metadata = importlib_metadata.metadata("ccatv")
+        package_version = importlib_metadata.version("ccatv")
+    except importlib_metadata.PackageNotFoundError:
+        return None
+    except Exception:
+        return None
+
+    return AppInfo(
+        name=str(package_metadata.get("Name", "ccatv")),
+        version=str(package_version),
+        description=str(package_metadata.get("Summary", "")),
+    )
 
 
 def _find_pyproject() -> Path | None:
@@ -44,6 +64,10 @@ def _find_pyproject() -> Path | None:
 
 def get_app_info() -> AppInfo:
     """Get app name, version, and description from pyproject.toml."""
+    installed = _app_info_from_installed_metadata()
+    if installed is not None:
+        return installed
+
     pyproject_path = _find_pyproject()
     if pyproject_path is None:
         return AppInfo(name="ccatv", version="0.0.0", description="")
