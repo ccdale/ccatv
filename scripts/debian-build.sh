@@ -11,7 +11,7 @@ mkdir -p .pkgroot/usr/lib/systemd/user
 cp systemd/ccatv.service .pkgroot/usr/lib/systemd/user/
 cp systemd/ccatv-api.service .pkgroot/usr/lib/systemd/user/
 cp systemd/ccatv-web.service .pkgroot/usr/lib/systemd/user/
-python3 -m installer --destdir=.pkgroot --prefix=/usr/local dist/*.whl
+uv run python -m installer --destdir=.pkgroot --prefix=/usr/local dist/*.whl
 
 # Add a control file
 mkdir -p .pkgroot/DEBIAN
