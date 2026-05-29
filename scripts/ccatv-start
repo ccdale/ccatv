@@ -20,6 +20,7 @@ fi
 ensure_web_env() {
   local service_token=""
   local web_token=""
+  local web_session_secret=""
   local api_bind_host="127.0.0.1"
   local api_port="8787"
   local web_listen_host="0.0.0.0"
@@ -32,6 +33,7 @@ ensure_web_env() {
     source "${WEB_ENV}"
     service_token="${CCATV_SERVICE_AUTH_TOKEN:-}"
     web_token="${CCATV_WEB_AUTH_TOKEN:-}"
+    web_session_secret="${CCATV_WEB_SESSION_SECRET:-}"
     api_bind_host="${CCATV_API_BIND_HOST:-${api_bind_host}}"
     api_port="${CCATV_API_PORT:-${api_port}}"
     web_listen_host="${CCATV_WEB_LISTEN_HOST:-${web_listen_host}}"
@@ -46,10 +48,14 @@ ensure_web_env() {
   if [[ -z "${web_token}" ]]; then
     web_token=$(cd "${REPO_DIR}" && uv run python -c 'import secrets; print(secrets.token_urlsafe(48))')
   fi
+  if [[ -z "${web_session_secret}" ]]; then
+    web_session_secret=$(cd "${REPO_DIR}" && uv run python -c 'import secrets; print(secrets.token_urlsafe(48))')
+  fi
 
   cat > "${WEB_ENV}" <<EOF
 CCATV_SERVICE_AUTH_TOKEN=${service_token}
 CCATV_WEB_AUTH_TOKEN=${web_token}
+CCATV_WEB_SESSION_SECRET=${web_session_secret}
 CCATV_API_BIND_HOST=${api_bind_host}
 CCATV_API_PORT=${api_port}
 CCATV_WEB_LISTEN_HOST=${web_listen_host}
@@ -120,7 +126,7 @@ start_component \
   "ccatv-web" \
   "${LOG_DIR}/ccatv-web.log" \
   "${RUN_DIR}/ccatv-web.pid" \
-  env CCATV_SERVICE_AUTH_TOKEN="${CCATV_SERVICE_AUTH_TOKEN}" CCATV_WEB_AUTH_TOKEN="${CCATV_WEB_AUTH_TOKEN}" CCATV_LOG_LEVEL="${CCATV_LOG_LEVEL:-INFO}" uv run ccatv-web --listen-host "${CCATV_WEB_LISTEN_HOST}" --listen-port "${CCATV_WEB_LISTEN_PORT}" --service-host "${CCATV_WEB_SERVICE_HOST}" --service-port "${CCATV_WEB_SERVICE_PORT}"
+  env CCATV_SERVICE_AUTH_TOKEN="${CCATV_SERVICE_AUTH_TOKEN}" CCATV_WEB_AUTH_TOKEN="${CCATV_WEB_AUTH_TOKEN}" CCATV_WEB_SESSION_SECRET="${CCATV_WEB_SESSION_SECRET}" CCATV_LOG_LEVEL="${CCATV_LOG_LEVEL:-INFO}" uv run ccatv-web --listen-host "${CCATV_WEB_LISTEN_HOST}" --listen-port "${CCATV_WEB_LISTEN_PORT}" --service-host "${CCATV_WEB_SERVICE_HOST}" --service-port "${CCATV_WEB_SERVICE_PORT}"
 
 echo "Logs: ${LOG_DIR}"
 echo "Shared env: ${WEB_ENV}"

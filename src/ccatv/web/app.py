@@ -1,10 +1,27 @@
 from __future__ import annotations
 
+import secrets
 from collections.abc import Callable
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request, session
 
 from ccatv.app.service_client import ServiceClient, ServiceClientError, create_service_client
+
+
+def _json_error(*, code: str, message: str, status_code: int) -> tuple[dict[str, object], int]:
+    return {
+        "ok": False,
+        "error": {
+            "code": code,
+            "message": message,
+            "retryable": False,
+            "details": {},
+        },
+    }, status_code
+
+
+def _session_authenticated() -> bool:
+    return session.get("ccatv_web_authenticated") is True
 
 
 def _status_for_service_error(code: str) -> int:
@@ -62,32 +79,117 @@ def create_app(
     service_port: int,
     service_auth_token: str,
     web_auth_token: str | None = None,
+    session_secret: str | None = None,
 ) -> Flask:
     app = Flask(__name__)
+    app.secret_key = session_secret or secrets.token_urlsafe(32)
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+    )
+
+    @app.get("/")
+    def index():
+        return render_template(
+            "index.html",
+            auth_required=web_auth_token is not None,
+            authenticated=web_auth_token is None or _session_authenticated(),
+        )
+
+    @app.get("/auth/session")
+    def auth_session_status():
+        return jsonify(
+            {
+                "ok": True,
+                "payload": {
+                    "authRequired": web_auth_token is not None,
+                    "authenticated": web_auth_token is None or _session_authenticated(),
+                },
+            }
+        )
+
+    @app.post("/auth/session")
+    def auth_session_create():
+        if web_auth_token is None:
+            session["ccatv_web_authenticated"] = True
+            return jsonify(
+                {
+                    "ok": True,
+                    "payload": {
+                        "authRequired": False,
+                        "authenticated": True,
+                    },
+                }
+            )
+
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        token = body.get("token")
+        if not isinstance(token, str) or not token.strip():
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="token must be a non-empty string",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        if token.strip() != web_auth_token:
+            session.pop("ccatv_web_authenticated", None)
+            response, status_code = _json_error(
+                code="AUTHENTICATION_REQUIRED",
+                message="missing or invalid web bearer token",
+                status_code=401,
+            )
+            return jsonify(response), status_code
+
+        session["ccatv_web_authenticated"] = True
+        return jsonify(
+            {
+                "ok": True,
+                "payload": {
+                    "authRequired": True,
+                    "authenticated": True,
+                },
+            }
+        )
+
+    @app.delete("/auth/session")
+    def auth_session_delete():
+        session.pop("ccatv_web_authenticated", None)
+        return jsonify(
+            {
+                "ok": True,
+                "payload": {
+                    "authRequired": web_auth_token is not None,
+                    "authenticated": False,
+                },
+            }
+        )
 
     @app.before_request
     def _web_auth_guard():
+        if not request.path.startswith("/api/"):
+            return None
         if web_auth_token is None:
             return None
-        if not request.path.startswith("/api/"):
+        if _session_authenticated():
             return None
         header = request.headers.get("Authorization")
         if header == f"Bearer {web_auth_token}":
             return None
-        return (
-            jsonify(
-                {
-                    "ok": False,
-                    "error": {
-                        "code": "AUTHENTICATION_REQUIRED",
-                        "message": "missing or invalid web bearer token",
-                        "retryable": False,
-                        "details": {},
-                    },
-                }
-            ),
-            401,
+        response, status_code = _json_error(
+            code="AUTHENTICATION_REQUIRED",
+            message="missing or invalid web bearer token",
+            status_code=401,
         )
+        return jsonify(response), status_code
 
     def _client_factory() -> ServiceClient:
         return create_service_client(
@@ -114,6 +216,15 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.get("/api/channels")
+    def api_channel_list():
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.list",
+            {},
+        )
+        return jsonify(response), status_code
+
     @app.get("/api/schedules")
     def api_schedule_list():
         payload: dict[str, object] = {}
@@ -131,40 +242,24 @@ def create_app(
     def api_guide_list():
         channel = request.args.get("channel", default=None, type=str)
         if channel is None or not channel.strip():
-            return (
-                jsonify(
-                    {
-                        "ok": False,
-                        "error": {
-                            "code": "VALIDATION_ERROR",
-                            "message": "query parameter 'channel' is required",
-                            "retryable": False,
-                            "details": {},
-                        },
-                    }
-                ),
-                400,
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="query parameter 'channel' is required",
+                status_code=400,
             )
+            return jsonify(response), status_code
 
         payload: dict[str, object] = {"channel": channel.strip()}
 
         start_at_utc = request.args.get("startAtUtc", default=None, type=str)
         if start_at_utc is not None:
             if not start_at_utc.strip():
-                return (
-                    jsonify(
-                        {
-                            "ok": False,
-                            "error": {
-                                "code": "VALIDATION_ERROR",
-                                "message": "query parameter 'startAtUtc' cannot be empty",
-                                "retryable": False,
-                                "details": {},
-                            },
-                        }
-                    ),
-                    400,
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'startAtUtc' cannot be empty",
+                    status_code=400,
                 )
+                return jsonify(response), status_code
             payload["startAtUtc"] = start_at_utc.strip()
 
         window_hours = request.args.get("windowHours", default=None, type=str)
@@ -172,20 +267,12 @@ def create_app(
             try:
                 payload["windowHours"] = float(window_hours)
             except ValueError:
-                return (
-                    jsonify(
-                        {
-                            "ok": False,
-                            "error": {
-                                "code": "VALIDATION_ERROR",
-                                "message": "query parameter 'windowHours' must be numeric",
-                                "retryable": False,
-                                "details": {},
-                            },
-                        }
-                    ),
-                    400,
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'windowHours' must be numeric",
+                    status_code=400,
                 )
+                return jsonify(response), status_code
 
         response, status_code = _with_client(
             _client_factory,
@@ -198,20 +285,12 @@ def create_app(
     def api_schedule_create():
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
-            return (
-                jsonify(
-                    {
-                        "ok": False,
-                        "error": {
-                            "code": "VALIDATION_ERROR",
-                            "message": "request JSON body must be an object",
-                            "retryable": False,
-                            "details": {},
-                        },
-                    }
-                ),
-                400,
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
             )
+            return jsonify(response), status_code
 
         payload = {
             "channelName": body.get("channelName"),

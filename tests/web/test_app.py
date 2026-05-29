@@ -22,6 +22,18 @@ class _StubServiceClient:
             return {"status": "ok"}
         if command == "service.info.get":
             return {"appName": "ccatv", "apiVersion": "v1alpha1"}
+        if command == "metadata.channels.list":
+            return {
+                "channels": [
+                    {
+                        "name": "BBC TWO HD",
+                        "callsign": "BBC2",
+                        "logicalChannelNumber": "2",
+                        "source": "dvbstreamer_ota",
+                        "sourceChannelId": "200",
+                    }
+                ]
+            }
         if command == "recording.schedule.list":
             return {"jobs": []}
         if command == "recording.schedule.create":
@@ -60,6 +72,152 @@ def test_health_route_forwards_command(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.get_json()["ok"] is True
     assert stub.calls == [("service.health.get", {})]
+
+
+def test_index_route_serves_browser_ui(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Sign in" in body
+    assert "Record programme" in body
+    assert "Scheduled recordings" in body
+    assert stub.calls == []
+
+
+def test_session_status_reports_not_authenticated_when_token_required(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get("/auth/session")
+
+    assert response.status_code == 200
+    payload = response.get_json()["payload"]
+    assert payload["authRequired"] is True
+    assert payload["authenticated"] is False
+
+
+def test_session_login_and_cookie_allows_api_without_header(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+        session_secret="session-secret",
+    )
+    client = app.test_client()
+
+    login_response = client.post("/auth/session", json={"token": "web-token"})
+    assert login_response.status_code == 200
+    assert login_response.get_json()["payload"]["authenticated"] is True
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [("service.health.get", {})]
+
+
+def test_session_login_rejects_invalid_token(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.post("/auth/session", json={"token": "wrong-token"})
+
+    assert response.status_code == 401
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+def test_session_logout_revokes_cookie_auth(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+        session_secret="session-secret",
+    )
+    client = app.test_client()
+
+    client.post("/auth/session", json={"token": "web-token"})
+    first = client.get("/api/health")
+    assert first.status_code == 200
+
+    logout_response = client.delete("/auth/session")
+    assert logout_response.status_code == 200
+
+    second = client.get("/api/health")
+    assert second.status_code == 401
+
+
+def test_channel_list_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/channels")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert response.get_json()["payload"]["channels"][0]["name"] == "BBC TWO HD"
+    assert stub.calls == [("metadata.channels.list", {})]
 
 
 def test_schedule_list_forwards_state_query(monkeypatch) -> None:
@@ -315,3 +473,24 @@ def test_web_auth_guard_allows_authenticated_requests(monkeypatch) -> None:
     body = response.get_json()
     assert body["ok"] is True
     assert stub.calls == [("service.health.get", {})]
+
+
+def test_web_auth_guard_allows_index_without_token(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert stub.calls == []

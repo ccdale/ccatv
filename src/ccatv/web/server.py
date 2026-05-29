@@ -59,6 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
             "If omitted, uses CCATV_WEB_AUTH_TOKEN from environment."
         ),
     )
+    parser.add_argument(
+        "--web-session-secret",
+        default=None,
+        help=(
+            "Optional Flask session secret for browser login sessions. "
+            "If omitted, uses CCATV_WEB_SESSION_SECRET from environment or a "
+            "process-local random value."
+        ),
+    )
     return parser
 
 
@@ -78,12 +87,14 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     web_auth_token = args.web_auth_token or os.getenv("CCATV_WEB_AUTH_TOKEN")
+    web_session_secret = args.web_session_secret or os.getenv("CCATV_WEB_SESSION_SECRET")
 
     app = create_app(
         service_host=args.service_host,
         service_port=args.service_port,
         service_auth_token=service_auth_token,
         web_auth_token=web_auth_token,
+        session_secret=web_session_secret,
     )
     logger.info(
         "ccatv-web starting (version=%s, listen=%s:%d, service=%s:%d)",

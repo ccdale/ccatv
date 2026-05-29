@@ -12,6 +12,7 @@ from ccatv import __app_name__, __version__
 from ccatv.app.bootstrap import AppContext
 from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.metadata import SchedulesDirectHttpClient
+from ccatv.metadata.guide_preference import source_priority
 from ccatv.metadata.schedules_direct_contract import (
     GuideSyncWindow,
     SchedulesDirectApiError,
@@ -42,6 +43,7 @@ SERVICE_CAPABILITIES = [
     "service.info",
     "recording.schedule",
     "recording.worker.cycle",
+    "metadata.channels",
     "metadata.guide",
     "metadata.sd.sync",
     "runtime.setup",
@@ -53,6 +55,7 @@ SERVICE_COMMANDS = [
     "recording.schedule.create",
     "recording.schedule.list",
     "recording.worker.cycle.run",
+    "metadata.channels.list",
     "metadata.guide.list",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
@@ -161,6 +164,8 @@ class ServiceCommandDispatcher:
             return self._recording_schedule_list(payload)
         if command == "recording.worker.cycle.run":
             return self._recording_worker_cycle_run(payload)
+        if command == "metadata.channels.list":
+            return self._metadata_channels_list(payload)
         if command == "metadata.guide.list":
             return self._metadata_guide_list(payload)
         if command == "metadata.sd.sync.run":
@@ -476,6 +481,48 @@ class ServiceCommandDispatcher:
                 }
                 for job in jobs
             ]
+        }
+
+    def _metadata_channels_list(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        del payload
+
+        rows = self._context.persistence.connection.execute(
+            """
+            SELECT source, source_channel_id, display_name, callsign, logical_channel_number
+            FROM epg_channels
+            WHERE trim(display_name) != ''
+            ORDER BY display_name COLLATE NOCASE ASC
+            """
+        ).fetchall()
+
+        channels_by_name: dict[str, dict[str, object]] = {}
+        for row in rows:
+            display_name = str(row[2]).strip()
+            channel = {
+                "name": display_name,
+                "callsign": str(row[3]) if row[3] is not None else None,
+                "logicalChannelNumber": str(row[4]) if row[4] is not None else None,
+                "source": str(row[0]),
+                "sourceChannelId": str(row[1]),
+            }
+            key = display_name.casefold()
+            current = channels_by_name.get(key)
+            if current is None or source_priority(channel["source"]) < source_priority(
+                str(current["source"])
+            ):
+                channels_by_name[key] = channel
+
+        return {
+            "channels": sorted(
+                channels_by_name.values(),
+                key=lambda channel: (
+                    channel["logicalChannelNumber"] is None,
+                    channel["logicalChannelNumber"] or "",
+                    str(channel["name"]).casefold(),
+                ),
+            )
         }
 
     def _metadata_guide_list(self, payload: dict[str, object]) -> dict[str, object]:

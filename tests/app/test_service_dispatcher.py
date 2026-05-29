@@ -262,6 +262,55 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     assert programs[0]["startAtUtc"] == "2026-05-25T21:00:00Z"
 
 
+def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("schedules_direct", "100", "BBC TWO HD", "BBCTWO", "2"),
+            ("dvbstreamer_ota", "200", "BBC TWO HD", "BBC2", "2"),
+            ("schedules_direct", "300", "BBC FOUR", "BBC4", "9"),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.list",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["channels"] == [
+        {
+            "name": "BBC TWO HD",
+            "callsign": "BBC2",
+            "logicalChannelNumber": "2",
+            "source": "dvbstreamer_ota",
+            "sourceChannelId": "200",
+        },
+        {
+            "name": "BBC FOUR",
+            "callsign": "BBC4",
+            "logicalChannelNumber": "9",
+            "source": "schedules_direct",
+            "sourceChannelId": "300",
+        },
+    ]
+
+
 def test_dispatch_metadata_guide_list_validates_channel() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

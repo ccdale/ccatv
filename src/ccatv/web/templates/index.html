@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ccatv web</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f0e8;
+        --panel: rgba(255, 252, 247, 0.92);
+        --panel-strong: #fffaf3;
+        --ink: #1d1d1b;
+        --muted: #5f5a52;
+        --line: rgba(29, 29, 27, 0.12);
+        --accent: #0f766e;
+        --accent-soft: rgba(15, 118, 110, 0.12);
+        --warning: #92400e;
+        --warning-soft: rgba(146, 64, 14, 0.12);
+        --error: #b42318;
+        --error-soft: rgba(180, 35, 24, 0.08);
+        --shadow: 0 18px 50px rgba(57, 47, 34, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 28%),
+          radial-gradient(circle at top right, rgba(180, 35, 24, 0.1), transparent 24%),
+          linear-gradient(180deg, #f8f4ee 0%, var(--bg) 100%);
+      }
+      main { width: min(1260px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
+      .hero { padding: 1.5rem 1.75rem; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); }
+      h1, h2, h3, p { margin: 0; }
+      .hero h1 { font-size: clamp(2.1rem, 5vw, 4rem); line-height: 0.95; letter-spacing: -0.05em; text-transform: lowercase; }
+      .hero p { max-width: 62rem; margin-top: 0.75rem; color: var(--muted); font-size: 1.02rem; }
+      .auth-bar { margin-top: 1.25rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.75rem; }
+      input, button { font: inherit; }
+      input { min-width: 0; padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.82); }
+      button { padding: 0.85rem 1.2rem; border: 0; border-radius: 999px; background: var(--ink); color: white; cursor: pointer; transition: transform 120ms ease, opacity 120ms ease, background 120ms ease; }
+      button:hover { transform: translateY(-1px); }
+      button.secondary { background: rgba(29, 29, 27, 0.08); color: var(--ink); }
+      button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+      button:disabled { opacity: 0.55; cursor: default; transform: none; }
+      .status { margin-top: 1rem; padding: 0.9rem 1rem; border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.7); color: var(--muted); }
+      .status.warning { background: var(--warning-soft); color: var(--warning); }
+      .status.error { background: var(--error-soft); color: var(--error); }
+      .layout { margin-top: 1.5rem; display: grid; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(290px, 360px); gap: 1rem; align-items: start; }
+      .panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
+      .panel-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.5); }
+      .panel-header p { margin-top: 0.35rem; color: var(--muted); font-size: 0.95rem; }
+      .panel-body { padding: 1rem; }
+      .channel-list, .programme-list, .schedule-list { display: grid; gap: 0.75rem; }
+      .channel-button, .programme-card, .schedule-card { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel-strong); color: var(--ink); border-radius: 22px; }
+      .channel-button { padding: 0.95rem 1rem; }
+      .channel-button.active { background: var(--accent-soft); border-color: rgba(15, 118, 110, 0.35); }
+      .channel-meta, .programme-meta, .schedule-meta, .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
+      .programme-card, .schedule-card { display: grid; gap: 0.9rem; padding: 1rem; }
+      .programme-card h3, .schedule-card h3 { font-size: 1.16rem; }
+      .programme-body, .schedule-body { display: grid; gap: 0.55rem; }
+      .programme-actions, .schedule-actions { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+      .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.92rem; }
+      .pill.neutral { background: rgba(29, 29, 27, 0.08); color: var(--ink); }
+      .inline-message.error { color: var(--error); }
+      @media (max-width: 1080px) {
+        .layout { grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); }
+        .schedule-panel { grid-column: 1 / -1; }
+      }
+      @media (max-width: 820px) {
+        .auth-bar, .layout { grid-template-columns: 1fr; }
+        .programme-actions, .schedule-actions { align-items: flex-start; flex-direction: column; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>ccatv web</h1>
+        <p>Sign in with the web token, load channels, view today's programmes for one channel, and queue a recording while keeping scheduled jobs visible.</p>
+        <div class="auth-bar">
+          <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
+          <button id="login-button" type="button">Sign in</button>
+          <button id="logout-button" class="secondary" type="button">Sign out</button>
+        </div>
+        <div id="status" class="status">Checking session.</div>
+      </section>
+
+      <section class="layout">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Channels</h2>
+            <p>Pick a channel to load today's guide window.</p>
+          </div>
+          <div class="panel-body">
+            <div id="channel-list" class="channel-list">
+              <div class="empty">Sign in to load channels.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2 id="guide-title">Today's programmes</h2>
+            <p id="guide-subtitle">Choose a channel to fetch its schedule.</p>
+          </div>
+          <div class="panel-body">
+            <div id="programme-list" class="programme-list">
+              <div class="empty">No programme data loaded yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel schedule-panel">
+          <div class="panel-header">
+            <h2>Scheduled recordings</h2>
+            <p>Refreshes after every successful schedule request.</p>
+          </div>
+          <div class="panel-body">
+            <div class="schedule-actions">
+              <div class="schedule-meta">Jobs are listed in scheduler order.</div>
+              <button id="refresh-schedules-button" class="ghost" type="button">Refresh jobs</button>
+            </div>
+            <div id="schedule-list" class="schedule-list" style="margin-top: 0.75rem;">
+              <div class="empty">No jobs loaded yet.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const bootstrap = {{ {"authRequired": auth_required, "authenticated": authenticated}|tojson }};
+      const tokenInput = document.getElementById("token-input");
+      const loginButton = document.getElementById("login-button");
+      const logoutButton = document.getElementById("logout-button");
+      const refreshSchedulesButton = document.getElementById("refresh-schedules-button");
+      const channelList = document.getElementById("channel-list");
+      const programmeList = document.getElementById("programme-list");
+      const scheduleList = document.getElementById("schedule-list");
+      const guideTitle = document.getElementById("guide-title");
+      const guideSubtitle = document.getElementById("guide-subtitle");
+      const statusNode = document.getElementById("status");
+
+      let isAuthenticated = Boolean(bootstrap.authenticated);
+      let channels = [];
+      let schedules = [];
+      let selectedChannel = null;
+      let currentProgrammes = [];
+      let schedulingMessages = new Map();
+
+      class ApiError extends Error {
+        constructor(message, code = null) {
+          super(message);
+          this.code = code;
+        }
+      }
+
+      function setStatus(message, level = "info") {
+        statusNode.textContent = message;
+        statusNode.className = "status" + (level === "info" ? "" : " " + level);
+      }
+
+      function setAuthUiState() {
+        tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
+        loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
+        logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
+        tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
+      }
+
+      function resetViews() {
+        channels = [];
+        schedules = [];
+        selectedChannel = null;
+        currentProgrammes = [];
+        schedulingMessages = new Map();
+        renderChannels();
+        renderSchedules();
+        renderProgrammes([]);
+        guideTitle.textContent = "Today's programmes";
+        guideSubtitle.textContent = "Choose a channel to fetch its schedule.";
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          ...options,
+        });
+        const body = await response.json().catch(() => ({ ok: false, error: { message: "invalid JSON response" } }));
+        if (!response.ok || body.ok === false) {
+          const code = body.error && body.error.code ? body.error.code : null;
+          const message = body.error && body.error.message ? body.error.message : `request failed with status ${response.status}`;
+          throw new ApiError(code ? `${message} (${code})` : message, code);
+        }
+        return body.payload;
+      }
+
+      function scheduleKey(channelName, startAtUtc) { return `${channelName}\u0000${startAtUtc}`; }
+
+      function findScheduledJob(programme) {
+        return schedules.find((job) => scheduleKey(job.channelName, job.startAtUtc) === scheduleKey(programme.channelName, programme.startAtUtc));
+      }
+
+      function formatTime(value) {
+        if (!value) return "unknown time";
+        return new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+      }
+
+      function formatDuration(durationSeconds) {
+        if (!durationSeconds) return "unknown duration";
+        const minutes = Math.round(durationSeconds / 60);
+        if (minutes < 60) return `${minutes} min`;
+        const hours = Math.floor(minutes / 60);
+        const remainder = minutes % 60;
+        return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+      }
+
+      function formatLongDateTime(value) {
+        if (!value) return "unknown time";
+        return new Intl.DateTimeFormat([], { weekday: "short", hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }).format(new Date(value));
+      }
+
+      function formatChannelMeta(channel) {
+        const parts = [];
+        if (channel.logicalChannelNumber) parts.push(`LCN ${channel.logicalChannelNumber}`);
+        if (channel.callsign) parts.push(channel.callsign);
+        parts.push(channel.source);
+        return parts.join(" | ");
+      }
+
+      function renderChannels() {
+        channelList.replaceChildren();
+        if (!isAuthenticated) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Sign in to load channels.";
+          channelList.append(empty);
+          return;
+        }
+        if (!channels.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No channels available.";
+          channelList.append(empty);
+          return;
+        }
+        for (const channel of channels) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "channel-button" + (selectedChannel && selectedChannel.name === channel.name ? " active" : "");
+          button.addEventListener("click", () => { void loadGuide(channel); });
+          const name = document.createElement("div");
+          name.textContent = channel.name;
+          const meta = document.createElement("div");
+          meta.className = "channel-meta";
+          meta.textContent = formatChannelMeta(channel);
+          button.append(name, meta);
+          channelList.append(button);
+        }
+      }
+
+      function renderSchedules() {
+        scheduleList.replaceChildren();
+        if (!isAuthenticated) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Sign in to view jobs.";
+          scheduleList.append(empty);
+          return;
+        }
+        if (!schedules.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No scheduled recordings found.";
+          scheduleList.append(empty);
+          return;
+        }
+        for (const job of schedules) {
+          const card = document.createElement("article");
+          card.className = "schedule-card";
+          const body = document.createElement("div");
+          body.className = "schedule-body";
+          const heading = document.createElement("h3");
+          heading.textContent = job.channelName;
+          const meta = document.createElement("div");
+          meta.className = "schedule-meta";
+          meta.textContent = `${formatLongDateTime(job.startAtUtc)} | ${formatDuration(job.durationSeconds)}`;
+          body.append(heading, meta);
+          const actions = document.createElement("div");
+          actions.className = "schedule-actions";
+          const pill = document.createElement("div");
+          pill.className = "pill";
+          pill.textContent = `${job.state} | job ${job.id}`;
+          actions.append(pill);
+          card.append(body, actions);
+          scheduleList.append(card);
+        }
+      }
+
+      function renderProgrammes(programmes) {
+        programmeList.replaceChildren();
+        if (!programmes.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = selectedChannel ? "No programmes found for today on this channel." : "No programme data loaded yet.";
+          programmeList.append(empty);
+          return;
+        }
+        for (const programme of programmes) {
+          const card = document.createElement("article");
+          card.className = "programme-card";
+          const body = document.createElement("div");
+          body.className = "programme-body";
+          const heading = document.createElement("h3");
+          heading.textContent = programme.title;
+          const meta = document.createElement("div");
+          meta.className = "programme-meta";
+          meta.textContent = `${formatTime(programme.startAtUtc)} to ${formatTime(programme.stopAtUtc)} | ${formatDuration(programme.durationSeconds)}`;
+          body.append(heading, meta);
+          if (programme.description) {
+            const description = document.createElement("p");
+            description.textContent = programme.description;
+            body.append(description);
+          }
+          const actions = document.createElement("div");
+          actions.className = "programme-actions";
+          const matchingJob = findScheduledJob(programme);
+          const pill = document.createElement("div");
+          pill.className = "pill" + (matchingJob ? "" : " neutral");
+          pill.textContent = matchingJob ? `Job ${matchingJob.id} | ${matchingJob.state}` : programme.channelName;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = matchingJob ? "Already scheduled" : "Record programme";
+          button.disabled = Boolean(matchingJob);
+          button.addEventListener("click", () => { void createRecording(programme, button); });
+          actions.append(pill, button);
+          card.append(body, actions);
+          const inline = schedulingMessages.get(scheduleKey(programme.channelName, programme.startAtUtc));
+          if (inline) {
+            const msg = document.createElement("div");
+            msg.className = `inline-message ${inline.level}`;
+            msg.textContent = inline.message;
+            card.append(msg);
+          }
+          programmeList.append(card);
+        }
+      }
+
+      function startOfTodayLocal() {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      }
+
+      async function loadChannels() {
+        const payload = await fetchJson("/api/channels");
+        channels = payload.channels || [];
+        renderChannels();
+      }
+
+      async function loadSchedules() {
+        const payload = await fetchJson("/api/schedules");
+        schedules = (payload.jobs || []).slice().sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
+        renderSchedules();
+      }
+
+      async function loadGuide(channel) {
+        selectedChannel = channel;
+        renderChannels();
+        guideTitle.textContent = channel.name;
+        guideSubtitle.textContent = "Loading today's programmes...";
+        const start = startOfTodayLocal();
+        const end = new Date(start.getTime());
+        end.setDate(end.getDate() + 1);
+        try {
+          const query = new URLSearchParams({
+            channel: channel.name,
+            startAtUtc: start.toISOString().replace(/\.\d{3}Z$/, "Z"),
+            windowHours: String((end.getTime() - start.getTime()) / 3600000),
+          });
+          const payload = await fetchJson(`/api/guide?${query.toString()}`);
+          currentProgrammes = payload.programs || [];
+          renderProgrammes(currentProgrammes);
+          guideSubtitle.textContent = `Showing ${currentProgrammes.length} programme(s) for today.`;
+          setStatus(`Loaded guide for ${channel.name}.`);
+        } catch (error) {
+          guideSubtitle.textContent = "Unable to load guide data.";
+          setStatus(error.message, "error");
+        }
+      }
+
+      async function createRecording(programme, button) {
+        button.disabled = true;
+        const key = scheduleKey(programme.channelName, programme.startAtUtc);
+        schedulingMessages.delete(key);
+        try {
+          const durationSeconds = programme.durationSeconds || Math.max(60, Math.round((new Date(programme.stopAtUtc) - new Date(programme.startAtUtc)) / 1000));
+          const payload = await fetchJson("/api/schedules", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelName: programme.channelName, startAtUtc: programme.startAtUtc, durationSeconds }),
+          });
+          schedulingMessages.set(key, { level: "info", message: `Scheduled as job ${payload.job.id}.` });
+          await loadSchedules();
+          renderProgrammes(currentProgrammes);
+          setStatus(`Scheduled ${programme.title} on ${programme.channelName} as job ${payload.job.id}.`);
+        } catch (error) {
+          schedulingMessages.set(key, { level: "error", message: error.message });
+          renderProgrammes(currentProgrammes);
+          setStatus(`Failed to schedule ${programme.title}: ${error.message}`, "error");
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      async function initializeAfterAuth() {
+        await Promise.all([loadChannels(), loadSchedules()]);
+        currentProgrammes = [];
+        renderProgrammes(currentProgrammes);
+        guideTitle.textContent = "Today's programmes";
+        guideSubtitle.textContent = "Choose a channel to fetch its schedule.";
+        setStatus(`Loaded ${channels.length} channels and ${schedules.length} job(s).`);
+      }
+
+      async function login() {
+        if (!bootstrap.authRequired) {
+          isAuthenticated = true;
+          await initializeAfterAuth();
+          return;
+        }
+        loginButton.disabled = true;
+        try {
+          await fetchJson("/auth/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: tokenInput.value.trim() }),
+          });
+          tokenInput.value = "";
+          isAuthenticated = true;
+          setAuthUiState();
+          await initializeAfterAuth();
+          setStatus("Signed in. Session cookie is now active.");
+        } catch (error) {
+          setStatus(error.message, "error");
+        } finally {
+          loginButton.disabled = false;
+        }
+      }
+
+      async function logout() {
+        try {
+          await fetchJson("/auth/session", { method: "DELETE" });
+        } catch (_ignored) {}
+        isAuthenticated = false;
+        setAuthUiState();
+        resetViews();
+        setStatus("Signed out.", "warning");
+      }
+
+      async function refreshSession() {
+        const payload = await fetchJson("/auth/session");
+        isAuthenticated = Boolean(payload.authenticated);
+        setAuthUiState();
+        if (isAuthenticated) {
+          tokenInput.value = "";
+          await initializeAfterAuth();
+        } else {
+          resetViews();
+          setStatus("Enter the web token to sign in.");
+        }
+      }
+
+      loginButton.addEventListener("click", () => { void login(); });
+      logoutButton.addEventListener("click", () => { void logout(); });
+      refreshSchedulesButton.addEventListener("click", () => {
+        if (!isAuthenticated) {
+          setStatus("Sign in to refresh jobs.", "warning");
+          return;
+        }
+        void loadSchedules()
+          .then(() => {
+            renderProgrammes(currentProgrammes);
+            setStatus(`Loaded ${schedules.length} job(s).`);
+          })
+          .catch((error) => setStatus(error.message, "error"));
+      });
+      tokenInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void login();
+        }
+      });
+
+      setAuthUiState();
+      void refreshSession().catch((error) => {
+        resetViews();
+        setStatus(error.message, "error");
+      });
+    </script>
+  </body>
+</html>

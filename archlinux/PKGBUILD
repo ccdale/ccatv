@@ -1,5 +1,5 @@
 pkgname=ccatv
-pkgver=0.1.201
+pkgver=0.1.202
 pkgrel=1
 pkgdesc="ccatv scheduler daemon and CLI tools"
 arch=(any)
