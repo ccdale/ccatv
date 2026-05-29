@@ -190,6 +190,62 @@ def test_dispatch_recording_list_returns_recordings() -> None:
     assert recordings[0]["channelName"] == "BBC TWO HD"
     assert recordings[0]["outputPath"] == "/tmp/bbc2.ts"
     assert recordings[0]["state"] == "capture_completed"
+    assert recordings[0]["programTitle"] == "bbc2"
+    assert recordings[0]["description"] is None
+    assert recordings[0]["fileSizeBytes"] is None
+
+
+def test_dispatch_recording_list_reads_nfo_title_and_description(
+    tmp_path: Path,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    output_path = tmp_path / "doctor_who.ts"
+    output_path.write_bytes(b"0" * 2048)
+    output_path.with_suffix(".nfo").write_text(
+        """
+        <movie>
+          <title>Doctor Who</title>
+          <plot>The Doctor investigates a temporal anomaly.</plot>
+        </movie>
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO recordings(
+            channel_name,
+            output_path,
+            state,
+            started_at_utc,
+            ended_at_utc
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        (
+            "BBC ONE HD",
+            str(output_path),
+            "capture_completed",
+            "2026-05-25T20:00:00Z",
+            "2026-05-25T21:00:00Z",
+        ),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.list",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    recording = response["payload"]["recordings"][0]
+    assert recording["programTitle"] == "Doctor Who"
+    assert recording["description"] == "The Doctor investigates a temporal anomaly."
+    assert recording["fileSizeBytes"] == 2048
 
 def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
     context = _build_context()

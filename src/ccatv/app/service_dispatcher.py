@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from queue import Queue
 from threading import Lock, Thread
+import xml.etree.ElementTree as ET
 
 from ccatv import __app_name__, __version__
 from ccatv.app.bootstrap import AppContext
@@ -427,18 +428,68 @@ class ServiceCommandDispatcher:
         del payload
         recordings = self._context.persistence.list_recordings()
         return {
-            "recordings": [
-                {
-                    "id": recording.id,
-                    "channelName": recording.channel_name,
-                    "outputPath": recording.output_path,
-                    "state": recording.state,
-                    "startedAtUtc": recording.started_at_utc,
-                    "endedAtUtc": recording.ended_at_utc,
-                }
-                for recording in recordings
-            ]
+            "recordings": [self._recording_summary_payload(recording) for recording in recordings]
         }
+
+    def _recording_summary_payload(self, recording) -> dict[str, object]:
+        nfo_metadata = self._read_recording_nfo(recording.output_path)
+        return {
+            "id": recording.id,
+            "channelName": recording.channel_name,
+            "outputPath": recording.output_path,
+            "state": recording.state,
+            "startedAtUtc": recording.started_at_utc,
+            "endedAtUtc": recording.ended_at_utc,
+            "programTitle": nfo_metadata["programTitle"]
+            or Path(recording.output_path).stem
+            or "Untitled recording",
+            "description": nfo_metadata["description"],
+            "fileSizeBytes": self._recording_file_size(recording.output_path),
+        }
+
+    def _recording_file_size(self, output_path: str) -> int | None:
+        path = Path(output_path)
+        try:
+            if not path.is_file():
+                return None
+            return path.stat().st_size
+        except OSError:
+            return None
+
+    def _read_recording_nfo(self, output_path: str) -> dict[str, str | None]:
+        nfo_path = Path(output_path).with_suffix(".nfo")
+        try:
+            if not nfo_path.is_file():
+                return {"programTitle": None, "description": None}
+            root = ET.parse(nfo_path).getroot()
+        except (ET.ParseError, OSError):
+            return {"programTitle": None, "description": None}
+
+        return {
+            "programTitle": self._first_xml_text(
+                root,
+                "title",
+                "showtitle",
+                "programmeTitle",
+                "programTitle",
+            ),
+            "description": self._first_xml_text(
+                root,
+                "plot",
+                "description",
+                "outline",
+            ),
+        }
+
+    def _first_xml_text(self, root: ET.Element, *tags: str) -> str | None:
+        for tag in tags:
+            node = root.find(f".//{tag}")
+            if node is None or node.text is None:
+                continue
+            value = node.text.strip()
+            if value:
+                return value
+        return None
 
     def _recording_schedule_create(
         self, payload: dict[str, object]
