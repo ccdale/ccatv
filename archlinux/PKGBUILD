@@ -1,12 +1,12 @@
 pkgname=ccatv
-pkgver=0.1.199
+pkgver=0.1.200
 pkgrel=1
 pkgdesc="ccatv scheduler daemon and CLI tools"
 arch=(any)
 url="https://github.com/ccdale/ccatv"
 license=(GPL3)
 depends=(python systemd)
-makedepends=(python-build python-hatchling python-wheel uv)
+makedepends=(python-build python-installer python-hatchling python-wheel uv)
 source=()
 sha256sums=()
 
@@ -18,7 +18,7 @@ build() {
 
 package() {
 	cd "$startdir/.."
-	uv run --with installer python -m installer --destdir="$pkgdir" --prefix=/usr/local dist/*.whl
+	python -m installer --destdir="$pkgdir" --prefix=/usr/local dist/*.whl
 
 	install -Dm644 systemd/ccatv.service "$pkgdir/usr/lib/systemd/user/ccatv.service"
 	install -Dm644 systemd/ccatv-api.service "$pkgdir/usr/lib/systemd/user/ccatv-api.service"
