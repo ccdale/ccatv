@@ -593,3 +593,41 @@ def test_main_channel_map_returns_error_on_service_failure() -> None:
     assert exit_code == 2
     assert "channel-map failed: no EPG channel found" in stderr.getvalue()
     assert stub_client.closed is True
+
+
+def test_main_channel_map_clears_mapping_when_service_name_omitted() -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.closed = False
+            self.executed: list[tuple[str, dict[str, object]]] = []
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {"channelName": "Quest", "updatedRows": 1}
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["channel-map", "Quest"], deps=deps)
+
+    assert exit_code == 0
+    assert stub_client.closed is True
+    assert stub_client.executed == [
+        (
+            "metadata.channels.service-name.set",
+            {"channelName": "Quest", "serviceName": None},
+        )
+    ]
+    assert "Cleared dvbstreamer service name for 'Quest'" in stdout.getvalue()
+    assert stderr.getvalue() == ""

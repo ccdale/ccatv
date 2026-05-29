@@ -366,6 +366,41 @@ def test_dispatch_metadata_channels_service_name_set_returns_not_found() -> None
     assert response["error"]["code"] == "NOT_FOUND"
 
 
+def test_dispatch_metadata_channels_service_name_set_clears_mapping() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number,
+            dvbstreamer_service_name
+        ) VALUES(?, ?, ?, ?, ?, ?)
+        """,
+        ("schedules_direct", "101", "BBC One East", "BBC1E", "1", "BBC ONE East"),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.service-name.set",
+            "payload": {
+                "channelName": "BBC One East",
+                "serviceName": None,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"] == {"channelName": "BBC One East", "updatedRows": 1}
+    assert context.persistence.get_dvbstreamer_service_name("BBC One East") is None
+
+
 def test_dispatch_metadata_guide_list_validates_channel() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
