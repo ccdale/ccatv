@@ -284,11 +284,12 @@
           favoriteButton.setAttribute("aria-label", channel.favoriteChannel ? `Remove ${channel.name} from favourites` : `Add ${channel.name} to favourites`);
           favoriteButton.textContent = channel.favoriteChannel ? "★" : "☆";
           favoriteButton.addEventListener("click", async () => {
+            const nextFavorite = !channel.favoriteChannel;
             favoriteButton.disabled = true;
             try {
-              await saveFavoriteChannel(channel, !channel.favoriteChannel);
+              await saveFavoriteChannel(channel, nextFavorite);
               await loadChannels();
-              setStatus(`${channel.name} favourite ${!channel.favoriteChannel ? "enabled" : "cleared"}.`);
+              setStatus(`${channel.name} favourite ${nextFavorite ? "enabled" : "cleared"}.`);
             } catch (error) {
               setStatus(error.message, "error");
             } finally {
