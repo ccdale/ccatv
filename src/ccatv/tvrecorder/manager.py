@@ -34,7 +34,7 @@ class DvbStreamerConfig:
     adapter_index: int = 0
     bind_address: str = "127.0.0.1"
     executable_path: str = "dvbstreamer"
-    extra_args: tuple[str, ...] = ()
+    extra_args: tuple[str, ...] = ("-D", "-d")
     output_mrl: str = "null://"
 
 
@@ -75,14 +75,14 @@ class DvbStreamerManager:
         self._state = DvbStreamerState.STARTING
         args = [
             self.config.executable_path,
+            *self.config.extra_args,
             "-a",
             str(self.config.adapter_index),
-            "-i",
-            self.config.bind_address,
-            "-o",
-            self.config.output_mrl,
-            *self.config.extra_args,
         ]
+        if self.config.bind_address.strip():
+            args.extend(["-i", self.config.bind_address])
+        if self.config.output_mrl.strip():
+            args.extend(["-o", self.config.output_mrl])
 
         try:
             process = subprocess.Popen(

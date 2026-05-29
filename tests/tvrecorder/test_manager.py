@@ -72,6 +72,35 @@ def test_start_sets_running_state(monkeypatch: pytest.MonkeyPatch) -> None:
     assert status.pid == 1234
 
 
+def test_start_uses_daemon_debug_flags_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(poll_value=None)
+    captured: dict[str, object] = {}
+
+    def _popen(*args, **kwargs):
+        captured["args"] = args[0]
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig(adapter_index=0))
+    status = manager.start()
+
+    assert status.state == DvbStreamerState.RUNNING
+    assert captured["args"] == [
+        "dvbstreamer",
+        "-D",
+        "-d",
+        "-a",
+        "0",
+        "-i",
+        "127.0.0.1",
+        "-o",
+        "null://",
+    ]
+
+
 def test_start_raises_when_executable_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     def _popen(*args, **kwargs):
         raise FileNotFoundError("missing")
