@@ -3,6 +3,7 @@
 set -e
 
 cd /home/chris/src/ccatv
+uv sync
 # remove earlier builds
 rm -rf dist .pkgroot
 uv build
@@ -11,7 +12,7 @@ mkdir -p .pkgroot/usr/lib/systemd/user
 cp systemd/ccatv.service .pkgroot/usr/lib/systemd/user/
 cp systemd/ccatv-api.service .pkgroot/usr/lib/systemd/user/
 cp systemd/ccatv-web.service .pkgroot/usr/lib/systemd/user/
-uv run python -m installer --destdir=.pkgroot --prefix=/usr/local dist/*.whl
+uv run --with installer python -m installer --destdir=.pkgroot --prefix=/usr/local dist/*.whl
 
 # Add a control file
 mkdir -p .pkgroot/DEBIAN
