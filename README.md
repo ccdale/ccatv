@@ -188,12 +188,23 @@ mkdir -p ~/.config/ccatv
 cat > ~/.config/ccatv/web.env <<'EOF'
 CCATV_SERVICE_AUTH_TOKEN=YOUR_SERVICE_TOKEN
 CCATV_WEB_AUTH_TOKEN=YOUR_WEB_TOKEN
+
+# Optional topology overrides (defaults shown)
+CCATV_API_BIND_HOST=127.0.0.1
+CCATV_API_PORT=8787
+CCATV_WEB_LISTEN_HOST=0.0.0.0
+CCATV_WEB_LISTEN_PORT=5000
+CCATV_WEB_SERVICE_HOST=127.0.0.1
+CCATV_WEB_SERVICE_PORT=8787
 EOF
 chmod 600 ~/.config/ccatv/web.env
 systemctl --user daemon-reload
 systemctl --user enable --now ccatv-api.service
 systemctl --user status ccatv-api.service
 ```
+
+If `ccatv-web` runs on a different host than recorder API, set `CCATV_WEB_SERVICE_HOST`
+and `CCATV_WEB_SERVICE_PORT` in `web.env` to the recorder API endpoint.
 
 ### 5. Run ccatv-service HTTP transport manually (alternative)
 

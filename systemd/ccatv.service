@@ -11,6 +11,8 @@ RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
+ReadWritePaths=%h/.local/share/ccatv
+ReadWritePaths=%h/.config/ccatv
 
 [Install]
 WantedBy=default.target

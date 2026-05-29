@@ -5,13 +5,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=CCATV_API_BIND_HOST=127.0.0.1
+Environment=CCATV_API_PORT=8787
 EnvironmentFile=%h/.config/ccatv/web.env
-ExecStart=/usr/local/bin/ccatv-service --http-bind-host 127.0.0.1 --http-port 8787 --http-auth-token ${CCATV_SERVICE_AUTH_TOKEN}
+ExecStart=/usr/local/bin/ccatv-service --http-bind-host ${CCATV_API_BIND_HOST} --http-port ${CCATV_API_PORT} --http-auth-token ${CCATV_SERVICE_AUTH_TOKEN}
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
+ReadWritePaths=%h/.local/share/ccatv
+ReadWritePaths=%h/.config/ccatv
 
 [Install]
 WantedBy=default.target

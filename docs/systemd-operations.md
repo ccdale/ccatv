@@ -34,12 +34,12 @@ The units ship at:
 `ccatv-web.service` requires:
 
 - the `ccatv-web` console script at `/usr/local/bin/ccatv-web`
-- an environment file at `~/.config/ccatv/web.env` containing web/service tokens
+- the shared environment file at `~/.config/ccatv/web.env`
 
 `ccatv-api.service` requires:
 
 - the `ccatv-service` console script at `/usr/local/bin/ccatv-service`
-- an environment file at `~/.config/ccatv/web.env` containing `CCATV_SERVICE_AUTH_TOKEN`
+- the shared environment file at `~/.config/ccatv/web.env`
 
 ### Manual installation (no package manager)
 
@@ -60,9 +60,19 @@ mkdir -p ~/.config/ccatv
 cat > ~/.config/ccatv/web.env <<'EOF'
 CCATV_SERVICE_AUTH_TOKEN=replace-with-service-token
 CCATV_WEB_AUTH_TOKEN=replace-with-web-token
+
+# Optional topology overrides (defaults shown)
+CCATV_API_BIND_HOST=127.0.0.1
+CCATV_API_PORT=8787
+CCATV_WEB_LISTEN_HOST=0.0.0.0
+CCATV_WEB_LISTEN_PORT=5000
+CCATV_WEB_SERVICE_HOST=127.0.0.1
+CCATV_WEB_SERVICE_PORT=8787
 EOF
 chmod 600 ~/.config/ccatv/web.env
 ```
+
+All three user services share this same `web.env` file.
 
 ### Package-based installation
 
@@ -163,6 +173,8 @@ The supplied unit uses conservative hardening and restart defaults:
 - `NoNewPrivileges=yes`
 - `PrivateTmp=yes`
 - `ProtectSystem=full`
+- `ReadWritePaths=%h/.local/share/ccatv`
+- `ReadWritePaths=%h/.config/ccatv`
 
 Recommended adjustments only if operational evidence requires them:
 
@@ -193,3 +205,9 @@ When recorder and Flask run on the same host:
 - run `ccatv-api.service` so `ccatv-service` HTTP transport is always available on `127.0.0.1:8787`
 - run `ccatv-web` on `0.0.0.0:5000` if LAN clients need access
 - keep `CCATV_WEB_AUTH_TOKEN` set so `/api/*` routes require bearer auth
+
+When recorder API and Flask are on different hosts:
+
+- set `CCATV_WEB_SERVICE_HOST` in `web.env` to the recorder host/IP
+- set `CCATV_WEB_SERVICE_PORT` in `web.env` to the recorder API port
+- keep `CCATV_SERVICE_AUTH_TOKEN` the same token expected by the recorder API

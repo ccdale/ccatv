@@ -6,8 +6,12 @@ Wants=network-online.target ccatv-api.service
 
 [Service]
 Type=simple
+Environment=CCATV_WEB_LISTEN_HOST=0.0.0.0
+Environment=CCATV_WEB_LISTEN_PORT=5000
+Environment=CCATV_WEB_SERVICE_HOST=127.0.0.1
+Environment=CCATV_WEB_SERVICE_PORT=8787
 EnvironmentFile=%h/.config/ccatv/web.env
-ExecStart=/usr/local/bin/ccatv-web --listen-host 0.0.0.0 --listen-port 5000 --service-host 127.0.0.1 --service-port 8787
+ExecStart=/usr/local/bin/ccatv-web --listen-host ${CCATV_WEB_LISTEN_HOST} --listen-port ${CCATV_WEB_LISTEN_PORT} --service-host ${CCATV_WEB_SERVICE_HOST} --service-port ${CCATV_WEB_SERVICE_PORT}
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes

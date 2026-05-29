@@ -100,9 +100,16 @@ systemctl --user enable --now ccatv-web.service
 Regardless of package format:
 
 1. run `ccatv setup` to populate `~/.config/ccatv/runtime.json` and `~/.config/dvbstreamer/userconfig.json`
-2. confirm the service starts and stays healthy with `systemctl --user status ccatv.service`
-3. inspect logs with `journalctl --user-unit ccatv.service`
-4. optionally run `loginctl enable-linger $USER` so the service persists across logouts
+2. create `~/.config/ccatv/web.env` containing:
+	- `CCATV_SERVICE_AUTH_TOKEN=...`
+	- `CCATV_WEB_AUTH_TOKEN=...` (recommended for LAN-exposed web API)
+3. enable services as needed:
+	- scheduler loop: `systemctl --user enable --now ccatv.service`
+	- local HTTP API transport: `systemctl --user enable --now ccatv-api.service`
+	- Flask frontend: `systemctl --user enable --now ccatv-web.service`
+4. confirm status with `systemctl --user status ccatv.service ccatv-api.service ccatv-web.service`
+5. inspect logs with `journalctl --user-unit ccatv.service` and `journalctl --user-unit ccatv-api.service` and `journalctl --user-unit ccatv-web.service`
+6. optionally run `loginctl enable-linger $USER` so user services persist across logouts
 
 ## Current limitation
 
