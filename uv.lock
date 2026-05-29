@@ -13,7 +13,7 @@ wheels = [
 
 [[package]]
 name = "ccatv"
-version = "0.1.195"
+version = "0.1.196"
 source = { editable = "." }
 dependencies = [
     { name = "flask" },

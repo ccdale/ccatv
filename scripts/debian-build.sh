@@ -41,8 +41,8 @@ CCATV_CONFIG_DIR="${HOME}/.config/ccatv"
 CCATV_WEB_ENV="${CCATV_CONFIG_DIR}/web.env"
 mkdir -p "${CCATV_CONFIG_DIR}"
 
-CCATV_SERVICE_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
-CCATV_WEB_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
+CCATV_SERVICE_TOKEN=$(uv run python -c 'import secrets; print(secrets.token_urlsafe(48))')
+CCATV_WEB_TOKEN=$(uv run python -c 'import secrets; print(secrets.token_urlsafe(48))')
 
 cat > "${CCATV_WEB_ENV}" <<EOF
 CCATV_SERVICE_AUTH_TOKEN=${CCATV_SERVICE_TOKEN}
