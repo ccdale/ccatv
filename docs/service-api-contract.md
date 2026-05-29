@@ -203,7 +203,8 @@ Payload:
 Notes:
 - `channel` is required.
 - `startAtUtc` is optional; when omitted, current UTC time is used.
-- `windowHours` is optional and must be greater than 0.
+- `windowHours` is optional, defaults to `6`, and must be greater than 0.
+- In each `programs` entry, `callsign`, `logicalChannelNumber`, `stopAtUtc`, and `description` may be `null` when upstream source data does not provide values.
 
 Response payload:
 
