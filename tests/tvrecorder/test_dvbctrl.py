@@ -153,6 +153,40 @@ def test_run_command_retries_transient_command_error_then_succeeds(
     assert sleep_calls == [0.01]
 
 
+def test_run_command_retries_failed_to_connect_message_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = DvbCtrlClient(transient_retry_count=2, transient_retry_delay_seconds=0.01)
+    calls = {"count": 0}
+
+    def _run(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return subprocess.CompletedProcess(
+                args=args[0],
+                returncode=1,
+                stdout="",
+                stderr="Failed to connect to host localhost port 54197",
+            )
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="ok\n",
+            stderr="",
+        )
+
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    monkeypatch.setattr(time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    result = client.run_command("current")
+
+    assert result.returncode == 0
+    assert calls["count"] == 2
+    assert sleep_calls == [0.01]
+
+
 def test_run_command_transient_error_exhausts_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -103,6 +103,7 @@ class DvbCtrlClient:
 def _is_transient_command_failure(stderr: str) -> bool:
     message = stderr.lower()
     transient_markers = (
+        "failed to connect to host",
         "connection refused",
         "connection reset",
         "connection timed out",

@@ -613,6 +613,30 @@ def run_service_daemon(
             getattr(status, "pid", None),
         )
 
+    dvbctrl = getattr(context, "dvbctrl", None)
+    if dvbctrl is not None:
+        ready_deadline = time.time() + 5.0
+        ready_error: str | None = None
+        while True:
+            try:
+                dvbctrl.run_command("stats")
+            except Exception as exc:
+                ready_error = str(exc)
+                if time.time() >= ready_deadline:
+                    logger.error(
+                        "service daemon dvbstreamer readiness probe failed: %s",
+                        ready_error,
+                    )
+                    return 1
+                time.sleep(0.25)
+                continue
+            logger.info(
+                "dvbstreamer control endpoint ready (host=%s, adapter=%s)",
+                getattr(dvbctrl, "host", None),
+                getattr(dvbctrl, "adapter_index", None),
+            )
+            break
+
     if run_once:
         try:
             if worker_cycle_lock is None:
