@@ -111,7 +111,7 @@ Response payload:
 ```json
 {
   "appName": "ccatv",
-  "appVersion": "0.1.122",
+  "appVersion": "0.1.x",
   "apiVersion": "v1alpha1",
   "capabilities": [
     "service.health",
