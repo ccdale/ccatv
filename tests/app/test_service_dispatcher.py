@@ -152,6 +152,44 @@ def test_dispatch_recording_schedule_list_filters_state() -> None:
     assert jobs[0]["channelName"] == "BBC TWO HD"
     assert jobs[0]["state"] == "scheduled"
 
+def test_dispatch_recording_list_returns_recordings() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO recordings(
+            channel_name,
+            output_path,
+            state,
+            started_at_utc,
+            ended_at_utc
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        (
+            "BBC TWO HD",
+            "/tmp/bbc2.ts",
+            "capture_completed",
+            "2026-05-25T20:00:00Z",
+            "2026-05-25T21:00:00Z",
+        ),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.list",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    recordings = response["payload"]["recordings"]
+    assert len(recordings) == 1
+    assert recordings[0]["channelName"] == "BBC TWO HD"
+    assert recordings[0]["outputPath"] == "/tmp/bbc2.ts"
+    assert recordings[0]["state"] == "capture_completed"
 
 def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
     context = _build_context()

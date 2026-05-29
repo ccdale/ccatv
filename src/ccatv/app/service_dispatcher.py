@@ -41,6 +41,7 @@ API_VERSION = "v1alpha1"
 SERVICE_CAPABILITIES = [
     "service.health",
     "service.info",
+    "recording",
     "recording.schedule",
     "recording.worker.cycle",
     "metadata.channels",
@@ -52,6 +53,7 @@ SERVICE_CAPABILITIES = [
 SERVICE_COMMANDS = [
     "service.health.get",
     "service.info.get",
+    "recording.list",
     "recording.schedule.create",
     "recording.schedule.list",
     "recording.worker.cycle.run",
@@ -161,6 +163,8 @@ class ServiceCommandDispatcher:
             return self._service_health_get()
         if command == "service.info.get":
             return self._service_info_get()
+        if command == "recording.list":
+            return self._recording_list(payload)
         if command == "recording.schedule.create":
             return self._recording_schedule_create(payload)
         if command == "recording.schedule.list":
@@ -416,6 +420,23 @@ class ServiceCommandDispatcher:
                     "error": result.error,
                 }
                 for result in results
+            ]
+        }
+
+    def _recording_list(self, payload: dict[str, object]) -> dict[str, object]:
+        del payload
+        recordings = self._context.persistence.list_recordings()
+        return {
+            "recordings": [
+                {
+                    "id": recording.id,
+                    "channelName": recording.channel_name,
+                    "outputPath": recording.output_path,
+                    "state": recording.state,
+                    "startedAtUtc": recording.started_at_utc,
+                    "endedAtUtc": recording.ended_at_utc,
+                }
+                for recording in recordings
             ]
         }
 

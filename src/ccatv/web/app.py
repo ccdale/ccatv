@@ -104,6 +104,14 @@ def create_app(
             authenticated=web_auth_token is None or _session_authenticated(),
         )
 
+    @app.get("/recordings")
+    def recordings_page():
+        return render_template(
+            "recordings.html",
+            auth_required=web_auth_token is not None,
+            authenticated=web_auth_token is None or _session_authenticated(),
+        )
+
     @app.get("/auth/session")
     def auth_session_status():
         return jsonify(
@@ -296,6 +304,15 @@ def create_app(
             _client_factory,
             "recording.schedule.list",
             payload,
+        )
+        return jsonify(response), status_code
+
+    @app.get("/api/recordings")
+    def api_recordings_list():
+        response, status_code = _with_client(
+            _client_factory,
+            "recording.list",
+            {},
         )
         return jsonify(response), status_code
 

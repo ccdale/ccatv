@@ -55,6 +55,19 @@ class _StubServiceClient:
             }
         if command == "recording.schedule.list":
             return {"jobs": []}
+        if command == "recording.list":
+            return {
+                "recordings": [
+                    {
+                        "id": 1,
+                        "channelName": "BBC TWO HD",
+                        "outputPath": "/tmp/bbc2.ts",
+                        "state": "capture_completed",
+                        "startedAtUtc": "2026-05-25T20:00:00Z",
+                        "endedAtUtc": "2026-05-25T21:00:00Z",
+                    }
+                ]
+            }
         if command == "recording.schedule.create":
             return {"job": {"id": 1, "state": "scheduled"}}
         if command == "metadata.guide.list":
@@ -117,6 +130,8 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "Scheduled recordings" in body
     assert "Channel Manager" in body
     assert 'href="/channel-manager"' in body
+    assert "View Recordings" in body
+    assert 'href="/recordings"' in body
     assert stub.calls == []
 
 
@@ -141,6 +156,30 @@ def test_channel_manager_route_serves_browser_ui(monkeypatch) -> None:
     body = response.get_data(as_text=True)
     assert "Channel Manager" in body
     assert "Probable dvbstreamer Service" in body
+    assert stub.calls == []
+
+
+def test_recordings_page_serves_browser_ui(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get("/recordings")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Recordings" in body
+    assert "Back to Guide" in body
     assert stub.calls == []
 
 
@@ -285,6 +324,28 @@ def test_dvbservices_list_route_forwards_command(monkeypatch) -> None:
     assert response.get_json()["ok"] is True
     assert response.get_json()["payload"]["available"] is True
     assert stub.calls == [("metadata.channels.dvbservices.list", {})]
+
+
+def test_recordings_list_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/recordings")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert response.get_json()["payload"]["recordings"][0]["channelName"] == "BBC TWO HD"
+    assert stub.calls == [("recording.list", {})]
 
 
 def test_channel_mapping_route_forwards_payload(monkeypatch) -> None:

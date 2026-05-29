@@ -87,6 +87,7 @@
         <p>Sign in with the web token, load channels, view today's programmes for one channel, and queue a recording while keeping scheduled jobs visible.</p>
         <div class="hero-links">
           <a href="/channel-manager">Open Channel Manager</a>
+          <a href="/recordings">View Recordings</a>
         </div>
         <div class="auth-bar">
           <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
@@ -128,7 +129,7 @@
           </div>
           <div class="panel-body">
             <div class="schedule-actions">
-              <div class="schedule-meta">Jobs are listed in scheduler order.</div>
+              <div class="schedule-meta">Jobs are listed in scheduler order. Past jobs are hidden on refresh.</div>
               <button id="refresh-schedules-button" class="ghost" type="button">Refresh jobs</button>
             </div>
             <div id="schedule-list" class="schedule-list" style="margin-top: 0.75rem;">
@@ -228,6 +229,14 @@
       function formatLongDateTime(value) {
         if (!value) return "unknown time";
         return new Intl.DateTimeFormat([], { weekday: "short", hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }).format(new Date(value));
+      }
+
+      function isUpcomingSchedule(job) {
+        const startedAt = new Date(job.startAtUtc);
+        if (Number.isNaN(startedAt.getTime())) {
+          return true;
+        }
+        return startedAt.getTime() >= Date.now();
       }
 
       function formatChannelMeta(channel) {
@@ -402,7 +411,10 @@
 
       async function loadSchedules() {
         const payload = await fetchJson("/api/schedules");
-        schedules = (payload.jobs || []).slice().sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
+        schedules = (payload.jobs || [])
+          .filter(isUpcomingSchedule)
+          .slice()
+          .sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
         renderSchedules();
       }
 

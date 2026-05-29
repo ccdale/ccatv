@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ccatv recordings</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f4ef;
+        --panel: rgba(255, 253, 249, 0.95);
+        --ink: #1f2937;
+        --muted: #5b6472;
+        --line: rgba(31, 41, 55, 0.12);
+        --accent: #8b5cf6;
+        --accent-soft: rgba(139, 92, 246, 0.12);
+        --shadow: 0 18px 44px rgba(92, 64, 20, 0.10);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(139, 92, 246, 0.16), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.10), transparent 28%),
+          var(--bg);
+      }
+      main { width: min(1280px, calc(100vw - 2rem)); margin: 0 auto; padding: 1.5rem 0 2.5rem; }
+      .hero { padding: 1.3rem 1.45rem; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); box-shadow: var(--shadow); }
+      h1, h2, p { margin: 0; }
+      h1 { font-size: clamp(1.9rem, 4vw, 3rem); letter-spacing: -0.03em; }
+      .subtitle { margin-top: 0.45rem; color: var(--muted); }
+      .hero-links { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+      .hero-links a { color: var(--accent); text-decoration: none; font-weight: 700; }
+      .auth-bar { margin-top: 1.15rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.75rem; }
+      input, button { font: inherit; }
+      input { min-width: 0; padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,0.86); }
+      button { padding: 0.85rem 1.15rem; border: 0; border-radius: 999px; background: var(--ink); color: white; cursor: pointer; }
+      button.secondary { background: rgba(31, 41, 55, 0.08); color: var(--ink); border: 1px solid var(--line); }
+      button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+      button:disabled { opacity: 0.55; cursor: default; }
+      .status { margin-top: 1rem; padding: 0.9rem 1rem; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,0.72); color: var(--muted); }
+      .status.error { color: #b91c1c; background: rgba(185, 28, 28, 0.08); }
+      .toolbar { margin-top: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+      .toolbar a { color: var(--ink); text-decoration: none; border-bottom: 1px dashed #94a3b8; }
+      .table-wrap { margin-top: 0.9rem; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); overflow: auto; }
+      table { width: 100%; border-collapse: collapse; min-width: 1020px; }
+      th, td { padding: 0.8rem 0.75rem; border-bottom: 1px solid rgba(31, 41, 55, 0.08); text-align: left; vertical-align: top; }
+      th { position: sticky; top: 0; background: #faf7ff; font-size: 0.93rem; }
+      td small { display: block; margin-top: 0.2rem; color: var(--muted); }
+      .pill { display: inline-flex; align-items: center; padding: 0.32rem 0.55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.9rem; }
+      .empty { padding: 1.4rem; color: var(--muted); }
+      @media (max-width: 760px) {
+        main { width: calc(100vw - 1rem); }
+        .auth-bar { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Recordings</h1>
+        <p class="subtitle">A history of recordings and post-capture items currently known to ccatv.</p>
+        <div class="hero-links">
+          <a href="/">Back to Guide</a>
+          <a href="/channel-manager">Open Channel Manager</a>
+        </div>
+        <div class="auth-bar">
+          <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
+          <button id="login-button" type="button">Sign in</button>
+          <button id="logout-button" class="secondary" type="button">Sign out</button>
+        </div>
+        <div id="status" class="status">Checking session.</div>
+      </section>
+
+      <div class="toolbar">
+        <div class="subtitle">Refresh to reload the recording history from the backend.</div>
+        <button id="refresh-button" class="ghost" type="button">Refresh recordings</button>
+      </div>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%;">Channel</th>
+              <th style="width: 16%;">State</th>
+              <th style="width: 18%;">Started</th>
+              <th style="width: 18%;">Ended</th>
+              <th style="width: 26%;">Output Path</th>
+            </tr>
+          </thead>
+          <tbody id="recording-table-body">
+            <tr><td class="empty" colspan="5">Sign in to load recordings.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const bootstrap = {{ {"authRequired": auth_required, "authenticated": authenticated}|tojson }};
+      const tokenInput = document.getElementById("token-input");
+      const loginButton = document.getElementById("login-button");
+      const logoutButton = document.getElementById("logout-button");
+      const refreshButton = document.getElementById("refresh-button");
+      const statusNode = document.getElementById("status");
+      const recordingTableBody = document.getElementById("recording-table-body");
+
+      let isAuthenticated = Boolean(bootstrap.authenticated);
+      let recordings = [];
+
+      class ApiError extends Error {
+        constructor(message, code = null) {
+          super(message);
+          this.code = code;
+        }
+      }
+
+      function setStatus(message, level = "info") {
+        statusNode.textContent = message;
+        statusNode.className = "status" + (level === "info" ? "" : " " + level);
+      }
+
+      function setAuthUiState() {
+        tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
+        loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
+        logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
+        tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          ...options,
+        });
+        const body = await response.json().catch(() => ({ ok: false, error: { message: "invalid JSON response" } }));
+        if (!response.ok || body.ok === false) {
+          const code = body.error && body.error.code ? body.error.code : null;
+          const message = body.error && body.error.message ? body.error.message : `request failed with status ${response.status}`;
+          throw new ApiError(code ? `${message} (${code})` : message, code);
+        }
+        return body.payload;
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "-";
+        return new Intl.DateTimeFormat([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+      }
+
+      function renderRecordings() {
+        recordingTableBody.replaceChildren();
+        if (!isAuthenticated) {
+          recordingTableBody.innerHTML = '<tr><td class="empty" colspan="5">Sign in to load recordings.</td></tr>';
+          return;
+        }
+        if (!recordings.length) {
+          recordingTableBody.innerHTML = '<tr><td class="empty" colspan="5">No recordings found.</td></tr>';
+          return;
+        }
+
+        for (const recording of recordings) {
+          const row = document.createElement("tr");
+          const channelCell = document.createElement("td");
+          channelCell.innerHTML = `<strong>${recording.channelName}</strong><small>ID ${recording.id}</small>`;
+
+          const stateCell = document.createElement("td");
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = recording.state;
+          stateCell.append(pill);
+
+          const startedCell = document.createElement("td");
+          startedCell.textContent = formatDateTime(recording.startedAtUtc);
+          const endedCell = document.createElement("td");
+          endedCell.textContent = formatDateTime(recording.endedAtUtc);
+          const pathCell = document.createElement("td");
+          pathCell.textContent = recording.outputPath;
+
+          row.append(channelCell, stateCell, startedCell, endedCell, pathCell);
+          recordingTableBody.append(row);
+        }
+      }
+
+      async function loadRecordings() {
+        const payload = await fetchJson("/api/recordings");
+        recordings = payload.recordings || [];
+        renderRecordings();
+      }
+
+      async function refreshSession() {
+        const payload = await fetchJson("/auth/session");
+        isAuthenticated = Boolean(payload.authenticated);
+        setAuthUiState();
+        if (isAuthenticated) {
+          tokenInput.value = "";
+          await loadRecordings();
+          setStatus(`Loaded ${recordings.length} recording(s).`);
+        } else {
+          recordings = [];
+          renderRecordings();
+          setStatus("Enter the web token to sign in.");
+        }
+      }
+
+      async function login() {
+        if (!bootstrap.authRequired) {
+          isAuthenticated = true;
+          await loadRecordings();
+          renderRecordings();
+          setStatus(`Loaded ${recordings.length} recording(s).`);
+          return;
+        }
+        loginButton.disabled = true;
+        try {
+          await fetchJson("/auth/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: tokenInput.value.trim() }),
+          });
+          tokenInput.value = "";
+          isAuthenticated = true;
+          setAuthUiState();
+          await loadRecordings();
+          setStatus(`Loaded ${recordings.length} recording(s).`);
+        } catch (error) {
+          setStatus(error.message, "error");
+        } finally {
+          loginButton.disabled = false;
+        }
+      }
+
+      async function logout() {
+        try {
+          await fetchJson("/auth/session", { method: "DELETE" });
+        } catch (_ignored) {}
+        isAuthenticated = false;
+        setAuthUiState();
+        recordings = [];
+        renderRecordings();
+        setStatus("Signed out.");
+      }
+
+      loginButton.addEventListener("click", () => { void login(); });
+      logoutButton.addEventListener("click", () => { void logout(); });
+      refreshButton.addEventListener("click", () => {
+        if (!isAuthenticated) {
+          setStatus("Sign in to refresh recordings.", "error");
+          return;
+        }
+        void loadRecordings()
+          .then(() => setStatus(`Loaded ${recordings.length} recording(s).`))
+          .catch((error) => setStatus(error.message, "error"));
+      });
+      tokenInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void login();
+        }
+      });
+
+      setAuthUiState();
+      void refreshSession().catch((error) => {
+        recordings = [];
+        renderRecordings();
+        setStatus(error.message, "error");
+      });
+    </script>
+  </body>
+</html>
