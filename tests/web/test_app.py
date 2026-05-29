@@ -26,6 +26,15 @@ class _StubServiceClient:
             return {"jobs": []}
         if command == "recording.schedule.create":
             return {"job": {"id": 1, "state": "scheduled"}}
+        if command == "metadata.guide.list":
+            return {
+                "channel": "BBC TWO HD",
+                "window": {
+                    "startAtUtc": "2026-05-25T20:00:00Z",
+                    "endAtUtc": "2026-05-25T22:00:00Z",
+                },
+                "programs": [],
+            }
         return {}
 
     def close(self) -> None:
@@ -140,6 +149,80 @@ def test_schedule_create_maps_service_error(monkeypatch) -> None:
             "durationSeconds": 0,
         },
     )]
+
+
+def test_guide_list_forwards_query_params(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get(
+        "/api/guide?channel=BBC%20TWO%20HD&startAtUtc=2026-05-25T20:00:00Z&windowHours=2"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [(
+        "metadata.guide.list",
+        {
+            "channel": "BBC TWO HD",
+            "startAtUtc": "2026-05-25T20:00:00Z",
+            "windowHours": 2.0,
+        },
+    )]
+
+
+def test_guide_list_requires_channel_query_param(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/guide")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
+def test_guide_list_rejects_non_numeric_window_hours(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/guide?channel=BBC%20TWO%20HD&windowHours=abc")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
 
 
 @pytest.mark.parametrize(

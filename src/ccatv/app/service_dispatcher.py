@@ -42,6 +42,7 @@ SERVICE_CAPABILITIES = [
     "service.info",
     "recording.schedule",
     "recording.worker.cycle",
+    "metadata.guide",
     "metadata.sd.sync",
     "runtime.setup",
 ]
@@ -52,6 +53,7 @@ SERVICE_COMMANDS = [
     "recording.schedule.create",
     "recording.schedule.list",
     "recording.worker.cycle.run",
+    "metadata.guide.list",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
     "runtime.setup.save",
@@ -159,6 +161,8 @@ class ServiceCommandDispatcher:
             return self._recording_schedule_list(payload)
         if command == "recording.worker.cycle.run":
             return self._recording_worker_cycle_run(payload)
+        if command == "metadata.guide.list":
+            return self._metadata_guide_list(payload)
         if command == "metadata.sd.sync.run":
             return self._metadata_sd_sync_run(payload)
         if command == "metadata.sd.sync.status.get":
@@ -472,6 +476,98 @@ class ServiceCommandDispatcher:
                 }
                 for job in jobs
             ]
+        }
+
+    def _metadata_guide_list(self, payload: dict[str, object]) -> dict[str, object]:
+        channel = payload.get("channel")
+        if not isinstance(channel, str) or not channel.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channel must be a non-empty string",
+            )
+
+        window_hours = payload.get("windowHours", 6)
+        if not isinstance(window_hours, int | float) or window_hours <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="windowHours must be greater than 0",
+            )
+
+        start_at_utc = payload.get("startAtUtc")
+        if start_at_utc is None:
+            start = datetime.now(timezone.utc)
+        elif isinstance(start_at_utc, str) and start_at_utc.strip():
+            try:
+                start = datetime.strptime(start_at_utc.strip(), "%Y-%m-%dT%H:%M:%SZ")
+                start = start.replace(tzinfo=timezone.utc)
+            except ValueError as exc:
+                raise ServiceCommandError(
+                    code="VALIDATION_ERROR",
+                    message="startAtUtc must be an ISO-8601 UTC timestamp string",
+                ) from exc
+        else:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="startAtUtc must be a non-empty string when provided",
+            )
+
+        channel_value = channel.strip()
+        start_utc = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_utc = (start + timedelta(hours=float(window_hours))).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+        rows = self._context.persistence.connection.execute(
+            """
+            SELECT
+                c.source,
+                c.source_channel_id,
+                c.display_name,
+                c.callsign,
+                c.logical_channel_number,
+                b.start_utc,
+                b.stop_utc,
+                b.duration_seconds,
+                p.title,
+                p.description_long
+            FROM epg_broadcasts AS b
+            JOIN epg_channels AS c ON c.id = b.channel_id
+            JOIN epg_programs AS p ON p.id = b.program_id
+            WHERE b.start_utc >= ?
+              AND b.start_utc < ?
+              AND (
+                lower(c.display_name) = lower(?)
+                OR lower(COALESCE(c.callsign, '')) = lower(?)
+                OR lower(COALESCE(c.logical_channel_number, '')) = lower(?)
+              )
+            ORDER BY b.start_utc ASC
+            """,
+            (start_utc, end_utc, channel_value, channel_value, channel_value),
+        ).fetchall()
+
+        return {
+            "channel": channel_value,
+            "window": {
+                "startAtUtc": start_utc,
+                "endAtUtc": end_utc,
+            },
+            "programs": [
+                {
+                    "source": str(row[0]),
+                    "sourceChannelId": str(row[1]),
+                    "channelName": str(row[2]),
+                    "callsign": str(row[3]) if row[3] is not None else None,
+                    "logicalChannelNumber": (
+                        str(row[4]) if row[4] is not None else None
+                    ),
+                    "startAtUtc": str(row[5]),
+                    "stopAtUtc": str(row[6]) if row[6] is not None else None,
+                    "durationSeconds": int(row[7]) if row[7] is not None else None,
+                    "title": str(row[8]),
+                    "description": str(row[9]) if row[9] is not None else None,
+                }
+                for row in rows
+            ],
         }
 
     def _metadata_sd_sync_run(self, payload: dict[str, object]) -> dict[str, object]:

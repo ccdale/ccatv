@@ -203,6 +203,100 @@ def test_dispatch_recording_schedule_list_returns_empty_when_no_jobs() -> None:
     assert response["payload"]["jobs"] == []
 
 
+def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("schedules_direct", "100", "BBC TWO HD", "BBCTWO", "2"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, description_long)
+        VALUES(?, ?, ?, ?)
+        """,
+        ("schedules_direct", "p1", "Newsnight", "Late-night news and analysis"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(1, 1, ?, ?, ?)
+        """,
+        ("2026-05-25T21:00:00Z", "2026-05-25T22:00:00Z", 3600),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.guide.list",
+            "payload": {
+                "channel": "BBC TWO HD",
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 4,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["channel"] == "BBC TWO HD"
+    programs = payload["programs"]
+    assert len(programs) == 1
+    assert programs[0]["title"] == "Newsnight"
+    assert programs[0]["channelName"] == "BBC TWO HD"
+    assert programs[0]["startAtUtc"] == "2026-05-25T21:00:00Z"
+
+
+def test_dispatch_metadata_guide_list_validates_channel() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.guide.list",
+            "payload": {"channel": "   "},
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_metadata_guide_list_validates_start_at_utc() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.guide.list",
+            "payload": {
+                "channel": "BBC TWO HD",
+                "startAtUtc": "2026/05/25 20:00:00",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_dispatch_metadata_sd_sync_status_get_empty() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -685,6 +779,14 @@ def test_service_commands_are_dispatchable(
         ),
         ("recording.schedule.list", {}),
         ("recording.worker.cycle.run", {}),
+        (
+            "metadata.guide.list",
+            {
+                "channel": "BBC TWO HD",
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 2,
+            },
+        ),
         (
             "metadata.sd.sync.run",
             {

@@ -127,6 +127,73 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.get("/api/guide")
+    def api_guide_list():
+        channel = request.args.get("channel", default=None, type=str)
+        if channel is None or not channel.strip():
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "query parameter 'channel' is required",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    }
+                ),
+                400,
+            )
+
+        payload: dict[str, object] = {"channel": channel.strip()}
+
+        start_at_utc = request.args.get("startAtUtc", default=None, type=str)
+        if start_at_utc is not None:
+            if not start_at_utc.strip():
+                return (
+                    jsonify(
+                        {
+                            "ok": False,
+                            "error": {
+                                "code": "VALIDATION_ERROR",
+                                "message": "query parameter 'startAtUtc' cannot be empty",
+                                "retryable": False,
+                                "details": {},
+                            },
+                        }
+                    ),
+                    400,
+                )
+            payload["startAtUtc"] = start_at_utc.strip()
+
+        window_hours = request.args.get("windowHours", default=None, type=str)
+        if window_hours is not None:
+            try:
+                payload["windowHours"] = float(window_hours)
+            except ValueError:
+                return (
+                    jsonify(
+                        {
+                            "ok": False,
+                            "error": {
+                                "code": "VALIDATION_ERROR",
+                                "message": "query parameter 'windowHours' must be numeric",
+                                "retryable": False,
+                                "details": {},
+                            },
+                        }
+                    ),
+                    400,
+                )
+
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.guide.list",
+            payload,
+        )
+        return jsonify(response), status_code
+
     @app.post("/api/schedules")
     def api_schedule_create():
         body = request.get_json(silent=True)
