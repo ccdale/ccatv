@@ -140,6 +140,16 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=5,
+        name="epg_channel_favorite_flag_v5",
+        statements=(
+            """
+            ALTER TABLE epg_channels
+            ADD COLUMN favorite_channel INTEGER NOT NULL DEFAULT 0
+            """,
+        ),
+    ),
 )
 
 

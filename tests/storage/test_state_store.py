@@ -117,3 +117,43 @@ def test_set_dvbstreamer_service_name_can_clear_mapping(tmp_path: Path) -> None:
         assert store.get_dvbstreamer_service_name("BBC One East") is None
     finally:
         connection.close()
+
+
+def test_set_and_get_favorite_channel(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        connection.execute(
+            """
+            INSERT INTO epg_channels(
+                source,
+                source_channel_id,
+                display_name,
+                callsign,
+                logical_channel_number
+            ) VALUES(?, ?, ?, ?, ?)
+            """,
+            ("schedules_direct", "120", "BBC News", "BBCNEWS", "231"),
+        )
+        connection.commit()
+
+        assert store.get_favorite_channel("BBC News") is False
+
+        updated = store.set_favorite_channel("BBC News", True)
+
+        assert updated == 1
+        assert store.get_favorite_channel("BBC News") is True
+    finally:
+        connection.close()
+
+
+def test_set_favorite_channel_returns_zero_when_channel_unknown(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        updated = store.set_favorite_channel("Unknown", True)
+
+        assert updated == 0
+        assert store.get_favorite_channel("Unknown") is False
+    finally:
+        connection.close()

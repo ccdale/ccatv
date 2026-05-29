@@ -31,8 +31,27 @@ class _StubServiceClient:
                         "logicalChannelNumber": "2",
                         "source": "dvbstreamer_ota",
                         "sourceChannelId": "200",
+                        "dvbstreamerServiceName": None,
+                        "favoriteChannel": False,
                     }
                 ]
+            }
+        if command == "metadata.channels.dvbservices.list":
+            return {
+                "available": True,
+                "error": None,
+                "services": ["BBC TWO HD", "QUEST", "5 HD"],
+            }
+        if command == "metadata.channels.service-name.set":
+            return {
+                "channelName": str(payload.get("channelName")),
+                "updatedRows": 1,
+            }
+        if command == "metadata.channels.favorite.set":
+            return {
+                "channelName": str(payload.get("channelName")),
+                "favorite": bool(payload.get("favorite")),
+                "updatedRows": 1,
             }
         if command == "recording.schedule.list":
             return {"jobs": []}
@@ -96,6 +115,30 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "Sign in" in body
     assert "Record programme" in body
     assert "Scheduled recordings" in body
+    assert stub.calls == []
+
+
+def test_channel_manager_route_serves_browser_ui(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get("/channel-manager")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Channel Manager" in body
+    assert "Probable dvbstreamer Service" in body
     assert stub.calls == []
 
 
@@ -218,6 +261,80 @@ def test_channel_list_route_forwards_command(monkeypatch) -> None:
     assert response.get_json()["ok"] is True
     assert response.get_json()["payload"]["channels"][0]["name"] == "BBC TWO HD"
     assert stub.calls == [("metadata.channels.list", {})]
+
+
+def test_dvbservices_list_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/dvbservices")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert response.get_json()["payload"]["available"] is True
+    assert stub.calls == [("metadata.channels.dvbservices.list", {})]
+
+
+def test_channel_mapping_route_forwards_payload(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post(
+        "/api/channels/mapping",
+        json={"channelName": "Quest", "serviceName": "QUEST"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        ("metadata.channels.service-name.set", {"channelName": "Quest", "serviceName": "QUEST"})
+    ]
+
+
+def test_channel_favorite_route_forwards_payload(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post(
+        "/api/channels/favorite",
+        json={"channelName": "Quest", "favorite": True},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        ("metadata.channels.favorite.set", {"channelName": "Quest", "favorite": True})
+    ]
 
 
 def test_schedule_list_forwards_state_query(monkeypatch) -> None:

@@ -96,6 +96,14 @@ def create_app(
             authenticated=web_auth_token is None or _session_authenticated(),
         )
 
+    @app.get("/channel-manager")
+    def channel_manager():
+        return render_template(
+            "channel_manager.html",
+            auth_required=web_auth_token is not None,
+            authenticated=web_auth_token is None or _session_authenticated(),
+        )
+
     @app.get("/auth/session")
     def auth_session_status():
         return jsonify(
@@ -222,6 +230,59 @@ def create_app(
             _client_factory,
             "metadata.channels.list",
             {},
+        )
+        return jsonify(response), status_code
+
+    @app.get("/api/dvbservices")
+    def api_dvbservices_list():
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.dvbservices.list",
+            {},
+        )
+        return jsonify(response), status_code
+
+    @app.post("/api/channels/mapping")
+    def api_channel_mapping_set():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "channelName": body.get("channelName"),
+            "serviceName": body.get("serviceName"),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.service-name.set",
+            payload,
+        )
+        return jsonify(response), status_code
+
+    @app.post("/api/channels/favorite")
+    def api_channel_favorite_set():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "channelName": body.get("channelName"),
+            "favorite": body.get("favorite"),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.favorite.set",
+            payload,
         )
         return jsonify(response), status_code
 

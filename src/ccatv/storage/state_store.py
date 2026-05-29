@@ -256,3 +256,30 @@ class PersistenceStore:
         )
         self.connection.commit()
         return result.rowcount
+
+    def get_favorite_channel(self, display_name: str) -> bool:
+        """Return whether an EPG channel display name is marked as a favorite."""
+        rows = self.connection.execute(
+            """
+            SELECT favorite_channel
+            FROM epg_channels
+            WHERE display_name = ?
+            """,
+            (display_name,),
+        ).fetchall()
+        for row in rows:
+            return bool(row[0])
+        return False
+
+    def set_favorite_channel(self, display_name: str, favorite: bool) -> int:
+        """Set favorite flag for all EPG channel rows matching display_name."""
+        result = self.connection.execute(
+            """
+            UPDATE epg_channels
+            SET favorite_channel = ?
+            WHERE display_name = ?
+            """,
+            (1 if favorite else 0, display_name),
+        )
+        self.connection.commit()
+        return result.rowcount

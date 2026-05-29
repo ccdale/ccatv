@@ -56,6 +56,8 @@ SERVICE_COMMANDS = [
     "recording.schedule.list",
     "recording.worker.cycle.run",
     "metadata.channels.list",
+    "metadata.channels.dvbservices.list",
+    "metadata.channels.favorite.set",
     "metadata.channels.service-name.set",
     "metadata.guide.list",
     "metadata.sd.sync.run",
@@ -167,6 +169,10 @@ class ServiceCommandDispatcher:
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.channels.list":
             return self._metadata_channels_list(payload)
+        if command == "metadata.channels.dvbservices.list":
+            return self._metadata_channels_dvbservices_list(payload)
+        if command == "metadata.channels.favorite.set":
+            return self._metadata_channels_favorite_set(payload)
         if command == "metadata.channels.service-name.set":
             return self._metadata_channels_service_name_set(payload)
         if command == "metadata.guide.list":
@@ -494,7 +500,8 @@ class ServiceCommandDispatcher:
         rows = self._context.persistence.connection.execute(
             """
             SELECT source, source_channel_id, display_name, callsign,
-                   logical_channel_number, dvbstreamer_service_name
+                   logical_channel_number, dvbstreamer_service_name,
+                   favorite_channel
             FROM epg_channels
             WHERE trim(display_name) != ''
             ORDER BY display_name COLLATE NOCASE ASC
@@ -512,6 +519,7 @@ class ServiceCommandDispatcher:
                 "source": str(row[0]),
                 "sourceChannelId": str(row[1]),
                 "dvbstreamerServiceName": dvb_name or None,
+                "favoriteChannel": bool(row[6]),
             }
             key = display_name.casefold()
             current = channels_by_name.get(key)
@@ -524,11 +532,64 @@ class ServiceCommandDispatcher:
             "channels": sorted(
                 channels_by_name.values(),
                 key=lambda channel: (
+                    not bool(channel["favoriteChannel"]),
                     channel["logicalChannelNumber"] is None,
                     channel["logicalChannelNumber"] or "",
                     str(channel["name"]).casefold(),
                 ),
             )
+        }
+
+    def _metadata_channels_dvbservices_list(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        del payload
+        try:
+            services = self._context.tvrecorder.list_services()
+        except Exception as exc:
+            return {
+                "available": False,
+                "error": str(exc),
+                "services": [],
+            }
+
+        deduped = sorted(set(services), key=lambda value: value.casefold())
+        return {
+            "available": True,
+            "error": None,
+            "services": deduped,
+        }
+
+    def _metadata_channels_favorite_set(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        channel_name = payload.get("channelName")
+        if not isinstance(channel_name, str) or not channel_name.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channelName must be a non-empty string",
+            )
+
+        favorite = payload.get("favorite")
+        if not isinstance(favorite, bool):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="favorite must be a boolean",
+            )
+
+        updated = self._context.persistence.set_favorite_channel(
+            channel_name.strip(),
+            favorite,
+        )
+        if updated == 0:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=f"no EPG channel found with name: {channel_name.strip()!r}",
+            )
+        return {
+            "channelName": channel_name.strip(),
+            "favorite": favorite,
+            "updatedRows": updated,
         }
 
     def _metadata_channels_service_name_set(

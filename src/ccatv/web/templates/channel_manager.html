@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ccatv channel manager</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7fb;
+        --ink: #0f172a;
+        --muted: #475569;
+        --line: #dbe2ef;
+        --panel: #ffffff;
+        --accent: #0a7f5a;
+        --accent-soft: #ddf7ee;
+        --warn: #b45309;
+        --star: #d97706;
+        --danger: #b91c1c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 92% 8%, rgba(10, 127, 90, 0.15), transparent 22%),
+          radial-gradient(circle at 8% 92%, rgba(59, 130, 246, 0.14), transparent 26%),
+          var(--bg);
+      }
+      main {
+        width: min(1320px, calc(100vw - 2rem));
+        margin: 0 auto;
+        padding: 1.5rem 0 2rem;
+      }
+      .hero {
+        padding: 1.2rem 1.35rem;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: linear-gradient(130deg, #ffffff 0%, #eef8ff 100%);
+      }
+      h1, h2, p { margin: 0; }
+      h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); letter-spacing: -0.02em; }
+      .subtitle { margin-top: 0.5rem; color: var(--muted); }
+      .hero-row {
+        margin-top: 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }
+      input, button, select { font: inherit; }
+      input {
+        min-width: 260px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 0.65rem 0.95rem;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 0.65rem 0.95rem;
+        cursor: pointer;
+        background: var(--ink);
+        color: #fff;
+      }
+      button.secondary {
+        background: #eef2f8;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+      button.favorite {
+        background: #fff5e8;
+        color: #8a3b00;
+        border: 1px solid #f4d7b3;
+      }
+      button.favorite.active {
+        background: #ffe8c7;
+        color: #6b2f00;
+        border-color: #f0bf7a;
+      }
+      button:disabled { opacity: 0.55; cursor: default; }
+      .status {
+        margin-top: 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 0.7rem 0.85rem;
+        background: #fff;
+        color: var(--muted);
+      }
+      .status.warn { background: #fff7ed; color: var(--warn); border-color: #fcd9b6; }
+      .status.error { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+      .toolbar {
+        margin-top: 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .toolbar a { color: var(--ink); text-decoration: none; border-bottom: 1px dashed #94a3b8; }
+      .table-wrap {
+        margin-top: 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 1000px;
+      }
+      th, td {
+        padding: 0.8rem 0.75rem;
+        border-bottom: 1px solid #edf2fb;
+        vertical-align: top;
+      }
+      th {
+        position: sticky;
+        top: 0;
+        background: #f8fbff;
+        text-align: left;
+        font-size: 0.93rem;
+      }
+      td small { color: var(--muted); display: block; margin-top: 0.2rem; }
+      .mapping-cell {
+        display: grid;
+        gap: 0.45rem;
+      }
+      .mapping-current {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.3rem 0.55rem;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: #0b5a42;
+        width: fit-content;
+      }
+      .mapping-current.empty {
+        background: #eef2f7;
+        color: #334155;
+      }
+      .mapping-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+      }
+      select {
+        min-width: 240px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.45rem 0.55rem;
+        background: #fff;
+      }
+      .hint { color: var(--muted); font-size: 0.9rem; }
+      .loading {
+        padding: 1.5rem;
+        color: var(--muted);
+      }
+      @media (max-width: 760px) {
+        main { width: calc(100vw - 1rem); }
+        .hero-row { flex-direction: column; align-items: stretch; }
+        input { min-width: 0; width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Channel Manager</h1>
+        <p class="subtitle">Map EPG channel names to dvbstreamer services and curate your favourites.</p>
+        <div class="hero-row">
+          <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
+          <button id="login-button" type="button">Sign in</button>
+          <button id="logout-button" class="secondary" type="button">Sign out</button>
+        </div>
+        <div id="status" class="status">Checking session.</div>
+      </section>
+
+      <div class="toolbar">
+        <a href="/">Back to Guide</a>
+        <button id="refresh-button" class="secondary" type="button">Refresh Channel Data</button>
+      </div>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 32%;">EPG Channel</th>
+              <th style="width: 48%;">Probable dvbstreamer Service</th>
+              <th style="width: 20%;">Favourite</th>
+            </tr>
+          </thead>
+          <tbody id="channel-table-body">
+            <tr><td class="loading" colspan="3">Sign in to load channels.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const bootstrap = {{ {"authRequired": auth_required, "authenticated": authenticated}|tojson }};
+      const statusNode = document.getElementById("status");
+      const tokenInput = document.getElementById("token-input");
+      const loginButton = document.getElementById("login-button");
+      const logoutButton = document.getElementById("logout-button");
+      const refreshButton = document.getElementById("refresh-button");
+      const tableBody = document.getElementById("channel-table-body");
+
+      let isAuthenticated = Boolean(bootstrap.authenticated);
+      let channels = [];
+      let dvbServices = [];
+
+      class ApiError extends Error {
+        constructor(message, code = null) {
+          super(message);
+          this.code = code;
+        }
+      }
+
+      function setStatus(message, level = "info") {
+        statusNode.textContent = message;
+        statusNode.className = "status" + (level === "info" ? "" : " " + level);
+      }
+
+      function normalizeName(value) {
+        return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      }
+
+      function scoreMatch(epgName, serviceName) {
+        const a = epgName.toLowerCase();
+        const b = serviceName.toLowerCase();
+        const normA = normalizeName(epgName);
+        const normB = normalizeName(serviceName);
+        if (a === b) return 100;
+        if (normA && normA === normB) return 92;
+        let score = 0;
+        if (a.includes(b) || b.includes(a)) score += 45;
+        if (normA && normB && (normA.includes(normB) || normB.includes(normA))) score += 25;
+        const tokensA = new Set(normA.split(" ").filter(Boolean));
+        const tokensB = new Set(normB.split(" ").filter(Boolean));
+        let overlap = 0;
+        for (const token of tokensA) {
+          if (tokensB.has(token)) overlap += 1;
+        }
+        if (tokensA.size > 0) {
+          score += Math.round((overlap / tokensA.size) * 30);
+        }
+        return score;
+      }
+
+      function uniqueLikelyMatches(epgName, services) {
+        const ranked = services
+          .map((service) => ({ service, score: scoreMatch(epgName, service) }))
+          .filter((item) => item.score >= 20)
+          .sort((left, right) => right.score - left.score || left.service.localeCompare(right.service));
+        const deduped = [];
+        const seen = new Set();
+        for (const item of ranked) {
+          const key = item.service.toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push(item.service);
+          }
+          if (deduped.length >= 8) break;
+        }
+        return deduped;
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          ...options,
+        });
+        const body = await response.json().catch(() => ({ ok: false, error: { message: "invalid JSON response" } }));
+        if (!response.ok || body.ok === false) {
+          const code = body.error && body.error.code ? body.error.code : null;
+          const message = body.error && body.error.message ? body.error.message : `request failed with status ${response.status}`;
+          throw new ApiError(code ? `${message} (${code})` : message, code);
+        }
+        return body.payload;
+      }
+
+      function setAuthUiState() {
+        tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
+        loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
+        logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
+        tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
+      }
+
+      function getExactMatches(channelName) {
+        return dvbServices.filter((svc) => svc.toLowerCase() === channelName.toLowerCase());
+      }
+
+      async function saveMapping(channelName, serviceName) {
+        await fetchJson("/api/channels/mapping", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelName, serviceName }),
+        });
+      }
+
+      async function saveFavorite(channelName, favorite) {
+        await fetchJson("/api/channels/favorite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelName, favorite }),
+        });
+      }
+
+      function renderRow(channel) {
+        const row = document.createElement("tr");
+
+        const epgCell = document.createElement("td");
+        epgCell.innerHTML = `<strong>${channel.name}</strong><small>${channel.logicalChannelNumber ? `LCN ${channel.logicalChannelNumber} · ` : ""}${channel.callsign || ""}${channel.callsign ? " · " : ""}${channel.source}</small>`;
+
+        const mapCell = document.createElement("td");
+        mapCell.className = "mapping-cell";
+
+        const current = document.createElement("div");
+        current.className = "mapping-current" + (channel.dvbstreamerServiceName ? "" : " empty");
+        current.textContent = channel.dvbstreamerServiceName || "No mapping stored";
+        mapCell.append(current);
+
+        const controls = document.createElement("div");
+        controls.className = "mapping-controls";
+
+        const exactMatches = getExactMatches(channel.name);
+        const likely = uniqueLikelyMatches(channel.name, dvbServices);
+
+        let selectedValue = channel.dvbstreamerServiceName || "";
+        if (!selectedValue && exactMatches.length === 1) {
+          selectedValue = exactMatches[0];
+        }
+
+        if (!channel.dvbstreamerServiceName && exactMatches.length === 1) {
+          const hint = document.createElement("div");
+          hint.className = "hint";
+          hint.textContent = `Exact one-to-one match: ${exactMatches[0]}`;
+          controls.append(hint);
+
+          const applyButton = document.createElement("button");
+          applyButton.type = "button";
+          applyButton.textContent = "Apply Exact Match";
+          applyButton.addEventListener("click", async () => {
+            applyButton.disabled = true;
+            try {
+              await saveMapping(channel.name, exactMatches[0]);
+              setStatus(`Saved mapping for ${channel.name}.`);
+              await loadTableData();
+            } catch (error) {
+              setStatus(error.message || "Failed to save mapping.", "error");
+            } finally {
+              applyButton.disabled = false;
+            }
+          });
+          controls.append(applyButton);
+        } else {
+          const options = Array.from(new Set([
+            ...(channel.dvbstreamerServiceName ? [channel.dvbstreamerServiceName] : []),
+            ...likely,
+          ]));
+
+          const select = document.createElement("select");
+          const empty = document.createElement("option");
+          empty.value = "";
+          empty.textContent = "Clear mapping";
+          select.append(empty);
+
+          for (const service of options) {
+            const option = document.createElement("option");
+            option.value = service;
+            option.textContent = service;
+            if (service === selectedValue) option.selected = true;
+            select.append(option);
+          }
+
+          const saveButton = document.createElement("button");
+          saveButton.type = "button";
+          saveButton.textContent = "Save Mapping";
+          saveButton.addEventListener("click", async () => {
+            saveButton.disabled = true;
+            try {
+              await saveMapping(channel.name, select.value || null);
+              setStatus(`Saved mapping for ${channel.name}.`);
+              await loadTableData();
+            } catch (error) {
+              setStatus(error.message || "Failed to save mapping.", "error");
+            } finally {
+              saveButton.disabled = false;
+            }
+          });
+
+          controls.append(select, saveButton);
+        }
+
+        mapCell.append(controls);
+
+        const favCell = document.createElement("td");
+        const favoriteButton = document.createElement("button");
+        favoriteButton.type = "button";
+        favoriteButton.className = "favorite" + (channel.favoriteChannel ? " active" : "");
+        favoriteButton.textContent = channel.favoriteChannel ? "★ Favourite" : "☆ Add Favourite";
+        favoriteButton.addEventListener("click", async () => {
+          favoriteButton.disabled = true;
+          try {
+            await saveFavorite(channel.name, !channel.favoriteChannel);
+            setStatus(`${channel.name}: favourite ${!channel.favoriteChannel ? "enabled" : "cleared"}.`);
+            await loadTableData();
+          } catch (error) {
+            setStatus(error.message || "Failed to update favourite.", "error");
+          } finally {
+            favoriteButton.disabled = false;
+          }
+        });
+        favCell.append(favoriteButton);
+
+        row.append(epgCell, mapCell, favCell);
+        return row;
+      }
+
+      function renderTable() {
+        tableBody.replaceChildren();
+        if (!isAuthenticated) {
+          tableBody.innerHTML = '<tr><td class="loading" colspan="3">Sign in to load channels.</td></tr>';
+          return;
+        }
+        if (!channels.length) {
+          tableBody.innerHTML = '<tr><td class="loading" colspan="3">No EPG channels found.</td></tr>';
+          return;
+        }
+        for (const channel of channels) {
+          tableBody.append(renderRow(channel));
+        }
+      }
+
+      async function loadTableData() {
+        if (!isAuthenticated) {
+          channels = [];
+          dvbServices = [];
+          renderTable();
+          return;
+        }
+        const [channelPayload, servicePayload] = await Promise.all([
+          fetchJson("/api/channels"),
+          fetchJson("/api/dvbservices"),
+        ]);
+        channels = channelPayload.channels || [];
+        dvbServices = servicePayload.services || [];
+        if (!servicePayload.available) {
+          setStatus(`Channels loaded. dvbstreamer services unavailable: ${servicePayload.error || "unknown error"}`, "warn");
+        } else {
+          setStatus(`Loaded ${channels.length} channels and ${dvbServices.length} dvbstreamer services.`);
+        }
+        renderTable();
+      }
+
+      async function refreshSessionStatus() {
+        const payload = await fetchJson("/auth/session");
+        isAuthenticated = Boolean(payload.authenticated);
+        setAuthUiState();
+      }
+
+      async function login() {
+        const token = tokenInput.value.trim();
+        await fetchJson("/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        tokenInput.value = "";
+        await refreshSessionStatus();
+        await loadTableData();
+      }
+
+      async function logout() {
+        await fetchJson("/auth/session", { method: "DELETE" });
+        await refreshSessionStatus();
+        await loadTableData();
+      }
+
+      loginButton.addEventListener("click", async () => {
+        try {
+          await login();
+          setStatus("Signed in.");
+        } catch (error) {
+          setStatus(error.message || "Sign in failed.", "error");
+        }
+      });
+
+      logoutButton.addEventListener("click", async () => {
+        try {
+          await logout();
+          setStatus("Signed out.");
+        } catch (error) {
+          setStatus(error.message || "Sign out failed.", "error");
+        }
+      });
+
+      refreshButton.addEventListener("click", async () => {
+        try {
+          await loadTableData();
+        } catch (error) {
+          setStatus(error.message || "Failed to refresh channel data.", "error");
+        }
+      });
+
+      async function bootstrapPage() {
+        try {
+          await refreshSessionStatus();
+          setAuthUiState();
+          await loadTableData();
+        } catch (error) {
+          setStatus(error.message || "Failed to initialize channel manager.", "error");
+        }
+      }
+
+      setAuthUiState();
+      void bootstrapPage();
+    </script>
+  </body>
+</html>

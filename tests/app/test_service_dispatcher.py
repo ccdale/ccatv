@@ -301,6 +301,7 @@ def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None
             "source": "dvbstreamer_ota",
             "sourceChannelId": "200",
             "dvbstreamerServiceName": None,
+            "favoriteChannel": False,
         },
         {
             "name": "BBC FOUR",
@@ -309,6 +310,7 @@ def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None
             "source": "schedules_direct",
             "sourceChannelId": "300",
             "dvbstreamerServiceName": None,
+            "favoriteChannel": False,
         },
     ]
 
@@ -399,6 +401,107 @@ def test_dispatch_metadata_channels_service_name_set_clears_mapping() -> None:
     assert response["ok"] is True
     assert response["payload"] == {"channelName": "BBC One East", "updatedRows": 1}
     assert context.persistence.get_dvbstreamer_service_name("BBC One East") is None
+
+
+def test_dispatch_metadata_channels_favorite_set_updates_flag() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("schedules_direct", "301", "BBC News", "BBCNEWS", "231"),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.favorite.set",
+            "payload": {
+                "channelName": "BBC News",
+                "favorite": True,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"] == {
+        "channelName": "BBC News",
+        "favorite": True,
+        "updatedRows": 1,
+    }
+    assert context.persistence.get_favorite_channel("BBC News") is True
+
+
+def test_dispatch_metadata_channels_favorite_set_rejects_non_boolean() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.favorite.set",
+            "payload": {
+                "channelName": "BBC News",
+                "favorite": "yes",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_metadata_channels_dvbservices_list_returns_sorted_unique_services() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    context.tvrecorder = SimpleNamespace(
+        list_services=lambda: ["QUEST", "BBC TWO HD", "quest", "5 HD"]
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.dvbservices.list",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["available"] is True
+    assert response["payload"]["error"] is None
+    assert response["payload"]["services"] == ["5 HD", "BBC TWO HD", "QUEST", "quest"]
+
+
+def test_dispatch_metadata_channels_dvbservices_list_handles_runtime_failure() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    def _broken_list_services() -> list[str]:
+        raise RuntimeError("dvbctrl unavailable")
+
+    context.tvrecorder = SimpleNamespace(list_services=_broken_list_services)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.dvbservices.list",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["available"] is False
+    assert response["payload"]["services"] == []
+    assert "dvbctrl unavailable" in str(response["payload"]["error"])
 
 
 def test_dispatch_metadata_guide_list_validates_channel() -> None:
