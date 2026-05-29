@@ -1,8 +1,7 @@
 [Unit]
 Description=ccatv Flask web frontend
-Requires=ccatv-api.service
 After=network-online.target ccatv-api.service
-Wants=network-online.target
+Wants=network-online.target ccatv-api.service
 
 [Service]
 Type=simple
