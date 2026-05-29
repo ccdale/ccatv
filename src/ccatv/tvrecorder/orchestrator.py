@@ -306,12 +306,11 @@ class RecorderOrchestrator:
                 self.periodic_policy.interval_seconds,
                 remaining_seconds,
             )
-            self.sleep_fn(sleep_seconds)
             remaining_seconds -= sleep_seconds
             result = self.service.verify_recording_output_growth(
                 recording_id,
                 checks=1,
-                interval_seconds=0,
+                interval_seconds=sleep_seconds,
                 min_growth_bytes=self.periodic_policy.growth_min_bytes,
             )
             if result.state == "failed":

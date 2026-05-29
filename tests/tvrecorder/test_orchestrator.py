@@ -169,6 +169,69 @@ def test_orchestrator_marks_scheduler_failed_on_periodic_growth_failure(
         connection.close()
 
 
+def test_orchestrator_periodic_growth_uses_elapsed_interval_window(
+    tmp_path: Path,
+) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    clock = FakeClock(now_seconds=1_748_000_000.0)
+
+    def _file_size_reader(_path: str) -> int:
+        elapsed = clock.now_seconds - 1_748_000_000.0
+        if elapsed < 2:
+            return 100
+        if elapsed < 10:
+            return 120
+        return 150
+
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=1,
+            early_growth_interval_seconds=2,
+            final_stability_checks=1,
+            final_stability_interval_seconds=0,
+            growth_min_bytes=1,
+            periodic_growth_checks=1,
+            periodic_growth_interval_seconds=0,
+        ),
+        file_size_reader=_file_size_reader,
+        sleep_fn=clock.sleep,
+    )
+    capture = StubCaptureController()
+    orchestrator = RecorderOrchestrator(
+        service=service,
+        persistence=persistence,
+        capture_controller=capture,
+        periodic_policy=PeriodicCheckPolicy(growth_min_bytes=1, interval_seconds=10.0),
+        now_fn=clock.now,
+        sleep_fn=clock.sleep,
+    )
+
+    try:
+        job = service.schedule_recording(
+            channel_name="5 HD",
+            start_at_utc=_iso_at(clock.now_seconds - 5),
+            duration_seconds=10,
+        )
+
+        result = orchestrator.run_job(job_id=job.id, output_path="/tmp/5hd.ts")
+        scheduler = persistence.get_scheduler_job(job.id, required=True)
+        recording = persistence.get_recording(result.recording_id or -1, required=True)
+
+        assert result.scheduler_state == "completed"
+        assert result.recording_state == "ready"
+        assert result.error is None
+        assert scheduler.state == "completed"
+        assert recording.state == "ready"
+    finally:
+        connection.close()
+
+
 def test_orchestrator_run_due_jobs_filters_scheduled_due_items(
     tmp_path: Path,
 ) -> None:
@@ -192,7 +255,7 @@ def test_orchestrator_run_due_jobs_filters_scheduled_due_items(
             periodic_growth_interval_seconds=0,
         ),
         file_size_reader=lambda _path: next(sizes, 140),
-        sleep_fn=lambda _seconds: None,
+        sleep_fn=clock.sleep,
     )
     orchestrator = RecorderOrchestrator(
         service=service,
@@ -372,7 +435,7 @@ def test_orchestrator_short_recording_does_not_oversleep_periodic_interval(
             periodic_growth_interval_seconds=0,
         ),
         file_size_reader=lambda _path: next(sizes, 140),
-        sleep_fn=lambda _seconds: None,
+        sleep_fn=clock.sleep,
     )
     orchestrator = RecorderOrchestrator(
         service=service,
