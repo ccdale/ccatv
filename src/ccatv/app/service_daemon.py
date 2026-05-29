@@ -612,6 +612,15 @@ def run_service_daemon(
             return 1
 
         logger.info("service daemon completed one cycle (jobs=%d)", len(results))
+        for result in results:
+            if result.error:
+                logger.warning(
+                    "job_id=%s scheduler_state=%s recording_id=%s error=%s",
+                    result.job_id,
+                    result.scheduler_state,
+                    result.recording_id,
+                    result.error,
+                )
         return 0
 
     while not stop_predicate():
@@ -626,6 +635,15 @@ def run_service_daemon(
             results = []
         if results:
             logger.info("service daemon cycle completed with %d due jobs", len(results))
+            for result in results:
+                if result.error:
+                    logger.warning(
+                        "job_id=%s scheduler_state=%s recording_id=%s error=%s",
+                        result.job_id,
+                        result.scheduler_state,
+                        result.recording_id,
+                        result.error,
+                    )
         time.sleep(poll_interval_seconds)
 
     logger.info("service daemon stop requested")
