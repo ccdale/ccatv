@@ -72,7 +72,7 @@ EOF
 chmod 600 ~/.config/ccatv/web.env
 ```
 
-All three user services share this same `web.env` file.
+`ccatv-api.service` and `ccatv-web.service` share this same `web.env` file.
 
 ### Package-based installation
 
@@ -208,6 +208,8 @@ When recorder and Flask run on the same host:
 
 When recorder API and Flask are on different hosts:
 
+- on the recorder host, set `CCATV_API_BIND_HOST=0.0.0.0` (or specific recorder LAN IP) so API is reachable off-host
+- on the recorder host, allow inbound TCP for `CCATV_API_PORT` (default `8787`) in host firewall rules
 - set `CCATV_WEB_SERVICE_HOST` in `web.env` to the recorder host/IP
 - set `CCATV_WEB_SERVICE_PORT` in `web.env` to the recorder API port
 - keep `CCATV_SERVICE_AUTH_TOKEN` the same token expected by the recorder API
