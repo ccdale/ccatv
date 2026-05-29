@@ -1,0 +1,17 @@
+[Unit]
+Description=ccatv Flask web frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/ccatv/web.env
+ExecStart=/usr/local/bin/ccatv-web --listen-host 0.0.0.0 --listen-port 5000 --service-host 127.0.0.1 --service-port 8787
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=default.target

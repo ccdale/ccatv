@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Event
 
+from ccatv import __version__
 from ccatv.app.bootstrap import AppContext, bootstrap_app, close_app_context
 from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.app.service_dispatcher import ServiceCommandDispatcher
@@ -665,6 +666,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "service daemon bootstrapped with db=%s",
         context.settings.database_path,
     )
+    context.logger.info("ccatv-service starting (version=%s)", __version__)
     try:
         if args.dispatch_command_json is not None:
             try:

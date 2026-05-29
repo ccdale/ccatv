@@ -327,6 +327,60 @@ def test_main_dispatch_command_json_passes_stop_predicate(monkeypatch, capsys) -
     assert captured["worker_cycle_lock"] is context.worker_cycle_lock
 
 
+def test_main_logs_service_version_on_startup(monkeypatch, capsys) -> None:
+    logged: list[tuple[object, ...]] = []
+
+    class _Logger:
+        def info(self, *args, **kwargs) -> None:
+            logged.append(args)
+
+    context = SimpleNamespace(
+        settings=SimpleNamespace(database_path=":memory:"),
+        persistence=SimpleNamespace(connection=SimpleNamespace(close=lambda: None)),
+        dvbstreamer=SimpleNamespace(stop=lambda force_kill=True: None),
+        logger=_Logger(),
+    )
+
+    class _StubDispatcher:
+        def __init__(
+            self,
+            _context,
+            *,
+            should_stop=None,
+            worker_cycle_lock=None,
+        ) -> None:
+            self.context = _context
+
+        def dispatch(self, request):
+            return {
+                "apiVersion": "v1alpha1",
+                "requestId": request.get("requestId"),
+                "ok": True,
+                "payload": {"status": "ok"},
+            }
+
+    monkeypatch.setattr("ccatv.app.service_daemon.bootstrap_app", lambda: context)
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.close_app_context", lambda _context: None
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.ServiceCommandDispatcher", _StubDispatcher
+    )
+
+    request = {
+        "apiVersion": "v1alpha1",
+        "command": "service.health.get",
+        "requestId": "log-1",
+        "payload": {},
+    }
+    result = main(["--dispatch-command-json", json.dumps(request)])
+
+    assert result == 0
+    _ = capsys.readouterr()
+    assert len(logged) == 1
+    assert str(logged[0][0]).startswith("ccatv-service starting")
+
+
 def test_handle_ipc_request_rejects_invalid_json() -> None:
     class _StubDispatcher:
         def dispatch(self, _request):

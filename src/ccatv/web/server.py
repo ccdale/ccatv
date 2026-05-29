@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 
+from ccatv import __version__
 from ccatv.web.app import create_app
+
+logger = logging.getLogger("ccatv.web")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,6 +84,14 @@ def main(argv: list[str] | None = None) -> int:
         service_port=args.service_port,
         service_auth_token=service_auth_token,
         web_auth_token=web_auth_token,
+    )
+    logger.info(
+        "ccatv-web starting (version=%s, listen=%s:%d, service=%s:%d)",
+        __version__,
+        args.listen_host,
+        args.listen_port,
+        args.service_host,
+        args.service_port,
     )
     app.run(host=args.listen_host, port=args.listen_port, debug=False)
     return 0

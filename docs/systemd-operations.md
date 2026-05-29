@@ -1,27 +1,38 @@
 # ccatv systemd operations
 
-This document covers the current M5 operational model for `ccatv-service`.
+This document covers the current operational model for `ccatv-service` and
+`ccatv-web` user services.
 
 ## Current scope
 
-The packaged systemd unit is a **user service**. It runs as your own login user without any `sudo` access.
+The packaged systemd units are **user services**. They run as your own login
+user without any `sudo` access.
 
 That means:
 
-- the long-running service continuously evaluates due recording jobs
+- the long-running recorder service continuously evaluates due recording jobs
+- the Flask web service can expose remote schedule/guide API routes
 - recordings are written under `~/.local/share/ccatv/recordings`
 - the database defaults to `~/.local/share/ccatv/ccatv.sqlite3`
 - local CLI commands such as `ccatv setup` and `ccatv epg-sync-sd` still use the in-process service client path introduced in M4
 - the unit does not yet expose the M3 Unix socket transport during normal service startup
 
-## Unit file
+## Unit files
 
-The unit ships at [systemd/ccatv.service](../systemd/ccatv.service).
+The units ship at:
 
-The unit requires only:
+- [systemd/ccatv.service](../systemd/ccatv.service)
+- [systemd/ccatv-web.service](../systemd/ccatv-web.service)
+
+`ccatv.service` requires:
 
 - the `ccatv-service` console script at `/usr/local/bin/ccatv-service`
 - your XDG config already populated with `ccatv setup`
+
+`ccatv-web.service` requires:
+
+- the `ccatv-web` console script at `/usr/local/bin/ccatv-web`
+- an environment file at `~/.config/ccatv/web.env` containing web/service tokens
 
 ### Manual installation (no package manager)
 
@@ -30,15 +41,27 @@ Copy the unit file to the standard user-service location and reload the daemon:
 ```bash
 mkdir -p ~/.config/systemd/user
 cp systemd/ccatv.service ~/.config/systemd/user/ccatv.service
+cp systemd/ccatv-web.service ~/.config/systemd/user/ccatv-web.service
 systemctl --user daemon-reload
+```
+
+Create the token environment file used by `ccatv-web.service`:
+
+```bash
+mkdir -p ~/.config/ccatv
+cat > ~/.config/ccatv/web.env <<'EOF'
+CCATV_SERVICE_AUTH_TOKEN=replace-with-service-token
+CCATV_WEB_AUTH_TOKEN=replace-with-web-token
+EOF
+chmod 600 ~/.config/ccatv/web.env
 ```
 
 ### Package-based installation
 
 When installed via the Arch PKGBUILD or Debian package, the unit is placed in
-`/usr/lib/systemd/user/ccatv.service`. This makes it available to every user on
-the system without any manual copying — `systemctl --user daemon-reload` is
-sufficient after installation.
+`/usr/lib/systemd/user/ccatv.service` and `/usr/lib/systemd/user/ccatv-web.service`.
+This makes them available to every user on the system without any manual
+copying — `systemctl --user daemon-reload` is sufficient after installation.
 
 ## Lifecycle commands
 
@@ -47,7 +70,9 @@ After installation:
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now ccatv.service
+systemctl --user enable --now ccatv-web.service
 systemctl --user status ccatv.service
+systemctl --user status ccatv-web.service
 ```
 
 Common lifecycle operations:
@@ -58,6 +83,12 @@ systemctl --user stop ccatv.service
 systemctl --user restart ccatv.service
 systemctl --user status ccatv.service
 journalctl --user-unit ccatv.service -f
+
+systemctl --user start ccatv-web.service
+systemctl --user stop ccatv-web.service
+systemctl --user restart ccatv-web.service
+systemctl --user status ccatv-web.service
+journalctl --user-unit ccatv-web.service -f
 ```
 
 ## Running without an active login session (linger)
@@ -138,3 +169,11 @@ ccatv setup --host druidmedia --adapter-count 4 --username your-user
 ## Known limitation
 
 The current unit runs only the scheduler-loop mode. If you want to experiment with the M3 IPC transport, run `ccatv-service --socket-path ...` manually or create a separate experimental unit until the transport and worker loop are unified.
+
+## Remote host pattern (for example `druidmedia`)
+
+When recorder and Flask run on the same host:
+
+- keep `ccatv-service` HTTP transport on `127.0.0.1:8787`
+- run `ccatv-web` on `0.0.0.0:5000` if LAN clients need access
+- keep `CCATV_WEB_AUTH_TOKEN` set so `/api/*` routes require bearer auth
