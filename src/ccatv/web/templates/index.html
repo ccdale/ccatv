@@ -37,6 +37,8 @@
       h1, h2, h3, p { margin: 0; }
       .hero h1 { font-size: clamp(2.1rem, 5vw, 4rem); line-height: 0.95; letter-spacing: -0.05em; text-transform: lowercase; }
       .hero p { max-width: 62rem; margin-top: 0.75rem; color: var(--muted); font-size: 1.02rem; }
+      .hero-links { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+      .hero-links a { color: var(--accent); text-decoration: none; font-weight: 700; }
       .auth-bar { margin-top: 1.25rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.75rem; }
       input, button { font: inherit; }
       input { min-width: 0; padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.82); }
@@ -54,9 +56,12 @@
       .panel-header p { margin-top: 0.35rem; color: var(--muted); font-size: 0.95rem; }
       .panel-body { padding: 1rem; }
       .channel-list, .programme-list, .schedule-list { display: grid; gap: 0.75rem; }
+      .channel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.6rem; align-items: stretch; }
       .channel-button, .programme-card, .schedule-card { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel-strong); color: var(--ink); border-radius: 22px; }
       .channel-button { padding: 0.95rem 1rem; }
       .channel-button.active { background: var(--accent-soft); border-color: rgba(15, 118, 110, 0.35); }
+      .channel-favorite { min-width: 3.5rem; padding-inline: 0.8rem; background: #fff5e8; color: #8a3b00; border: 1px solid #f4d7b3; }
+      .channel-favorite.active { background: #ffe8c7; color: #6b2f00; border-color: #f0bf7a; }
       .channel-meta, .programme-meta, .schedule-meta, .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
       .programme-card, .schedule-card { display: grid; gap: 0.9rem; padding: 1rem; }
       .programme-card h3, .schedule-card h3 { font-size: 1.16rem; }
@@ -80,6 +85,9 @@
       <section class="hero">
         <h1>ccatv web</h1>
         <p>Sign in with the web token, load channels, view today's programmes for one channel, and queue a recording while keeping scheduled jobs visible.</p>
+        <div class="hero-links">
+          <a href="/channel-manager">Open Channel Manager</a>
+        </div>
         <div class="auth-bar">
           <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
           <button id="login-button" type="button">Sign in</button>
@@ -230,6 +238,14 @@
         return parts.join(" | ");
       }
 
+      async function saveFavoriteChannel(channel, favorite) {
+        await fetchJson("/api/channels/favorite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelName: channel.name, favorite }),
+        });
+      }
+
       function renderChannels() {
         channelList.replaceChildren();
         if (!isAuthenticated) {
@@ -247,6 +263,9 @@
           return;
         }
         for (const channel of channels) {
+          const row = document.createElement("div");
+          row.className = "channel-row";
+
           const button = document.createElement("button");
           button.type = "button";
           button.className = "channel-button" + (selectedChannel && selectedChannel.name === channel.name ? " active" : "");
@@ -257,7 +276,28 @@
           meta.className = "channel-meta";
           meta.textContent = formatChannelMeta(channel);
           button.append(name, meta);
-          channelList.append(button);
+
+          const favoriteButton = document.createElement("button");
+          favoriteButton.type = "button";
+          favoriteButton.className = "channel-favorite" + (channel.favoriteChannel ? " active" : "");
+          favoriteButton.title = channel.favoriteChannel ? "Remove from favourites" : "Add to favourites";
+          favoriteButton.setAttribute("aria-label", channel.favoriteChannel ? `Remove ${channel.name} from favourites` : `Add ${channel.name} to favourites`);
+          favoriteButton.textContent = channel.favoriteChannel ? "★" : "☆";
+          favoriteButton.addEventListener("click", async () => {
+            favoriteButton.disabled = true;
+            try {
+              await saveFavoriteChannel(channel, !channel.favoriteChannel);
+              await loadChannels();
+              setStatus(`${channel.name} favourite ${!channel.favoriteChannel ? "enabled" : "cleared"}.`);
+            } catch (error) {
+              setStatus(error.message, "error");
+            } finally {
+              favoriteButton.disabled = false;
+            }
+          });
+
+          row.append(button, favoriteButton);
+          channelList.append(row);
         }
       }
 

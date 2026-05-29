@@ -516,7 +516,7 @@ def test_dispatch_metadata_channels_dvbservices_list_returns_sorted_unique_servi
     assert response["ok"] is True
     assert response["payload"]["available"] is True
     assert response["payload"]["error"] is None
-    assert response["payload"]["services"] == ["5 HD", "BBC TWO HD", "QUEST", "quest"]
+    assert response["payload"]["services"] == ["5 HD", "BBC TWO HD", "QUEST"]
 
 
 def test_dispatch_metadata_channels_dvbservices_list_handles_runtime_failure() -> None:

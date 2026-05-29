@@ -115,6 +115,7 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "Sign in" in body
     assert "Record programme" in body
     assert "Scheduled recordings" in body
+    assert "Channel Manager" in body
     assert stub.calls == []
 
 

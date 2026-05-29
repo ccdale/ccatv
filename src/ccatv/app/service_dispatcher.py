@@ -553,7 +553,13 @@ class ServiceCommandDispatcher:
                 "services": [],
             }
 
-        deduped = sorted(set(services), key=lambda value: value.casefold())
+        deduped_by_name: dict[str, str] = {}
+        for service in services:
+            key = service.casefold()
+            if key not in deduped_by_name:
+                deduped_by_name[key] = service
+
+        deduped = sorted(deduped_by_name.values(), key=lambda value: value.casefold())
         return {
             "available": True,
             "error": None,
