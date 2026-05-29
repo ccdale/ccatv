@@ -109,6 +109,7 @@ Flask desktop frontend (first M6 integration):
 	- `GET /api/health`
 	- `GET /api/service/info`
 	- `GET /api/schedules?state=...`
+	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
 	- `POST /api/schedules`
 
 Systemd and packaging docs:
@@ -220,6 +221,7 @@ Notes:
 	- `GET /api/health`
 	- `GET /api/service/info`
 	- `GET /api/schedules?state=...`
+	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
 	- `POST /api/schedules`
 
 ### 6. GTK4 app installation status

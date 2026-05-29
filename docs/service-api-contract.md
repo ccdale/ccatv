@@ -118,6 +118,7 @@ Response payload:
     "service.info",
     "recording.schedule",
     "recording.worker.cycle",
+    "metadata.guide",
     "metadata.sd.sync",
     "runtime.setup"
   ],
@@ -127,6 +128,7 @@ Response payload:
     "recording.schedule.create",
     "recording.schedule.list",
     "recording.worker.cycle.run",
+    "metadata.guide.list",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
     "runtime.setup.save"
@@ -154,6 +156,7 @@ This maps existing CLI/runtime flows to the M1 service command surface.
 | service metadata + features | `service.info.get` | Implemented | Returns app metadata, API version, and concrete capability list. |
 | `ccatv setup` runtime credential/config mutation | `runtime.setup.save` | Implemented | CLI now routes setup persistence through service command dispatch path. |
 | scheduler create/list APIs | `recording.schedule.create`, `recording.schedule.list` | Implemented | Dispatcher now supports scheduling and listing jobs through service command handlers. |
+| one-channel guide listing API | `metadata.guide.list` | Implemented | Returns channel-filtered guide broadcasts in a target UTC window for Flask channel/programme selection workflows. |
 | metadata checkpoint/status read | `metadata.sd.sync.status.get` | Implemented | Dispatcher now returns latest ingest run and checkpoint for Schedules Direct. |
 
 ### Recorder Scheduling
@@ -179,6 +182,52 @@ Response payload:
     "id": 123,
     "state": "scheduled"
   }
+}
+```
+
+### Guide Listing
+
+#### `metadata.guide.list`
+- Purpose: List guide programmes for one channel inside a UTC time window.
+
+Payload:
+
+```json
+{
+  "channel": "BBC TWO HD",
+  "startAtUtc": "2026-05-24T19:00:00Z",
+  "windowHours": 4
+}
+```
+
+Notes:
+- `channel` is required.
+- `startAtUtc` is optional; when omitted, current UTC time is used.
+- `windowHours` is optional and must be greater than 0.
+
+Response payload:
+
+```json
+{
+  "channel": "BBC TWO HD",
+  "window": {
+    "startAtUtc": "2026-05-24T19:00:00Z",
+    "endAtUtc": "2026-05-24T23:00:00Z"
+  },
+  "programs": [
+    {
+      "source": "schedules_direct",
+      "sourceChannelId": "100",
+      "channelName": "BBC TWO HD",
+      "callsign": "BBCTWO",
+      "logicalChannelNumber": "2",
+      "startAtUtc": "2026-05-24T19:00:00Z",
+      "stopAtUtc": "2026-05-24T20:00:00Z",
+      "durationSeconds": 3600,
+      "title": "Newsnight",
+      "description": "Late-night news and analysis"
+    }
+  ]
 }
 ```
 
