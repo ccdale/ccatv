@@ -112,8 +112,7 @@ Flask desktop frontend (first M6 integration):
 	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
 	- `POST /api/schedules`
 
-Systemd and packaging docs:
-- [docs/systemd-operations.md](/home/chris/src/ccatv/docs/systemd-operations.md)
+Packaging docs:
 - [docs/packaging.md](/home/chris/src/ccatv/docs/packaging.md)
 
 ## Installation and Runbook
@@ -153,60 +152,7 @@ This writes:
 - `~/.config/dvbstreamer/userconfig.json`
 - `~/.config/ccatv/runtime.json`
 
-### 3. Install and run ccatv-service (user service)
-
-Manual install of the systemd user unit:
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp systemd/ccatv.service ~/.config/systemd/user/ccatv.service
-systemctl --user daemon-reload
-systemctl --user enable --now ccatv.service
-systemctl --user status ccatv.service
-```
-
-Useful operations:
-
-```bash
-systemctl --user restart ccatv.service
-journalctl --user-unit ccatv.service -f
-```
-
-If the host should keep recording after logout:
-
-```bash
-loginctl enable-linger $USER
-```
-
-### 4. Install and run ccatv-api (user service for Flask upstream)
-
-Manual install of the API transport unit:
-
-```bash
-cp systemd/ccatv-api.service ~/.config/systemd/user/ccatv-api.service
-mkdir -p ~/.config/ccatv
-cat > ~/.config/ccatv/web.env <<'EOF'
-CCATV_SERVICE_AUTH_TOKEN=YOUR_SERVICE_TOKEN
-CCATV_WEB_AUTH_TOKEN=YOUR_WEB_TOKEN
-
-# Optional topology overrides (defaults shown)
-CCATV_API_BIND_HOST=127.0.0.1
-CCATV_API_PORT=8787
-CCATV_WEB_LISTEN_HOST=0.0.0.0
-CCATV_WEB_LISTEN_PORT=5000
-CCATV_WEB_SERVICE_HOST=127.0.0.1
-CCATV_WEB_SERVICE_PORT=8787
-EOF
-chmod 600 ~/.config/ccatv/web.env
-systemctl --user daemon-reload
-systemctl --user enable --now ccatv-api.service
-systemctl --user status ccatv-api.service
-```
-
-If `ccatv-web` runs on a different host than recorder API, set `CCATV_WEB_SERVICE_HOST`
-and `CCATV_WEB_SERVICE_PORT` in `web.env` to the recorder API endpoint.
-
-### 5. Run ccatv-service HTTP transport manually (alternative)
+### 3. Run ccatv-service HTTP transport manually
 
 If you want a remote desktop Flask UI to talk to the recorder host, run service HTTP transport:
 
@@ -220,7 +166,7 @@ Security guidance:
 - Prefer LAN-only exposure plus firewall rules.
 - If possible, terminate TLS at a reverse proxy on the recorder host.
 
-### 6. Install and run Flask backend (remote desktop)
+### 4. Install and run Flask backend (remote desktop)
 
 On your desktop machine:
 
@@ -252,7 +198,7 @@ Notes:
 	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
 	- `POST /api/schedules`
 
-### 7. GTK4 app installation status
+### 5. GTK4 app installation status
 
 GTK4 live UI shell is not fully implemented yet, so there is currently no end-user `ccatv-gtk` entrypoint to install/run.
 
