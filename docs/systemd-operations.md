@@ -146,7 +146,7 @@ The supplied unit uses conservative hardening and restart defaults:
 - `RestartSec=5`
 - `NoNewPrivileges=yes`
 - `PrivateTmp=yes`
-- `ProtectSystem=strict`
+- `ProtectSystem=full`
 
 Recommended adjustments only if operational evidence requires them:
 

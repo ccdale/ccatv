@@ -11,7 +11,7 @@ Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=strict
+ProtectSystem=full
 
 [Install]
 WantedBy=default.target
