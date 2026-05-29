@@ -20,7 +20,7 @@ makepkg -si
 
 Notes:
 
-- the package installs the Python application, `ccatv-service`, `ccatv-web`, and both systemd user units (`ccatv.service`, `ccatv-web.service`)
+- the package installs the Python application, `ccatv-service`, `ccatv-web`, and systemd user units (`ccatv.service`, `ccatv-api.service`, `ccatv-web.service`)
 - review `depends` and `makedepends` against the target machine before publishing
 
 ## Debian-family systems
@@ -48,6 +48,7 @@ PKGVER=$(uv version --short)
 rm -rf .pkgroot
 mkdir -p .pkgroot/usr/lib/systemd/user
 cp systemd/ccatv.service .pkgroot/usr/lib/systemd/user/
+cp systemd/ccatv-api.service .pkgroot/usr/lib/systemd/user/
 cp systemd/ccatv-web.service .pkgroot/usr/lib/systemd/user/
 python -m installer --destdir=.pkgroot --prefix=/usr/local dist/*.whl
 ```
@@ -88,7 +89,9 @@ Install it:
 sudo dpkg -i "ccatv_${PKGVER}_all.deb"
 systemctl --user daemon-reload
 systemctl --user enable --now ccatv.service
-# optional web frontend unit (requires ~/.config/ccatv/web.env tokens)
+# HTTP API transport unit (requires ~/.config/ccatv/web.env service token)
+systemctl --user enable --now ccatv-api.service
+# optional web frontend unit (requires ~/.config/ccatv/web.env web token)
 systemctl --user enable --now ccatv-web.service
 ```
 

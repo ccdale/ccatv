@@ -178,7 +178,24 @@ If the host should keep recording after logout:
 loginctl enable-linger $USER
 ```
 
-### 4. Run ccatv-service HTTP transport for remote Flask clients
+### 4. Install and run ccatv-api (user service for Flask upstream)
+
+Manual install of the API transport unit:
+
+```bash
+cp systemd/ccatv-api.service ~/.config/systemd/user/ccatv-api.service
+mkdir -p ~/.config/ccatv
+cat > ~/.config/ccatv/web.env <<'EOF'
+CCATV_SERVICE_AUTH_TOKEN=YOUR_SERVICE_TOKEN
+CCATV_WEB_AUTH_TOKEN=YOUR_WEB_TOKEN
+EOF
+chmod 600 ~/.config/ccatv/web.env
+systemctl --user daemon-reload
+systemctl --user enable --now ccatv-api.service
+systemctl --user status ccatv-api.service
+```
+
+### 5. Run ccatv-service HTTP transport manually (alternative)
 
 If you want a remote desktop Flask UI to talk to the recorder host, run service HTTP transport:
 
@@ -192,7 +209,7 @@ Security guidance:
 - Prefer LAN-only exposure plus firewall rules.
 - If possible, terminate TLS at a reverse proxy on the recorder host.
 
-### 5. Install and run Flask backend (remote desktop)
+### 6. Install and run Flask backend (remote desktop)
 
 On your desktop machine:
 
@@ -224,7 +241,7 @@ Notes:
 	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
 	- `POST /api/schedules`
 
-### 6. GTK4 app installation status
+### 7. GTK4 app installation status
 
 GTK4 live UI shell is not fully implemented yet, so there is currently no end-user `ccatv-gtk` entrypoint to install/run.
 

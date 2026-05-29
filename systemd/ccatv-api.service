@@ -1,0 +1,17 @@
+[Unit]
+Description=ccatv HTTP API transport
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/ccatv/web.env
+ExecStart=/usr/local/bin/ccatv-service --http-bind-host 127.0.0.1 --http-port 8787 --http-auth-token ${CCATV_SERVICE_AUTH_TOKEN}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=default.target
