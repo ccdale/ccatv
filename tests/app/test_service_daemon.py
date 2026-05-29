@@ -41,6 +41,19 @@ class StubWorker:
 @dataclass(slots=True)
 class StubContext:
     logger: logging.Logger
+    dvbstreamer: object = field(default_factory=lambda: StubDvbStreamer())
+
+
+@dataclass(slots=True)
+class StubDvbStreamer:
+    started: int = 0
+    fail_start: bool = False
+
+    def start(self):
+        self.started += 1
+        if self.fail_start:
+            raise RuntimeError("dvbstreamer failed to launch")
+        return SimpleNamespace(state="running", pid=1234)
 
 
 @dataclass(slots=True)
@@ -117,6 +130,58 @@ def test_run_service_daemon_once(monkeypatch) -> None:
     assert result == 0
     assert worker.ran_cycle is True
     assert worker.cycle_count == 1
+
+
+def test_run_service_daemon_starts_dvbstreamer_before_cycle(monkeypatch) -> None:
+    worker = StubWorker()
+    dvbstreamer = StubDvbStreamer()
+    context = StubContext(
+        logger=logging.getLogger("test.daemon.start_dvbstreamer"),
+        dvbstreamer=dvbstreamer,
+    )
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=True,
+    )
+
+    assert result == 0
+    assert dvbstreamer.started == 1
+    assert worker.cycle_count == 1
+
+
+def test_run_service_daemon_returns_error_when_dvbstreamer_fails_to_start(
+    monkeypatch,
+) -> None:
+    worker = StubWorker()
+    context = StubContext(
+        logger=logging.getLogger("test.daemon.start_dvbstreamer.error"),
+        dvbstreamer=StubDvbStreamer(fail_start=True),
+    )
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=True,
+    )
+
+    assert result == 1
+    assert worker.cycle_count == 0
 
 
 def test_run_service_daemon_once_returns_error_on_cycle_failure(monkeypatch) -> None:

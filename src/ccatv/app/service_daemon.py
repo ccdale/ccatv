@@ -600,6 +600,19 @@ def run_service_daemon(
         poll_interval_seconds,
     )
 
+    dvbstreamer = getattr(context, "dvbstreamer", None)
+    if dvbstreamer is not None:
+        try:
+            status = dvbstreamer.start()
+        except Exception:
+            logger.exception("service daemon failed to start dvbstreamer")
+            return 1
+        logger.info(
+            "dvbstreamer manager started (state=%s, pid=%s)",
+            getattr(status, "state", None),
+            getattr(status, "pid", None),
+        )
+
     if run_once:
         try:
             if worker_cycle_lock is None:
