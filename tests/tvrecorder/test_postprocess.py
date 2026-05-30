@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from ccatv.tvrecorder.postprocess import (
     NfoSidecarPostProcessingRunner,
@@ -69,3 +70,64 @@ def test_nfo_sidecar_postprocessor_can_overwrite_existing(tmp_path: Path) -> Non
 
     assert result.success is True
     assert "<title>Newsnight</title>" in nfo_path.read_text(encoding="utf-8")
+
+
+def test_nfo_sidecar_postprocessor_runs_comskip_with_requested_command(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "recordings" / "sample.ts"
+    captured: list[list[str]] = []
+
+    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        captured.append(command)
+        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+
+    request = PostProcessingRequest(
+        recording_id=1,
+        channel_name="BBC TWO HD",
+        output_path=str(output_path),
+        program_title="Newsnight",
+    )
+
+    result = NfoSidecarPostProcessingRunner(
+        run_comskip=True,
+        comskip_command=(
+            "/usr/bin/comskip",
+            "--ini=~/.config/comskip/comskip.ini",
+        ),
+        process_runner=_runner,
+    ).run(request)
+
+    assert result.success is True
+    assert captured == [
+        [
+            "/usr/bin/comskip",
+            f"--ini={Path.home()}/.config/comskip/comskip.ini",
+            str(output_path),
+        ]
+    ]
+
+
+def test_nfo_sidecar_postprocessor_handles_missing_comskip_executable(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "recordings" / "sample.ts"
+
+    def _runner(_command: list[str]) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError()
+
+    request = PostProcessingRequest(
+        recording_id=1,
+        channel_name="BBC TWO HD",
+        output_path=str(output_path),
+        program_title="Newsnight",
+    )
+
+    result = NfoSidecarPostProcessingRunner(
+        run_comskip=True,
+        process_runner=_runner,
+    ).run(request)
+
+    assert result.success is True
+    assert result.message is not None
+    assert "comskip executable not found" in result.message

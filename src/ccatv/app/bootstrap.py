@@ -102,7 +102,13 @@ def bootstrap_app() -> AppContext:
             post_finish_seconds=settings.recording_post_finish_seconds,
             pre_start_seconds=settings.recording_pre_start_seconds,
         ),
-        post_processor=NfoSidecarPostProcessingRunner(),
+        post_processor=NfoSidecarPostProcessingRunner(
+            run_comskip=True,
+            comskip_command=(
+                "/usr/bin/comskip",
+                f"--ini={Path.home()}/.config/comskip/comskip.ini",
+            ),
+        ),
     )
     recorder_orchestrator = RecorderOrchestrator(
         service=tvrecorder,
