@@ -15,7 +15,7 @@ from ccatv.tvrecorder.orchestrator import (
     PeriodicCheckPolicy,
     RecorderOrchestrator,
 )
-from ccatv.tvrecorder.postprocess import NoOpPostProcessingRunner
+from ccatv.tvrecorder.postprocess import NfoSidecarPostProcessingRunner
 from ccatv.tvrecorder.preflight import WritePreflightChecker
 from ccatv.tvrecorder.service import (
     RecordingHealthCheckPolicy,
@@ -102,7 +102,7 @@ def bootstrap_app() -> AppContext:
             post_finish_seconds=settings.recording_post_finish_seconds,
             pre_start_seconds=settings.recording_pre_start_seconds,
         ),
-        post_processor=NoOpPostProcessingRunner(),
+        post_processor=NfoSidecarPostProcessingRunner(),
     )
     recorder_orchestrator = RecorderOrchestrator(
         service=tvrecorder,

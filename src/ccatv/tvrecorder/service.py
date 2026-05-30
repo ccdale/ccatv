@@ -284,6 +284,10 @@ class TvRecorderService:
             recording_id=recording.id,
             channel_name=recording.channel_name,
             output_path=recording.output_path,
+            program_title=recording.program_title,
+            program_description=recording.program_description,
+            program_start_at_utc=recording.program_start_at_utc,
+            program_stop_at_utc=recording.program_stop_at_utc,
         )
 
         try:
