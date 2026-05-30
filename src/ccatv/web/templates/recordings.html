@@ -51,6 +51,9 @@
       th { position: sticky; top: 0; background: #faf7ff; font-size: 0.93rem; }
       td small { display: block; margin-top: 0.2rem; color: var(--muted); }
       .pill { display: inline-flex; align-items: center; padding: 0.32rem 0.55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.9rem; }
+      .pill.state-failed { background: rgba(127, 29, 29, 0.16); color: #7f1d1d; }
+      .pill.state-running { background: rgba(30, 64, 175, 0.16); color: #1e40af; }
+      .pill.state-recorded { background: rgba(22, 101, 52, 0.16); color: #166534; }
       .title-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
       .recording-description { margin-top: 0.45rem; color: var(--muted); white-space: pre-wrap; }
       .recording-description[hidden] { display: none; }
@@ -173,6 +176,20 @@
         return recording.description || recording.descriptionLong || recording.descriptionShort || "No description available for this recording.";
       }
 
+      function statePresentation(recording) {
+        const raw = String(recording.state || "").toLowerCase();
+        if (raw === "failed") {
+          return { label: "Failed", className: "state-failed" };
+        }
+        if (raw === "recording" || raw === "running" || raw === "post_processing") {
+          return { label: "Running", className: "state-running" };
+        }
+        if (raw === "ready" || raw === "capture_completed" || raw === "recorded") {
+          return { label: "Recorded", className: "state-recorded" };
+        }
+        return { label: recording.state || "unknown", className: "" };
+      }
+
       function renderRecordings() {
         recordingTableBody.replaceChildren();
         if (!isAuthenticated) {
@@ -222,8 +239,9 @@
 
           const stateCell = document.createElement("td");
           const pill = document.createElement("span");
-          pill.className = "pill";
-          pill.textContent = recording.state || "unknown";
+          const state = statePresentation(recording);
+          pill.className = `pill ${state.className}`.trim();
+          pill.textContent = state.label;
           stateCell.append(pill);
 
           row.append(programmeCell, channelCell, datetimeCell, sizeCell, stateCell);
