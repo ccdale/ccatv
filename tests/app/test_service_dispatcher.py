@@ -339,6 +339,53 @@ def test_dispatch_recording_list_prefers_persisted_programme_snapshot() -> None:
     assert recording["programStopAtUtc"] == "2026-05-29T21:30:00Z"
 
 
+def test_dispatch_recording_delete_removes_row_and_files(tmp_path: Path) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    output_path = tmp_path / "recordings" / "bbc2.ts"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"recording")
+    output_path.with_suffix(".nfo").write_text("meta", encoding="utf-8")
+
+    created = context.persistence.create_recording(
+        channel_name="BBC TWO HD",
+        output_path=str(output_path),
+        state="ready",
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.delete",
+            "payload": {"id": created.id, "deleteFiles": True},
+        }
+    )
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["id"] == created.id
+    assert str(output_path) in payload["fileDelete"]["deleted"]
+    assert str(output_path.with_suffix(".nfo")) in payload["fileDelete"]["deleted"]
+    assert context.persistence.get_recording(created.id) is None
+
+
+def test_dispatch_recording_delete_not_found_returns_not_found() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.delete",
+            "payload": {"id": 999},
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "NOT_FOUND"
+
+
 def test_dispatch_recording_metadata_backfill_uses_epg_match() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -1357,6 +1404,7 @@ def test_service_commands_are_dispatchable(
                 "durationSeconds": 120,
             },
         ),
+        ("recording.delete", {"id": 1, "deleteFiles": False}),
         ("recording.schedule.list", {}),
         ("recording.metadata.backfill", {"dryRun": True, "limit": 1}),
         ("recording.worker.cycle.run", {}),

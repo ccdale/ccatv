@@ -57,6 +57,9 @@
       .title-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
       .recording-description { margin-top: 0.45rem; color: var(--muted); white-space: pre-wrap; }
       .recording-description[hidden] { display: none; }
+      .danger { background: rgba(127, 29, 29, 0.10); color: #7f1d1d; border: 1px solid rgba(127, 29, 29, 0.25); }
+      .pagination { margin-top: 0.9rem; display: flex; justify-content: flex-end; align-items: center; gap: 0.6rem; }
+      .pagination .meta { color: var(--muted); font-size: 0.92rem; }
       .empty { padding: 1.4rem; color: var(--muted); }
       @media (max-width: 760px) {
         main { width: calc(100vw - 1rem); }
@@ -94,14 +97,20 @@
               <th style="width: 18%;">Channel</th>
               <th style="width: 22%;">Date and Time</th>
               <th style="width: 12%;">File Size</th>
-              <th style="width: 18%;">State</th>
+              <th style="width: 10%;">State</th>
+              <th style="width: 8%;">Actions</th>
             </tr>
           </thead>
           <tbody id="recording-table-body">
-            <tr><td class="empty" colspan="5">Sign in to load recordings.</td></tr>
+            <tr><td class="empty" colspan="6">Sign in to load recordings.</td></tr>
           </tbody>
         </table>
       </section>
+      <div class="pagination">
+        <span id="pagination-meta" class="meta"></span>
+        <button id="prev-page-button" class="ghost" type="button">Previous</button>
+        <button id="next-page-button" class="ghost" type="button">Next</button>
+      </div>
     </main>
 
     <script>
@@ -112,9 +121,14 @@
       const refreshButton = document.getElementById("refresh-button");
       const statusNode = document.getElementById("status");
       const recordingTableBody = document.getElementById("recording-table-body");
+      const paginationMeta = document.getElementById("pagination-meta");
+      const prevPageButton = document.getElementById("prev-page-button");
+      const nextPageButton = document.getElementById("next-page-button");
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let recordings = [];
+      const pageSize = 10;
+      let currentPage = 1;
 
       class ApiError extends Error {
         constructor(message, code = null) {
@@ -193,15 +207,22 @@
       function renderRecordings() {
         recordingTableBody.replaceChildren();
         if (!isAuthenticated) {
-          recordingTableBody.innerHTML = '<tr><td class="empty" colspan="5">Sign in to load recordings.</td></tr>';
+          recordingTableBody.innerHTML = '<tr><td class="empty" colspan="6">Sign in to load recordings.</td></tr>';
+          renderPagination(0, 0);
           return;
         }
         if (!recordings.length) {
-          recordingTableBody.innerHTML = '<tr><td class="empty" colspan="5">No recordings found.</td></tr>';
+          recordingTableBody.innerHTML = '<tr><td class="empty" colspan="6">No recordings found.</td></tr>';
+          renderPagination(0, 0);
           return;
         }
 
-        for (const recording of recordings) {
+        const totalPages = Math.max(1, Math.ceil(recordings.length / pageSize));
+        currentPage = Math.min(Math.max(currentPage, 1), totalPages);
+        const offset = (currentPage - 1) * pageSize;
+        const pagedRecordings = recordings.slice(offset, offset + pageSize);
+
+        for (const recording of pagedRecordings) {
           const row = document.createElement("tr");
 
           const programmeCell = document.createElement("td");
@@ -244,8 +265,52 @@
           pill.textContent = state.label;
           stateCell.append(pill);
 
-          row.append(programmeCell, channelCell, datetimeCell, sizeCell, stateCell);
+          const actionsCell = document.createElement("td");
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "danger";
+          deleteButton.textContent = "Delete";
+          deleteButton.addEventListener("click", () => { void deleteRecording(recording, deleteButton); });
+          actionsCell.append(deleteButton);
+
+          row.append(programmeCell, channelCell, datetimeCell, sizeCell, stateCell, actionsCell);
           recordingTableBody.append(row);
+        }
+
+        renderPagination(totalPages, recordings.length);
+      }
+
+      function renderPagination(totalPages, totalItems) {
+        if (totalItems <= 0) {
+          paginationMeta.textContent = "";
+          prevPageButton.disabled = true;
+          nextPageButton.disabled = true;
+          return;
+        }
+        const start = (currentPage - 1) * pageSize + 1;
+        const end = Math.min(currentPage * pageSize, totalItems);
+        paginationMeta.textContent = `Showing ${start}-${end} of ${totalItems}`;
+        prevPageButton.disabled = currentPage <= 1;
+        nextPageButton.disabled = currentPage >= totalPages;
+      }
+
+      async function deleteRecording(recording, button) {
+        if (!window.confirm(`Delete recording ${recording.id}? This removes it from the list and deletes related files.`)) {
+          return;
+        }
+        button.disabled = true;
+        try {
+          await fetchJson(`/api/recordings/${recording.id}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deleteFiles: true }),
+          });
+          recordings = recordings.filter((item) => item.id !== recording.id);
+          renderRecordings();
+          setStatus(`Deleted recording ${recording.id}.`);
+        } catch (error) {
+          setStatus(error.message, "error");
+          button.disabled = false;
         }
       }
 
@@ -318,6 +383,15 @@
         void loadRecordings()
           .then(() => setStatus(`Loaded ${recordings.length} recording(s).`))
           .catch((error) => setStatus(error.message, "error"));
+      });
+      prevPageButton.addEventListener("click", () => {
+        currentPage = Math.max(1, currentPage - 1);
+        renderRecordings();
+      });
+      nextPageButton.addEventListener("click", () => {
+        const totalPages = Math.max(1, Math.ceil(recordings.length / pageSize));
+        currentPage = Math.min(totalPages, currentPage + 1);
+        renderRecordings();
       });
       tokenInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {

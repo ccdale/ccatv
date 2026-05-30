@@ -55,6 +55,7 @@ SERVICE_COMMANDS = [
     "service.health.get",
     "service.info.get",
     "recording.list",
+    "recording.delete",
     "recording.schedule.create",
     "recording.schedule.list",
     "recording.metadata.backfill",
@@ -167,6 +168,8 @@ class ServiceCommandDispatcher:
             return self._service_info_get()
         if command == "recording.list":
             return self._recording_list(payload)
+        if command == "recording.delete":
+            return self._recording_delete(payload)
         if command == "recording.schedule.create":
             return self._recording_schedule_create(payload)
         if command == "recording.schedule.list":
@@ -432,6 +435,72 @@ class ServiceCommandDispatcher:
         recordings = self._context.persistence.list_recordings()
         return {
             "recordings": [self._recording_summary_payload(recording) for recording in recordings]
+        }
+
+    def _recording_delete(self, payload: dict[str, object]) -> dict[str, object]:
+        recording_id = payload.get("id")
+        if not isinstance(recording_id, int) or recording_id < 1:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="id must be a positive integer",
+            )
+
+        delete_files = payload.get("deleteFiles", True)
+        if not isinstance(delete_files, bool):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="deleteFiles must be a boolean when provided",
+            )
+
+        try:
+            deleted = self._context.persistence.delete_recording(recording_id)
+        except ValueError as exc:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=str(exc),
+            ) from exc
+
+        file_result = {
+            "deleted": [],
+            "missing": [],
+            "errors": [],
+        }
+        if delete_files:
+            file_result = self._delete_recording_files(deleted.output_path)
+
+        return {
+            "id": deleted.id,
+            "outputPath": deleted.output_path,
+            "deleteFiles": delete_files,
+            "fileDelete": file_result,
+        }
+
+    def _delete_recording_files(self, output_path: str) -> dict[str, list[object]]:
+        targets = [
+            Path(output_path),
+            Path(output_path).with_suffix(".nfo"),
+            Path(output_path).with_suffix(".edl"),
+            Path(output_path).with_suffix(".txt"),
+            Path(output_path).with_suffix(".log"),
+        ]
+
+        deleted: list[str] = []
+        missing: list[str] = []
+        errors: list[dict[str, str]] = []
+
+        for path in targets:
+            try:
+                path.unlink()
+                deleted.append(str(path))
+            except FileNotFoundError:
+                missing.append(str(path))
+            except OSError as exc:
+                errors.append({"path": str(path), "error": str(exc)})
+
+        return {
+            "deleted": deleted,
+            "missing": missing,
+            "errors": errors,
         }
 
     def _recording_summary_payload(self, recording) -> dict[str, object]:

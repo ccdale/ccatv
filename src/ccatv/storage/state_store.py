@@ -217,6 +217,20 @@ class PersistenceStore:
         self.connection.commit()
         return self.get_recording(recording_id, required=True)
 
+    def delete_recording(self, recording_id: int) -> RecordingStateRecord:
+        existing = self.get_recording(recording_id, required=True)
+        result = self.connection.execute(
+            """
+            DELETE FROM recordings
+            WHERE id = ?
+            """,
+            (recording_id,),
+        )
+        if result.rowcount == 0:
+            raise ValueError(f"recording id not found: {recording_id}")
+        self.connection.commit()
+        return existing
+
     def create_scheduler_job(
         self,
         *,

@@ -157,3 +157,22 @@ def test_set_favorite_channel_returns_zero_when_channel_unknown(tmp_path: Path) 
         assert store.get_favorite_channel("Unknown") is False
     finally:
         connection.close()
+
+
+def test_delete_recording_removes_row_and_returns_deleted_record(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        created = store.create_recording(
+            channel_name="BBC TWO HD",
+            output_path="/tmp/bbc2.ts",
+            state="ready",
+        )
+
+        deleted = store.delete_recording(created.id)
+
+        assert deleted.id == created.id
+        assert deleted.output_path == "/tmp/bbc2.ts"
+        assert store.get_recording(created.id) is None
+    finally:
+        connection.close()

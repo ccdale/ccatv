@@ -68,6 +68,17 @@ class _StubServiceClient:
                     }
                 ]
             }
+        if command == "recording.delete":
+            return {
+                "id": int(payload.get("id", 0)),
+                "deleteFiles": bool(payload.get("deleteFiles", True)),
+                "outputPath": "/tmp/bbc2.ts",
+                "fileDelete": {
+                    "deleted": ["/tmp/bbc2.ts"],
+                    "missing": ["/tmp/bbc2.nfo"],
+                    "errors": [],
+                },
+            }
         if command == "recording.schedule.create":
             return {"job": {"id": 1, "state": "scheduled"}}
         if command == "metadata.guide.list":
@@ -346,6 +357,53 @@ def test_recordings_list_route_forwards_command(monkeypatch) -> None:
     assert response.get_json()["ok"] is True
     assert response.get_json()["payload"]["recordings"][0]["channelName"] == "BBC TWO HD"
     assert stub.calls == [("recording.list", {})]
+
+
+def test_recordings_delete_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.delete("/api/recordings/42", json={"deleteFiles": False})
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert response.get_json()["payload"]["id"] == 42
+    assert stub.calls == [(
+        "recording.delete",
+        {"id": 42, "deleteFiles": False},
+    )]
+
+
+def test_recordings_delete_route_validates_json_object(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.delete("/api/recordings/7", json=["invalid"])
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
 
 
 def test_channel_mapping_route_forwards_payload(monkeypatch) -> None:

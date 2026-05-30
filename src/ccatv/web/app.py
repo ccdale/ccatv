@@ -316,6 +316,30 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.delete("/api/recordings/<int:recording_id>")
+    def api_recording_delete(recording_id: int):
+        body = request.get_json(silent=True)
+        if body is None:
+            body = {}
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "id": recording_id,
+            "deleteFiles": body.get("deleteFiles", True),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "recording.delete",
+            payload,
+        )
+        return jsonify(response), status_code
+
     @app.get("/api/guide")
     def api_guide_list():
         channel = request.args.get("channel", default=None, type=str)
