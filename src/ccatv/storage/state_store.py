@@ -14,6 +14,10 @@ class RecordingStateRecord:
     state: str
     started_at_utc: str | None
     ended_at_utc: str | None
+    program_title: str | None
+    program_description: str | None
+    program_start_at_utc: str | None
+    program_stop_at_utc: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +27,10 @@ class SchedulerJobRecord:
     start_at_utc: str
     duration_seconds: int
     state: str
+    program_title: str | None
+    program_description: str | None
+    program_start_at_utc: str | None
+    program_stop_at_utc: str | None
 
 
 @dataclass(slots=True)
@@ -37,6 +45,10 @@ class PersistenceStore:
         state: str,
         started_at_utc: str | None = None,
         ended_at_utc: str | None = None,
+        program_title: str | None = None,
+        program_description: str | None = None,
+        program_start_at_utc: str | None = None,
+        program_stop_at_utc: str | None = None,
     ) -> RecordingStateRecord:
         cursor = self.connection.execute(
             """
@@ -45,11 +57,25 @@ class PersistenceStore:
                 output_path,
                 state,
                 started_at_utc,
-                ended_at_utc
+                ended_at_utc,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc
             )
-            VALUES(?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (channel_name, output_path, state, started_at_utc, ended_at_utc),
+            (
+                channel_name,
+                output_path,
+                state,
+                started_at_utc,
+                ended_at_utc,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc,
+            ),
         )
         self.connection.commit()
         return self.get_recording(int(cursor.lastrowid), required=True)
@@ -62,7 +88,17 @@ class PersistenceStore:
     ) -> RecordingStateRecord | None:
         row = self.connection.execute(
             """
-            SELECT id, channel_name, output_path, state, started_at_utc, ended_at_utc
+            SELECT
+                id,
+                channel_name,
+                output_path,
+                state,
+                started_at_utc,
+                ended_at_utc,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc
             FROM recordings
             WHERE id = ?
             """,
@@ -79,12 +115,26 @@ class PersistenceStore:
             state=str(row[3]),
             started_at_utc=row[4],
             ended_at_utc=row[5],
+            program_title=row[6],
+            program_description=row[7],
+            program_start_at_utc=row[8],
+            program_stop_at_utc=row[9],
         )
 
     def list_recordings(self) -> list[RecordingStateRecord]:
         rows = self.connection.execute(
             """
-            SELECT id, channel_name, output_path, state, started_at_utc, ended_at_utc
+            SELECT
+                id,
+                channel_name,
+                output_path,
+                state,
+                started_at_utc,
+                ended_at_utc,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc
             FROM recordings
             ORDER BY id
             """
@@ -97,6 +147,10 @@ class PersistenceStore:
                 state=str(row[3]),
                 started_at_utc=row[4],
                 ended_at_utc=row[5],
+                program_title=row[6],
+                program_description=row[7],
+                program_start_at_utc=row[8],
+                program_stop_at_utc=row[9],
             )
             for row in rows
         ]
@@ -131,6 +185,38 @@ class PersistenceStore:
         self.connection.commit()
         return self.get_recording(recording_id, required=True)
 
+    def update_recording_program_snapshot(
+        self,
+        recording_id: int,
+        *,
+        program_title: str | None,
+        program_description: str | None,
+        program_start_at_utc: str | None,
+        program_stop_at_utc: str | None,
+    ) -> RecordingStateRecord:
+        result = self.connection.execute(
+            """
+            UPDATE recordings
+            SET
+                program_title = ?,
+                program_description = ?,
+                program_start_at_utc = ?,
+                program_stop_at_utc = ?
+            WHERE id = ?
+            """,
+            (
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc,
+                recording_id,
+            ),
+        )
+        if result.rowcount == 0:
+            raise ValueError(f"recording id not found: {recording_id}")
+        self.connection.commit()
+        return self.get_recording(recording_id, required=True)
+
     def create_scheduler_job(
         self,
         *,
@@ -138,6 +224,10 @@ class PersistenceStore:
         start_at_utc: str,
         duration_seconds: int,
         state: str,
+        program_title: str | None = None,
+        program_description: str | None = None,
+        program_start_at_utc: str | None = None,
+        program_stop_at_utc: str | None = None,
     ) -> SchedulerJobRecord:
         cursor = self.connection.execute(
             """
@@ -145,11 +235,24 @@ class PersistenceStore:
                 channel_name,
                 start_at_utc,
                 duration_seconds,
-                state
+                state,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc
             )
-            VALUES(?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (channel_name, start_at_utc, duration_seconds, state),
+            (
+                channel_name,
+                start_at_utc,
+                duration_seconds,
+                state,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc,
+            ),
         )
         self.connection.commit()
         return self.get_scheduler_job(int(cursor.lastrowid), required=True)
@@ -162,7 +265,16 @@ class PersistenceStore:
     ) -> SchedulerJobRecord | None:
         row = self.connection.execute(
             """
-            SELECT id, channel_name, start_at_utc, duration_seconds, state
+            SELECT
+                id,
+                channel_name,
+                start_at_utc,
+                duration_seconds,
+                state,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc
             FROM scheduler_jobs
             WHERE id = ?
             """,
@@ -178,12 +290,25 @@ class PersistenceStore:
             start_at_utc=str(row[2]),
             duration_seconds=int(row[3]),
             state=str(row[4]),
+            program_title=row[5],
+            program_description=row[6],
+            program_start_at_utc=row[7],
+            program_stop_at_utc=row[8],
         )
 
     def list_scheduler_jobs(self) -> list[SchedulerJobRecord]:
         rows = self.connection.execute(
             """
-            SELECT id, channel_name, start_at_utc, duration_seconds, state
+            SELECT
+                id,
+                channel_name,
+                start_at_utc,
+                duration_seconds,
+                state,
+                program_title,
+                program_description,
+                program_start_at_utc,
+                program_stop_at_utc
             FROM scheduler_jobs
             ORDER BY id
             """
@@ -195,6 +320,10 @@ class PersistenceStore:
                 start_at_utc=str(row[2]),
                 duration_seconds=int(row[3]),
                 state=str(row[4]),
+                program_title=row[5],
+                program_description=row[6],
+                program_start_at_utc=row[7],
+                program_stop_at_utc=row[8],
             )
             for row in rows
         ]

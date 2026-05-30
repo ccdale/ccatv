@@ -374,6 +374,10 @@ def create_app(
             "channelName": body.get("channelName"),
             "startAtUtc": body.get("startAtUtc"),
             "durationSeconds": body.get("durationSeconds"),
+            "programTitle": body.get("programTitle"),
+            "programDescription": body.get("programDescription"),
+            "programStartAtUtc": body.get("programStartAtUtc"),
+            "programStopAtUtc": body.get("programStopAtUtc"),
         }
         response, status_code = _with_client(
             _client_factory,

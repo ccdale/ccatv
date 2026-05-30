@@ -383,7 +383,66 @@ def test_epg_sync_sd_command_rejects_invalid_window(
 
     assert exit_code == 2
     assert "--window-hours must be greater than 0" in stderr.getvalue()
-    assert stub_client.executed == []
+
+
+def test_recordings_backfill_metadata_command_runs() -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+            self.closed = False
+
+        def execute(
+            self,
+            command: str,
+            payload: dict[str, object],
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "dryRun": True,
+                "scanned": 10,
+                "updatedFromEpg": 4,
+                "updatedFromNfo": 2,
+                "unchanged": 4,
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(
+        ["recordings-backfill-metadata", "--dry-run", "--limit", "25"],
+        deps=deps,
+    )
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert "Backfill complete" in stdout.getvalue()
+    assert stub_client.closed is True
+    assert stub_client.executed == [
+        (
+            "recording.metadata.backfill",
+            {"dryRun": True, "limit": 25},
+        )
+    ]
+
+
+def test_recordings_backfill_metadata_rejects_invalid_limit() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(stdout=stdout, stderr=stderr)
+
+    exit_code = main(["recordings-backfill-metadata", "--limit", "0"], deps=deps)
+
+    assert exit_code == 2
+    assert "--limit must be greater than 0" in stderr.getvalue()
 
 
 def test_epg_sync_sd_run_forever_rejects_invalid_window_without_client() -> None:

@@ -150,6 +150,44 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=6,
+        name="recording_program_snapshot_v6",
+        statements=(
+            """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_title TEXT
+            """,
+            """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_description TEXT
+            """,
+            """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_start_at_utc TEXT
+            """,
+            """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_stop_at_utc TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_title TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_description TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_start_at_utc TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_stop_at_utc TEXT
+            """,
+        ),
+    ),
 )
 
 

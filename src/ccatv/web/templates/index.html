@@ -333,7 +333,7 @@
           const body = document.createElement("div");
           body.className = "schedule-body";
           const heading = document.createElement("h3");
-          heading.textContent = job.channelName;
+          heading.textContent = job.programTitle || job.channelName;
           const meta = document.createElement("div");
           meta.className = "schedule-meta";
           meta.textContent = `${formatLongDateTime(job.startAtUtc)} | ${formatDuration(job.durationSeconds)}`;
@@ -452,7 +452,15 @@
           const payload = await fetchJson("/api/schedules", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ channelName: programme.channelName, startAtUtc: programme.startAtUtc, durationSeconds }),
+            body: JSON.stringify({
+              channelName: programme.channelName,
+              startAtUtc: programme.startAtUtc,
+              durationSeconds,
+              programTitle: programme.title,
+              programDescription: programme.description,
+              programStartAtUtc: programme.startAtUtc,
+              programStopAtUtc: programme.stopAtUtc,
+            }),
           });
           schedulingMessages.set(key, { level: "info", message: `Scheduled as job ${payload.job.id}.` });
           await loadSchedules();

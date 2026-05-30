@@ -59,7 +59,7 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
 
     assert applied_count == 0
     assert applied_versions is not None
-    assert applied_versions[0] == 5
+    assert applied_versions[0] == 6
 
 
 def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None:
@@ -77,7 +77,7 @@ def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None
         second.close()
 
     assert applied_versions is not None
-    assert applied_versions[0] == 5
+    assert applied_versions[0] == 6
 
 
 def test_migration_v4_adds_dvbstreamer_service_name_column(tmp_path: Path) -> None:
@@ -102,6 +102,27 @@ def test_migration_v5_adds_favorite_channel_column(tmp_path: Path) -> None:
         connection.close()
 
     assert "favorite_channel" in column_names
+
+
+def test_migration_v6_adds_program_snapshot_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        recording_columns = connection.execute("PRAGMA table_info(recordings)").fetchall()
+        recording_column_names = {str(row[1]) for row in recording_columns}
+        scheduler_columns = connection.execute("PRAGMA table_info(scheduler_jobs)").fetchall()
+        scheduler_column_names = {str(row[1]) for row in scheduler_columns}
+    finally:
+        connection.close()
+
+    for column in {
+        "program_title",
+        "program_description",
+        "program_start_at_utc",
+        "program_stop_at_utc",
+    }:
+        assert column in recording_column_names
+        assert column in scheduler_column_names
 
 
 def test_initialize_database_closes_connection_on_migration_error(

@@ -258,6 +258,10 @@ def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
             "channelName": "C4 HD",
             "startAtUtc": "2026-05-25T21:00:00Z",
             "durationSeconds": 1800,
+            "programTitle": "Film4 Premiere",
+            "programDescription": "A premiere event.",
+            "programStartAtUtc": "2026-05-25T21:00:00Z",
+            "programStopAtUtc": "2026-05-25T21:30:00Z",
         },
     })
 
@@ -281,6 +285,208 @@ def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
     assert isinstance(job["durationSeconds"], int)
     assert job["durationSeconds"] > 0
     assert job["state"] == "scheduled"
+    assert job["programTitle"] == "Film4 Premiere"
+    assert job["programDescription"] == "A premiere event."
+    assert job["programStartAtUtc"] == "2026-05-25T21:00:00Z"
+    assert job["programStopAtUtc"] == "2026-05-25T21:30:00Z"
+
+
+def test_dispatch_recording_list_prefers_persisted_programme_snapshot() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO recordings(
+            channel_name,
+            output_path,
+            state,
+            started_at_utc,
+            ended_at_utc,
+            program_title,
+            program_description,
+            program_start_at_utc,
+            program_stop_at_utc
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "Talking Pictures TV",
+            "/tmp/talking-pictures-tv.ts",
+            "capture_completed",
+            "2026-05-29T20:00:00Z",
+            "2026-05-29T22:00:00Z",
+            "The Saint",
+            "Simon Templar tackles an unusual mystery.",
+            "2026-05-29T20:30:00Z",
+            "2026-05-29T21:30:00Z",
+        ),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.list",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    recording = response["payload"]["recordings"][0]
+    assert recording["programTitle"] == "The Saint"
+    assert recording["description"] == "Simon Templar tackles an unusual mystery."
+    assert recording["programStartAtUtc"] == "2026-05-29T20:30:00Z"
+    assert recording["programStopAtUtc"] == "2026-05-29T21:30:00Z"
+
+
+def test_dispatch_recording_metadata_backfill_uses_epg_match() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("schedules_direct", "250", "Talking Pictures TV", "TPTV", "82"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long
+        ) VALUES(?, ?, ?, ?)
+        """,
+        (
+            "schedules_direct",
+            "prog-250-1",
+            "The Saint",
+            "Simon Templar solves a case.",
+        ),
+    )
+
+    channel_id = context.persistence.connection.execute(
+        "SELECT id FROM epg_channels WHERE source_channel_id = ?",
+        ("250",),
+    ).fetchone()
+    program_id = context.persistence.connection.execute(
+        "SELECT id FROM epg_programs WHERE source_program_id = ?",
+        ("prog-250-1",),
+    ).fetchone()
+    assert channel_id is not None
+    assert program_id is not None
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc, duration_seconds)
+        VALUES(?, ?, ?, ?, ?)
+        """,
+        (
+            int(channel_id[0]),
+            int(program_id[0]),
+            "2026-05-29T20:30:00Z",
+            "2026-05-29T21:30:00Z",
+            3600,
+        ),
+    )
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO recordings(
+            channel_name,
+            output_path,
+            state,
+            started_at_utc,
+            ended_at_utc
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        (
+            "Talking Pictures TV",
+            "/tmp/tptv.ts",
+            "capture_completed",
+            "2026-05-29T20:31:00Z",
+            "2026-05-29T21:31:00Z",
+        ),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.metadata.backfill",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["updatedFromEpg"] == 1
+    assert response["payload"]["updatedFromNfo"] == 0
+
+    recording = context.persistence.list_recordings()[0]
+    assert recording.program_title == "The Saint"
+    assert recording.program_description == "Simon Templar solves a case."
+    assert recording.program_start_at_utc == "2026-05-29T20:30:00Z"
+    assert recording.program_stop_at_utc == "2026-05-29T21:30:00Z"
+
+
+def test_dispatch_recording_metadata_backfill_uses_nfo_fallback(tmp_path: Path) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    output_path = tmp_path / "talking-pictures.ts"
+    output_path.write_bytes(b"0")
+    output_path.with_suffix(".nfo").write_text(
+        """
+        <movie>
+          <title>Cellar Club</title>
+          <plot>Classic horror showcase.</plot>
+        </movie>
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO recordings(
+            channel_name,
+            output_path,
+            state,
+            started_at_utc,
+            ended_at_utc
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        (
+            "Talking Pictures TV",
+            str(output_path),
+            "capture_completed",
+            "2026-05-29T22:00:00Z",
+            "2026-05-29T23:00:00Z",
+        ),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.metadata.backfill",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["updatedFromEpg"] == 0
+    assert response["payload"]["updatedFromNfo"] == 1
+
+    recording = context.persistence.list_recordings()[0]
+    assert recording.program_title == "Cellar Club"
+    assert recording.program_description == "Classic horror showcase."
 
 
 def test_dispatch_recording_schedule_list_returns_empty_when_no_jobs() -> None:
@@ -1152,6 +1358,7 @@ def test_service_commands_are_dispatchable(
             },
         ),
         ("recording.schedule.list", {}),
+        ("recording.metadata.backfill", {"dryRun": True, "limit": 1}),
         ("recording.worker.cycle.run", {}),
         (
             "metadata.guide.list",

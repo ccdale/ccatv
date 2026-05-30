@@ -115,6 +115,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     channel_map_parser.set_defaults(handler=run_channel_map)
 
+    recordings_backfill_parser = subparsers.add_parser(
+        "recordings-backfill-metadata",
+        help="Backfill missing recording programme metadata from EPG and NFO",
+    )
+    recordings_backfill_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="maximum number of recordings to scan",
+    )
+    recordings_backfill_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would be updated without writing changes",
+    )
+    recordings_backfill_parser.set_defaults(handler=run_recordings_backfill_metadata)
+
     return parser
 
 
@@ -355,6 +372,44 @@ def run_channel_map(args: argparse.Namespace, deps: CliDependencies) -> int:
     return 0
 
 
+def run_recordings_backfill_metadata(
+    args: argparse.Namespace,
+    deps: CliDependencies,
+) -> int:
+    if args.limit is not None and args.limit < 1:
+        print("--limit must be greater than 0", file=deps.stderr)
+        return 2
+
+    client = deps.service_client_factory()
+    try:
+        payload = {
+            "dryRun": bool(args.dry_run),
+            "limit": args.limit,
+        }
+        result = client.execute("recording.metadata.backfill", payload)
+    except ServiceClientError as exc:
+        print(f"recordings-backfill-metadata failed: {exc.message}", file=deps.stderr)
+        return 2
+    except Exception as exc:
+        print(f"recordings-backfill-metadata failed: {exc}", file=deps.stderr)
+        return 2
+    finally:
+        client.close()
+
+    print(
+        (
+            "Backfill complete "
+            f"(dry_run={result.get('dryRun')}, "
+            f"scanned={result.get('scanned')}, "
+            f"updated_from_epg={result.get('updatedFromEpg')}, "
+            f"updated_from_nfo={result.get('updatedFromNfo')}, "
+            f"unchanged={result.get('unchanged')})"
+        ),
+        file=deps.stdout,
+    )
+    return 0
+
+
 def _run_async_blocking(coroutine: object) -> object:
     try:
         asyncio.get_running_loop()
@@ -388,6 +443,7 @@ __all__ = [
     "main",
     "run_channel_map",
     "run_epg_sync_sd",
+    "run_recordings_backfill_metadata",
     "run_setup",
     "setup_main",
 ]

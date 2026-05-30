@@ -175,6 +175,10 @@ class TvRecorderService:
         channel_name: str,
         start_at_utc: str,
         duration_seconds: int,
+        program_title: str | None = None,
+        program_description: str | None = None,
+        program_start_at_utc: str | None = None,
+        program_stop_at_utc: str | None = None,
     ) -> SchedulerJobRecord:
         padded_start_utc, padded_duration_seconds = (
             self.compute_padded_recording_window(
@@ -187,6 +191,10 @@ class TvRecorderService:
             start_at_utc=padded_start_utc,
             duration_seconds=padded_duration_seconds,
             state="scheduled",
+            program_title=program_title,
+            program_description=program_description,
+            program_start_at_utc=program_start_at_utc,
+            program_stop_at_utc=program_stop_at_utc,
         )
 
     def compute_padded_recording_window(
@@ -232,12 +240,20 @@ class TvRecorderService:
         channel_name: str,
         output_path: str,
         started_at_utc: str | None = None,
+        program_title: str | None = None,
+        program_description: str | None = None,
+        program_start_at_utc: str | None = None,
+        program_stop_at_utc: str | None = None,
     ) -> RecordingStateRecord:
         return self._require_persistence().create_recording(
             channel_name=channel_name,
             output_path=output_path,
             state="recording",
             started_at_utc=started_at_utc or _now_utc_iso(),
+            program_title=program_title,
+            program_description=program_description,
+            program_start_at_utc=program_start_at_utc,
+            program_stop_at_utc=program_stop_at_utc,
         )
 
     def mark_recording_capture_completed(

@@ -212,9 +212,9 @@
           channelCell.append(channelName, recordingId);
 
           const datetimeCell = document.createElement("td");
-          datetimeCell.textContent = formatDateTime(recording.startedAtUtc);
+          datetimeCell.textContent = formatDateTime(recording.programStartAtUtc || recording.startedAtUtc);
           const endedNode = document.createElement("small");
-          endedNode.textContent = `End: ${formatDateTime(recording.endedAtUtc)}`;
+          endedNode.textContent = `End: ${formatDateTime(recording.programStopAtUtc || recording.endedAtUtc)}`;
           datetimeCell.append(endedNode);
 
           const sizeCell = document.createElement("td");

@@ -57,6 +57,7 @@ SERVICE_COMMANDS = [
     "recording.list",
     "recording.schedule.create",
     "recording.schedule.list",
+    "recording.metadata.backfill",
     "recording.worker.cycle.run",
     "metadata.channels.list",
     "metadata.channels.dvbservices.list",
@@ -170,6 +171,8 @@ class ServiceCommandDispatcher:
             return self._recording_schedule_create(payload)
         if command == "recording.schedule.list":
             return self._recording_schedule_list(payload)
+        if command == "recording.metadata.backfill":
+            return self._recording_metadata_backfill(payload)
         if command == "recording.worker.cycle.run":
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.channels.list":
@@ -440,10 +443,13 @@ class ServiceCommandDispatcher:
             "state": recording.state,
             "startedAtUtc": recording.started_at_utc,
             "endedAtUtc": recording.ended_at_utc,
-            "programTitle": nfo_metadata["programTitle"]
+            "programTitle": recording.program_title
+            or nfo_metadata["programTitle"]
             or Path(recording.output_path).stem
             or "Untitled recording",
-            "description": nfo_metadata["description"],
+            "description": recording.program_description or nfo_metadata["description"],
+            "programStartAtUtc": recording.program_start_at_utc,
+            "programStopAtUtc": recording.program_stop_at_utc,
             "fileSizeBytes": self._recording_file_size(recording.output_path),
         }
 
@@ -517,11 +523,64 @@ class ServiceCommandDispatcher:
                 message="durationSeconds must be an integer greater than 0",
             )
 
+        program_title = payload.get("programTitle")
+        if program_title is not None and not isinstance(program_title, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="programTitle must be a string when provided",
+            )
+
+        program_description = payload.get("programDescription")
+        if program_description is not None and not isinstance(program_description, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="programDescription must be a string when provided",
+            )
+
+        program_start_at_utc = payload.get("programStartAtUtc")
+        if program_start_at_utc is not None and (
+            not isinstance(program_start_at_utc, str) or not program_start_at_utc.strip()
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="programStartAtUtc must be a non-empty string when provided",
+            )
+
+        program_stop_at_utc = payload.get("programStopAtUtc")
+        if program_stop_at_utc is not None and (
+            not isinstance(program_stop_at_utc, str) or not program_stop_at_utc.strip()
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="programStopAtUtc must be a non-empty string when provided",
+            )
+
         try:
             job = self._context.tvrecorder.schedule_recording(
                 channel_name=channel_name.strip(),
                 start_at_utc=start_at_utc.strip(),
                 duration_seconds=duration_seconds,
+                program_title=(
+                    program_title.strip()
+                    if isinstance(program_title, str) and program_title.strip()
+                    else None
+                ),
+                program_description=(
+                    program_description.strip()
+                    if isinstance(program_description, str)
+                    and program_description.strip()
+                    else None
+                ),
+                program_start_at_utc=(
+                    program_start_at_utc.strip()
+                    if isinstance(program_start_at_utc, str)
+                    else None
+                ),
+                program_stop_at_utc=(
+                    program_stop_at_utc.strip()
+                    if isinstance(program_stop_at_utc, str)
+                    else None
+                ),
             )
         except ValueError as exc:
             raise ServiceCommandError(
@@ -559,9 +618,115 @@ class ServiceCommandDispatcher:
                     "startAtUtc": job.start_at_utc,
                     "durationSeconds": job.duration_seconds,
                     "state": job.state,
+                    "programTitle": job.program_title,
+                    "programDescription": job.program_description,
+                    "programStartAtUtc": job.program_start_at_utc,
+                    "programStopAtUtc": job.program_stop_at_utc,
                 }
                 for job in jobs
             ]
+        }
+
+    def _recording_metadata_backfill(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        limit = payload.get("limit")
+        if limit is not None and (not isinstance(limit, int) or limit < 1):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="limit must be an integer greater than 0 when provided",
+            )
+
+        dry_run = payload.get("dryRun", False)
+        if not isinstance(dry_run, bool):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="dryRun must be a boolean when provided",
+            )
+
+        recordings = [
+            recording
+            for recording in self._context.persistence.list_recordings()
+            if not recording.program_title
+        ]
+        if limit is not None:
+            recordings = recordings[:limit]
+
+        updated_from_epg = 0
+        updated_from_nfo = 0
+        unchanged = 0
+
+        for recording in recordings:
+            epg_match = self._match_recording_to_epg(recording)
+            if epg_match is not None:
+                if not dry_run:
+                    self._context.persistence.update_recording_program_snapshot(
+                        recording.id,
+                        program_title=epg_match["title"],
+                        program_description=epg_match["description"],
+                        program_start_at_utc=epg_match["startAtUtc"],
+                        program_stop_at_utc=epg_match["stopAtUtc"],
+                    )
+                updated_from_epg += 1
+                continue
+
+            nfo_metadata = self._read_recording_nfo(recording.output_path)
+            if nfo_metadata["programTitle"]:
+                if not dry_run:
+                    self._context.persistence.update_recording_program_snapshot(
+                        recording.id,
+                        program_title=nfo_metadata["programTitle"],
+                        program_description=nfo_metadata["description"],
+                        program_start_at_utc=recording.program_start_at_utc,
+                        program_stop_at_utc=recording.program_stop_at_utc,
+                    )
+                updated_from_nfo += 1
+                continue
+
+            unchanged += 1
+
+        return {
+            "dryRun": dry_run,
+            "scanned": len(recordings),
+            "updatedFromEpg": updated_from_epg,
+            "updatedFromNfo": updated_from_nfo,
+            "unchanged": unchanged,
+        }
+
+    def _match_recording_to_epg(self, recording) -> dict[str, str | None] | None:
+        start_utc = recording.started_at_utc or recording.program_start_at_utc
+        if not isinstance(start_utc, str) or not start_utc.strip():
+            return None
+
+        rows = self._context.persistence.connection.execute(
+            """
+            SELECT
+                b.start_utc,
+                b.stop_utc,
+                p.title,
+                p.description_long,
+                ABS(strftime('%s', b.start_utc) - strftime('%s', ?)) AS start_delta
+            FROM epg_broadcasts AS b
+            JOIN epg_channels AS c ON c.id = b.channel_id
+            JOIN epg_programs AS p ON p.id = b.program_id
+            WHERE lower(c.display_name) = lower(?)
+              AND b.start_utc >= datetime(?, '-6 hours')
+              AND b.start_utc <= datetime(?, '+6 hours')
+            ORDER BY start_delta ASC, b.start_utc ASC
+            LIMIT 1
+            """,
+            (start_utc, recording.channel_name, start_utc, start_utc),
+        ).fetchall()
+        if not rows:
+            return None
+
+        row = rows[0]
+        return {
+            "startAtUtc": str(row[0]),
+            "stopAtUtc": str(row[1]) if row[1] is not None else None,
+            "title": str(row[2]),
+            "description": str(row[3]) if row[3] is not None else None,
         }
 
     def _metadata_channels_list(

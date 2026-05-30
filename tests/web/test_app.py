@@ -507,6 +507,10 @@ def test_schedule_create_maps_service_error(monkeypatch) -> None:
             "channelName": "BBC ONE",
             "startAtUtc": "2026-05-25T20:00:00Z",
             "durationSeconds": 0,
+            "programTitle": None,
+            "programDescription": None,
+            "programStartAtUtc": None,
+            "programStopAtUtc": None,
         },
     )]
 

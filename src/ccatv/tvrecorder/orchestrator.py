@@ -185,6 +185,10 @@ class RecorderOrchestrator:
                 channel_name=job.channel_name,
                 output_path=output_path,
                 started_at_utc=_format_utc_iso(recording_started_at),
+                program_title=job.program_title,
+                program_description=job.program_description,
+                program_start_at_utc=job.program_start_at_utc,
+                program_stop_at_utc=job.program_stop_at_utc,
             )
             self.capture_controller.start_capture(
                 channel_name=job.channel_name,
