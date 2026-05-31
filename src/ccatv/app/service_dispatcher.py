@@ -74,6 +74,7 @@ SERVICE_COMMANDS = [
     "metadata.channels.service-name.set",
     "metadata.guide.list",
     "metadata.ota.sync.run",
+    "metadata.ota.sync.channel-names.backfill.run",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
     "runtime.setup.save",
@@ -199,6 +200,8 @@ class ServiceCommandDispatcher:
             return self._metadata_guide_list(payload)
         if command == "metadata.ota.sync.run":
             return self._metadata_ota_sync_run(payload)
+        if command == "metadata.ota.sync.channel-names.backfill.run":
+            return self._metadata_ota_channel_names_backfill_run(payload)
         if command == "metadata.sd.sync.run":
             return self._metadata_sd_sync_run(payload)
         if command == "metadata.sd.sync.status.get":
@@ -1294,6 +1297,93 @@ class ServiceCommandDispatcher:
                 "broadcastsUpserted": stats.broadcasts_upserted,
                 "parsedEvents": stats.parsed_events,
                 "ingestRunId": stats.ingest_run_id,
+            }
+        }
+
+    def _metadata_ota_channel_names_backfill_run(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        database_path = payload.get("databasePath")
+        if database_path is not None and (
+            not isinstance(database_path, str) or not database_path.strip()
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="databasePath must be a non-empty string when provided",
+            )
+
+        try:
+            channel_name_map = self._context.tvrecorder.list_service_channel_name_map()
+        except Exception as exc:
+            raise ServiceCommandError(
+                code="OTA_CHANNEL_MAP_FAILED",
+                message=str(exc),
+                retryable=True,
+            ) from exc
+
+        target_connection = self._context.persistence.connection
+        close_after = False
+        if database_path is not None:
+            target_connection = initialize_database(Path(database_path.strip()))
+            close_after = True
+
+        try:
+            synthetic_before = int(
+                target_connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM epg_channels
+                    WHERE source = 'dvbstreamer_ota'
+                      AND display_name LIKE 'service 0x%'
+                    """
+                ).fetchone()[0]
+            )
+            total_channels = int(
+                target_connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM epg_channels
+                    WHERE source = 'dvbstreamer_ota'
+                    """
+                ).fetchone()[0]
+            )
+
+            updated_rows = 0
+            with target_connection:
+                for source_channel_id, service_name in channel_name_map.items():
+                    updated_rows += target_connection.execute(
+                        """
+                        UPDATE epg_channels
+                        SET display_name = ?
+                        WHERE source = 'dvbstreamer_ota'
+                          AND source_channel_id = ?
+                          AND display_name != ?
+                        """,
+                        (service_name, source_channel_id, service_name),
+                    ).rowcount
+
+            synthetic_after = int(
+                target_connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM epg_channels
+                    WHERE source = 'dvbstreamer_ota'
+                      AND display_name LIKE 'service 0x%'
+                    """
+                ).fetchone()[0]
+            )
+        finally:
+            if close_after:
+                target_connection.close()
+
+        return {
+            "stats": {
+                "servicesResolved": len(channel_name_map),
+                "rowsUpdated": updated_rows,
+                "syntheticBefore": synthetic_before,
+                "syntheticAfter": synthetic_after,
+                "totalChannels": total_channels,
             }
         }
 

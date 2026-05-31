@@ -546,6 +546,96 @@ def test_epg_sync_ota_rejects_non_positive_capture_seconds() -> None:
     assert "--capture-seconds must be greater than 0" in stderr.getvalue()
 
 
+def test_epg_ota_backfill_channel_names_command_runs_once(tmp_path: Path) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+            self.closed = False
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "servicesResolved": 18,
+                    "rowsUpdated": 81,
+                    "syntheticBefore": 81,
+                    "syntheticAfter": 0,
+                    "totalChannels": 99,
+                }
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(
+        [
+            "epg-ota-backfill-channel-names",
+            "--database-path",
+            str(tmp_path / "ccatv.sqlite3"),
+        ],
+        deps=deps,
+    )
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert "OTA channel-name backfill complete" in stdout.getvalue()
+    assert stub_client.closed is True
+    assert stub_client.executed == [
+        (
+            "metadata.ota.sync.channel-names.backfill.run",
+            {
+                "databasePath": str(tmp_path / "ccatv.sqlite3"),
+            },
+        )
+    ]
+
+
+def test_epg_ota_backfill_channel_names_surfaces_service_error() -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            del command, payload
+            raise ServiceClientError(
+                code="OTA_CHANNEL_MAP_FAILED",
+                message="serviceinfo failed",
+                retryable=True,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["epg-ota-backfill-channel-names"], deps=deps)
+
+    assert exit_code == 2
+    assert "OTA channel-name backfill failed: serviceinfo failed" in stderr.getvalue()
+    assert stdout.getvalue() == ""
+    assert stub_client.closed is True
+
+
 def test_epg_sync_sd_daily_uses_14_day_window() -> None:
     class _StubServiceClient:
         def __init__(self) -> None:

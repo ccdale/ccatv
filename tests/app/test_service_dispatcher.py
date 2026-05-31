@@ -1441,6 +1441,7 @@ def test_service_commands_are_dispatchable(
 
     monkeypatch.setattr(dispatcher, "_run_sd_sync", _stub_run_sd_sync)
     monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "list_service_channel_name_map", lambda: {})
     monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
     monkeypatch.setattr(
         context.tvrecorder,
@@ -1503,6 +1504,10 @@ def test_service_commands_are_dispatchable(
             {
                 "grabCommand": "epgdata",
             },
+        ),
+        (
+            "metadata.ota.sync.channel-names.backfill.run",
+            {},
         ),
         (
             "metadata.sd.sync.run",
@@ -1653,6 +1658,75 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
     assert stats["broadcastsUpserted"] == 27
     assert stats["parsedEvents"] == 27
     assert stats["ingestRunId"] == 22
+
+
+def test_dispatch_metadata_ota_channel_names_backfill_run(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    with context.persistence.connection:
+        context.persistence.connection.execute(
+            """
+            INSERT INTO epg_channels(source, source_channel_id, display_name)
+            VALUES(?, ?, ?)
+            """,
+            ("dvbstreamer_ota", "0x233a:0x1047:0x1047", "service 0x233a:0x1047:0x1047"),
+        )
+
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "list_service_channel_name_map",
+        lambda: {"0x233a:0x1047:0x1047": "BBC ONE East"},
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.channel-names.backfill.run",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    stats = response["payload"]["stats"]
+    assert stats["servicesResolved"] == 1
+    assert stats["rowsUpdated"] == 1
+    assert stats["syntheticBefore"] == 1
+    assert stats["syntheticAfter"] == 0
+    assert stats["totalChannels"] == 1
+
+    row = context.persistence.connection.execute(
+        """
+        SELECT display_name
+        FROM epg_channels
+        WHERE source = ? AND source_channel_id = ?
+        """,
+        ("dvbstreamer_ota", "0x233a:0x1047:0x1047"),
+    ).fetchone()
+    assert row is not None
+    assert row[0] == "BBC ONE East"
+
+
+def test_dispatch_metadata_ota_channel_names_backfill_maps_service_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    def _raise_map_error():
+        raise RuntimeError("serviceinfo failed")
+
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "list_service_channel_name_map",
+        _raise_map_error,
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.channel-names.backfill.run",
+        "payload": {},
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OTA_CHANNEL_MAP_FAILED"
+    assert response["error"]["retryable"] is True
 
 
 def test_dispatch_metadata_ota_sync_sends_sigint_and_epgcapstop(monkeypatch) -> None:

@@ -132,6 +132,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ota_sync_parser.set_defaults(handler=run_epg_sync_ota)
 
+    ota_backfill_parser = subparsers.add_parser(
+        "epg-ota-backfill-channel-names",
+        help="Backfill OTA channel display names from dvbstreamer serviceinfo",
+    )
+    ota_backfill_parser.add_argument(
+        "--database-path",
+        default=None,
+        help="override sqlite database path",
+    )
+    ota_backfill_parser.set_defaults(handler=run_epg_ota_backfill_channel_names)
+
     sd_daily_parser = subparsers.add_parser(
         "epg-sync-sd-daily",
         help="Run the daily Schedules Direct rolling-window sync (14 days)",
@@ -472,6 +483,48 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
     return 0
 
 
+def run_epg_ota_backfill_channel_names(
+    args: argparse.Namespace,
+    deps: CliDependencies,
+) -> int:
+    client = deps.service_client_factory()
+    try:
+        payload: dict[str, object] = {}
+        if args.database_path:
+            payload["databasePath"] = str(args.database_path)
+
+        result = client.execute(
+            "metadata.ota.sync.channel-names.backfill.run",
+            payload,
+        )
+        stats = result.get("stats")
+        if not isinstance(stats, dict):
+            raise RuntimeError(
+                "metadata.ota.sync.channel-names.backfill.run returned malformed stats payload"
+            )
+    except ServiceClientError as exc:
+        print(f"OTA channel-name backfill failed: {exc.message}", file=deps.stderr)
+        return 2
+    except Exception as exc:
+        print(f"OTA channel-name backfill failed: {exc}", file=deps.stderr)
+        return 2
+    finally:
+        client.close()
+
+    print(
+        (
+            "OTA channel-name backfill complete "
+            f"(services_resolved={stats.get('servicesResolved')}, "
+            f"rows_updated={stats.get('rowsUpdated')}, "
+            f"synthetic_before={stats.get('syntheticBefore')}, "
+            f"synthetic_after={stats.get('syntheticAfter')}, "
+            f"total_channels={stats.get('totalChannels')})"
+        ),
+        file=deps.stdout,
+    )
+    return 0
+
+
 def _resolve_ota_epg_channel_name(
     explicit_channel_name: str | None,
     runtime_store: RuntimeConfigStore,
@@ -666,6 +719,7 @@ __all__ = [
     "build_parser",
     "main",
     "run_channel_map",
+    "run_epg_ota_backfill_channel_names",
     "run_epg_sync_ota",
     "run_epg_sync_sd_daily",
     "run_epg_sync_sd_full",
