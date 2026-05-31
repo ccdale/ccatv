@@ -1232,6 +1232,12 @@ class ServiceCommandDispatcher:
                 timeout_seconds=float(frontend_lock_timeout_seconds),
             )
 
+            try:
+                channel_name_map = self._context.tvrecorder.list_service_channel_name_map()
+            except Exception as exc:
+                logger.warning("failed to resolve OTA serviceinfo mapping: %s", exc)
+                channel_name_map = {}
+
             grab_result = self._capture_ota_epg_stream(
                 grab_command=grab_command.strip(),
                 capture_seconds=float(capture_seconds),
@@ -1258,6 +1264,7 @@ class ServiceCommandDispatcher:
             stats = ingest_dvbstreamer_epg(
                 target_connection,
                 grab_result.stdout,
+                channel_name_map=channel_name_map,
                 source=source.strip(),
             )
         except Exception as exc:

@@ -1,6 +1,6 @@
 [project]
 name = "ccatv"
-version = "0.1.232"
+version = "0.1.233"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -193,6 +193,39 @@ def test_ingest_marks_run_failed_on_parse_error(tmp_path: Path, monkeypatch) -> 
         connection.close()
 
 
+def test_ingest_uses_serviceinfo_channel_name_map(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    raw_text = "\n".join(
+        [
+            '<event net="0x233a" ts="0x1047" source="0x1047" event="0x00000001">',
+            '<new start="2026-05-31 12:00:00" end="2026-05-31 12:30:00" ca="no"/>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1047" event="0x00000001">',
+            '<detail lang="eng" name="title">BBC News</detail>',
+            "</event>",
+        ]
+    )
+
+    try:
+        stats = ingest_dvbstreamer_epg(
+            connection,
+            raw_text,
+            channel_name_map={"0x233a:0x1047:0x1047": "BBC ONE East"},
+        )
+
+        row = connection.execute(
+            "SELECT display_name FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+            ("dvbstreamer_ota", "0x233a:0x1047:0x1047"),
+        ).fetchone()
+
+        assert stats.channels_upserted == 1
+        assert row is not None
+        assert row[0] == "BBC ONE East"
+    finally:
+        connection.close()
+
+
 def test_ingest_marks_stale_running_run_failed(tmp_path: Path) -> None:
     db_path = tmp_path / "ccatv.sqlite3"
     connection = initialize_database(db_path)

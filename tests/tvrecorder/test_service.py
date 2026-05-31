@@ -619,3 +619,42 @@ def test_resolve_service_name_returns_original_when_not_found() -> None:
     service = TvRecorderService(_StubDvbCtrl())
 
     assert service.resolve_service_name("Unknown Channel") == "Unknown Channel"
+
+
+def test_list_service_channel_name_map_uses_serviceinfo_ids() -> None:
+    class _StubDvbCtrl:
+        def run_command(self, command: str) -> DvbCtrlResult:
+            responses = {
+                "lsservices": DvbCtrlResult(
+                    command=("dvbctrl", "lsservices"),
+                    returncode=0,
+                    stdout="BBC ONE East\nBBC News\n",
+                    stderr="",
+                ),
+                "serviceinfo 'BBC ONE East'": DvbCtrlResult(
+                    command=("dvbctrl", "serviceinfo", "BBC ONE East"),
+                    returncode=0,
+                    stdout=(
+                        'Name                : "BBC ONE East"\n'
+                        "ID                  : 233a.1047.1047\n"
+                    ),
+                    stderr="",
+                ),
+                "serviceinfo 'BBC News'": DvbCtrlResult(
+                    command=("dvbctrl", "serviceinfo", "BBC News"),
+                    returncode=0,
+                    stdout=(
+                        'Name                : "BBC News"\n'
+                        "ID                  : 233a.1047.1100\n"
+                    ),
+                    stderr="",
+                ),
+            }
+            return responses[command]
+
+    service = TvRecorderService(_StubDvbCtrl())
+
+    assert service.list_service_channel_name_map() == {
+        "0x233a:0x1047:0x1047": "BBC ONE East",
+        "0x233a:0x1047:0x1100": "BBC News",
+    }

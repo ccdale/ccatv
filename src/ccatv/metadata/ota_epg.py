@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -191,22 +192,59 @@ def _now_utc_iso() -> str:
 
 
 def _upsert_channel(
-    connection: sqlite3.Connection, source: str, channel_source_id: str
+    connection: sqlite3.Connection,
+    source: str,
+    channel_source_id: str,
+    *,
+    channel_name_map: Mapping[str, str] | None = None,
 ) -> tuple[int, bool]:
     existing_row = connection.execute(
-        "SELECT id FROM epg_channels WHERE source = ? AND source_channel_id = ?",
+        """
+        SELECT id, display_name, callsign, logical_channel_number
+        FROM epg_channels
+        WHERE source = ? AND source_channel_id = ?
+        """,
         (source, channel_source_id),
     ).fetchone()
     inserted = existing_row is None
-    display_name = f"service {channel_source_id}"
+    if channel_name_map is not None and channel_source_id in channel_name_map:
+        display_name = channel_name_map[channel_source_id]
+        callsign = None
+        logical_channel_number = None
+    elif existing_row is not None:
+        display_name = str(existing_row[1])
+        callsign = str(existing_row[2]) if existing_row[2] is not None else None
+        logical_channel_number = (
+            str(existing_row[3]) if existing_row[3] is not None else None
+        )
+    else:
+        display_name = f"service {channel_source_id}"
+        callsign = None
+        logical_channel_number = None
+
     connection.execute(
         """
-        INSERT INTO epg_channels(source, source_channel_id, display_name)
-        VALUES(?, ?, ?)
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        )
+        VALUES(?, ?, ?, ?, ?)
         ON CONFLICT(source, source_channel_id)
-        DO UPDATE SET display_name = excluded.display_name
+        DO UPDATE SET
+            display_name = excluded.display_name,
+            callsign = excluded.callsign,
+            logical_channel_number = excluded.logical_channel_number
         """,
-        (source, channel_source_id, display_name),
+        (
+            source,
+            channel_source_id,
+            display_name,
+            callsign,
+            logical_channel_number,
+        ),
     )
     row = connection.execute(
         "SELECT id FROM epg_channels WHERE source = ? AND source_channel_id = ?",
@@ -399,6 +437,7 @@ def ingest_dvbstreamer_epg(
     connection: sqlite3.Connection,
     raw_text: str,
     *,
+    channel_name_map: Mapping[str, str] | None = None,
     source: str = "dvbstreamer_ota",
 ) -> OtaEpgIngestStats:
     started_at_utc = _now_utc_iso()
@@ -428,6 +467,7 @@ def ingest_dvbstreamer_epg(
                         connection,
                         source,
                         event.channel_source_id,
+                        channel_name_map=channel_name_map,
                     )
                     channel_ids[event.channel_source_id] = channel_id
                     if was_inserted:
@@ -514,11 +554,13 @@ def ingest_dvbstreamer_epg_file(
     connection: sqlite3.Connection,
     epg_file: Path,
     *,
+    channel_name_map: Mapping[str, str] | None = None,
     source: str = "dvbstreamer_ota",
 ) -> OtaEpgIngestStats:
     return ingest_dvbstreamer_epg(
         connection,
         epg_file.read_text(encoding="utf-8"),
+        channel_name_map=channel_name_map,
         source=source,
     )
 

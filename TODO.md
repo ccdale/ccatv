@@ -130,6 +130,7 @@ M6. Multi-front-end enablement.
 - Build Flask app for remote scheduling/recording dashboard.
 	- [ ] Recordings table UX follow-up: add page-size selector (10/25/50) and persist user preference.
 	- [ ] Recordings table UX follow-up: add bulk-delete mode with multi-select checkboxes.
+	- [ ] Channel manager UX follow-up: add separate custom channel ordering/numbering that does not overwrite broadcaster logical channel numbers.
 - Publish full installation instructions for `ccatv-service`, Flask dashboard, and GTK4 app entrypoint.
 - GTK4 live TV / guide shell UI.
 - inputlirc remote mapping.

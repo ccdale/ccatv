@@ -93,6 +93,7 @@ def _build_context() -> SimpleNamespace:
         logger=SimpleNamespace(
             info=lambda *args, **kwargs: None,
             error=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
         ),
         persistence=persistence,
         settings=SimpleNamespace(
@@ -1453,7 +1454,7 @@ def test_service_commands_are_dispatchable(
     )
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
-        lambda _connection, _raw, source: SimpleNamespace(
+        lambda _connection, _raw, source, channel_name_map: SimpleNamespace(
             channels_upserted=0,
             programs_upserted=0,
             broadcasts_upserted=0,
@@ -1516,6 +1517,7 @@ def test_service_commands_are_dispatchable(
             {
                 "adapterCount": 4,
                 "host": "druidmedia",
+                "otaEpgChannelName": "BBC ONE East",
                 "password": "secret",
                 "username": "alice",
             },
@@ -1577,6 +1579,11 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
     stop_commands: list[str] = []
 
     monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "list_service_channel_name_map",
+        lambda: {"0x233a:0x1047:0x1047": "BBC ONE East"},
+    )
     monkeypatch.setattr(context.tvrecorder, "select_service", lambda name: selected_channels.append(name))
     monkeypatch.setattr(
         context.tvrecorder,
@@ -1608,17 +1615,21 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
             stop_commands.append(command)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
 
-    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
-    monkeypatch.setattr(
-        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
-        lambda _connection, _raw_text, source: SimpleNamespace(
+    def _stub_ingest(_connection, _raw_text, source, channel_name_map):
+        assert channel_name_map == {"0x233a:0x1047:0x1047": "BBC ONE East"}
+        return SimpleNamespace(
             channels_upserted=3,
             programs_upserted=9,
             broadcasts_upserted=27,
             parsed_events=27,
             ingest_run_id=22,
             source=source,
-        ),
+        )
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        _stub_ingest,
     )
 
     response = dispatcher.dispatch({
@@ -1679,7 +1690,7 @@ def test_dispatch_metadata_ota_sync_sends_sigint_and_epgcapstop(monkeypatch) -> 
     monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
-        lambda _connection, _raw_text, source: SimpleNamespace(
+        lambda _connection, _raw_text, source, channel_name_map: SimpleNamespace(
             channels_upserted=1,
             programs_upserted=1,
             broadcasts_upserted=1,
@@ -1882,7 +1893,8 @@ def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
 
     monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
 
-    def _raise_ingest_error(_connection, _raw_text, source):
+    def _raise_ingest_error(_connection, _raw_text, source, channel_name_map):
+        del channel_name_map
         del source
         raise ValueError("broken epg")
 
@@ -1983,7 +1995,7 @@ def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
     monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
-        lambda _connection, _raw_text, source: SimpleNamespace(
+        lambda _connection, _raw_text, source, channel_name_map: SimpleNamespace(
             channels_upserted=1,
             programs_upserted=1,
             broadcasts_upserted=1,
@@ -2038,7 +2050,7 @@ def test_dispatch_metadata_ota_sync_does_not_start_manager_when_control_ready(
     monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
-        lambda _connection, _raw_text, source: SimpleNamespace(
+        lambda _connection, _raw_text, source, channel_name_map: SimpleNamespace(
             channels_upserted=1,
             programs_upserted=1,
             broadcasts_upserted=1,

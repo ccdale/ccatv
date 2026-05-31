@@ -40,6 +40,10 @@ def select_command(service_name: str) -> DvbCtrlCommand:
 def lsservices_command() -> DvbCtrlCommand:
     """Build the `lsservices` command."""
     return DvbCtrlCommand(name="lsservices")
+    
+def serviceinfo_command(service_name: str) -> DvbCtrlCommand:
+    """Build a quoted-safe `serviceinfo` command for a service name."""
+    return DvbCtrlCommand(name="serviceinfo", args=(service_name,))
 
 
 __all__ = [
@@ -47,6 +51,7 @@ __all__ = [
     "current_command",
     "festatus_command",
     "lsservices_command",
+    "serviceinfo_command",
     "select_command",
     "stats_command",
 ]

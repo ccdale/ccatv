@@ -13,6 +13,7 @@ from ccatv.tvrecorder.commands import (
     festatus_command,
     lsservices_command,
     select_command,
+    serviceinfo_command,
     stats_command,
 )
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient, DvbCtrlResult
@@ -100,6 +101,17 @@ class TvRecorderService:
         """Return all service names known to dvbstreamer."""
         result = self.run(lsservices_command())
         return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    def list_service_channel_name_map(self) -> dict[str, str]:
+        """Return OTA channel ids mapped to dvbstreamer service names."""
+        channel_name_map: dict[str, str] = {}
+        for service_name in self.list_services():
+            result = self.run(serviceinfo_command(service_name))
+            channel_source_id = _parse_serviceinfo_channel_source_id(result.stdout)
+            if channel_source_id is None:
+                continue
+            channel_name_map[channel_source_id] = service_name
+        return channel_name_map
 
     def resolve_service_name(self, name: str) -> str:
         """Return the exact dvbstreamer service name for the EPG channel *name*.
@@ -486,6 +498,25 @@ def _pick_value(fields: dict[str, str], *keys: str) -> str | None:
         if key in fields:
             return fields[key]
     return None
+
+
+def _parse_serviceinfo_channel_source_id(output: str) -> str | None:
+    fields = _parse_kv_lines(output)
+    raw_value = fields.get("id")
+    if raw_value is None:
+        return None
+
+    parts = [part.strip() for part in raw_value.split(".") if part.strip()]
+    if len(parts) != 3:
+        return None
+
+    normalized_parts: list[str] = []
+    for part in parts:
+        normalized = part.lower()
+        if not normalized.startswith("0x"):
+            normalized = f"0x{normalized}"
+        normalized_parts.append(normalized)
+    return ":".join(normalized_parts)
 
 
 def _parse_int(value: str | None) -> int | None:
