@@ -55,10 +55,17 @@ class StubLock:
 class _MockPopen:
     """Minimal Popen stand-in for epgdata streaming tests."""
 
-    def __init__(self, stdout_data: str = "<epg></epg>") -> None:
+    def __init__(
+        self,
+        stdout_data: str = "<epg></epg>",
+        *,
+        returncode: int = 0,
+        stderr_data: str = "",
+    ) -> None:
         self.args = ["dvbctrl", "-h", "localhost", "-a", "0", "epgdata"]
-        self.returncode = 0
+        self.returncode = returncode
         self._stdout_data = stdout_data
+        self._stderr_data = stderr_data
         self.signals_sent: list[int] = []
         self.communicate_timeouts: list[float | None] = []
         self.killed = False
@@ -68,7 +75,7 @@ class _MockPopen:
 
     def communicate(self, timeout: float | None = None) -> tuple[str, str]:
         self.communicate_timeouts.append(timeout)
-        return self._stdout_data, ""
+        return self._stdout_data, self._stderr_data
 
     def kill(self) -> None:
         self.killed = True
@@ -1690,6 +1697,105 @@ def test_dispatch_metadata_ota_sync_sends_sigint_and_epgcapstop(monkeypatch) -> 
     assert popen.communicate_timeouts == [5.0]
     assert popen.killed is False
     assert stop_commands == ["epgcapstop"]
+
+
+def test_dispatch_metadata_ota_sync_maps_epgcapstop_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout=""),
+    )
+    monkeypatch.setattr(
+        context.dvbctrl,
+        "start_command",
+        lambda _command: _MockPopen("<epg></epg>"),
+    )
+
+    class _FailingStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            del command
+            raise RuntimeError("stop failed")
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _FailingStopClient)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "grabCommand": "epgdata",
+            "captureSeconds": 0.01,
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OTA_GRAB_FAILED"
+    assert response["error"]["retryable"] is True
+    assert "failed to stop OTA capture" in response["error"]["message"]
+
+
+def test_dispatch_metadata_ota_sync_maps_nonzero_epgdata_exit(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout=""),
+    )
+    monkeypatch.setattr(
+        context.dvbctrl,
+        "start_command",
+        lambda _command: _MockPopen(
+            "",
+            returncode=1,
+            stderr_data="decoder failed",
+        ),
+    )
+
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            del command
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "grabCommand": "epgdata",
+            "captureSeconds": 0.01,
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OTA_GRAB_FAILED"
+    assert response["error"]["retryable"] is True
+    assert "returncode=1" in response["error"]["message"]
+    assert "decoder failed" in response["error"]["message"]
 
 
 def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:

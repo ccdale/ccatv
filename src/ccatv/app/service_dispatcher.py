@@ -1334,6 +1334,7 @@ class ServiceCommandDispatcher:
         self._context.tvrecorder.run_raw("epgcapstart")
 
         proc = dvbctrl.start_command(grab_command)
+        stop_error: Exception | None = None
         try:
             deadline = time.monotonic() + capture_seconds
             while time.monotonic() < deadline:
@@ -1342,22 +1343,31 @@ class ServiceCommandDispatcher:
                 if remaining > 0:
                     time.sleep(min(0.25, remaining))
         finally:
-            stop_thread = Thread(
-                target=self._stop_ota_capture_with_separate_client,
-                daemon=True,
-            )
-            stop_thread.start()
+            try:
+                self._stop_ota_capture_with_separate_client()
+            except Exception as exc:
+                stop_error = exc
             try:
                 proc.send_signal(_signal.SIGINT)
             except (ProcessLookupError, OSError):
                 pass
-            stop_thread.join(timeout=5.0)
 
         try:
-            stdout, _ = proc.communicate(timeout=5.0)
+            stdout, stderr = proc.communicate(timeout=5.0)
         except subprocess.TimeoutExpired:
             proc.kill()
-            stdout, _ = proc.communicate()
+            stdout, stderr = proc.communicate()
+
+        if stop_error is not None:
+            raise RuntimeError(f"failed to stop OTA capture: {stop_error}") from stop_error
+
+        allowed_returncodes = {0, 130, -int(_signal.SIGINT)}
+        if proc.returncode not in allowed_returncodes:
+            detail = (stderr or "").strip() or "no stderr"
+            raise RuntimeError(
+                "OTA EPG grab command failed "
+                f"(returncode={proc.returncode}): {detail}"
+            )
 
         return SimpleNamespace(stdout=stdout)
 
