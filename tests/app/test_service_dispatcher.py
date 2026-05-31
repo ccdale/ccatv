@@ -51,6 +51,25 @@ class StubLock:
         return False
 
 
+class _MockPopen:
+    """Minimal Popen stand-in for epgdata streaming tests."""
+
+    def __init__(self, stdout_data: str = "<epg></epg>") -> None:
+        self.args = ["dvbctrl", "-h", "localhost", "-a", "0", "epgdata"]
+        self.returncode = 0
+        self._stdout_data = stdout_data
+
+    def send_signal(self, sig) -> None:  # noqa: ANN001
+        del sig
+
+    def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+        del timeout
+        return self._stdout_data, ""
+
+    def kill(self) -> None:
+        pass
+
+
 def _build_context() -> SimpleNamespace:
     connection = sqlite3.connect(":memory:")
     apply_migrations(connection)
@@ -79,6 +98,7 @@ def _build_context() -> SimpleNamespace:
                 stderr="",
                 returncode=0,
             ),
+            start_command=lambda _command: _MockPopen(),
         ),
         dvbstreamer=SimpleNamespace(
             health_check=lambda: SimpleNamespace(state=DvbStreamerState.RUNNING),
@@ -1535,6 +1555,7 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
     raw_calls: list[str] = []
+    start_commands: list[str] = []
     selected_channels: list[str] = []
     stop_commands: list[str] = []
 
@@ -1550,7 +1571,15 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
         "run_raw",
         lambda command: (
             raw_calls.append(command),
-            SimpleNamespace(stdout="<epg></epg>"),
+            SimpleNamespace(stdout=""),
+        )[1],
+    )
+    monkeypatch.setattr(
+        context.dvbctrl,
+        "start_command",
+        lambda command: (
+            start_commands.append(command),
+            _MockPopen("<epg></epg>"),
         )[1],
     )
 
@@ -1587,7 +1616,8 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
 
     assert response["ok"] is True
     assert selected_channels == ["BBC TWO HD"]
-    assert raw_calls == ["epgcapstart", "epgdata"]
+    assert raw_calls == ["epgcapstart"]
+    assert start_commands == ["epgdata"]
     assert stop_commands == ["epgcapstop"]
     stats = response["payload"]["stats"]
     assert stats["channelsUpserted"] == 3
@@ -1608,13 +1638,16 @@ def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
         "frontend_status",
         lambda: SimpleNamespace(locked=True),
     )
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout="", stderr="", returncode=0),
+    )
 
-    def _raise_grab_error(command):
-        if command == "epgdata":
-            raise RuntimeError("unknown command")
-        return SimpleNamespace(stdout="", stderr="", returncode=0)
+    def _raise_start_error(_command: str):
+        raise RuntimeError("dvbctrl not found")
 
-    monkeypatch.setattr(context.tvrecorder, "run_raw", _raise_grab_error)
+    monkeypatch.setattr(context.dvbctrl, "start_command", _raise_start_error)
 
     class _StubStopClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -1654,7 +1687,12 @@ def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
     monkeypatch.setattr(
         context.tvrecorder,
         "run_raw",
-        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+        lambda _command: SimpleNamespace(stdout=""),
+    )
+    monkeypatch.setattr(
+        context.dvbctrl,
+        "start_command",
+        lambda _command: _MockPopen("<epg></epg>"),
     )
 
     class _StubStopClient:
@@ -1740,6 +1778,7 @@ def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
         transient_retry_count=2,
         transient_retry_delay_seconds=0.2,
         run_command=_run_command,
+        start_command=lambda _command: _MockPopen("<epg></epg>"),
     )
     dispatcher = ServiceCommandDispatcher(context)
 
@@ -1753,7 +1792,7 @@ def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
     monkeypatch.setattr(
         context.tvrecorder,
         "run_raw",
-        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+        lambda _command: SimpleNamespace(stdout=""),
     )
 
     class _StubStopClient:
@@ -1808,7 +1847,7 @@ def test_dispatch_metadata_ota_sync_does_not_start_manager_when_control_ready(
     monkeypatch.setattr(
         context.tvrecorder,
         "run_raw",
-        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+        lambda _command: SimpleNamespace(stdout=""),
     )
 
     class _StubStopClient:

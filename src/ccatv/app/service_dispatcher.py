@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from queue import Queue
+import signal as _signal
+import subprocess
 from threading import Lock, Thread
+from types import SimpleNamespace
 import time
 import xml.etree.ElementTree as ET
 
@@ -1324,39 +1327,39 @@ class ServiceCommandDispatcher:
             ) from exc
 
     def _capture_ota_epg_stream(self, *, grab_command: str, capture_seconds: float):
+        dvbctrl = getattr(self._context, "dvbctrl", None)
+        if dvbctrl is None:
+            raise RuntimeError("dvbctrl not available for OTA EPG streaming capture")
+
         self._context.tvrecorder.run_raw("epgcapstart")
 
-        result_queue: Queue[tuple[bool, object]] = Queue(maxsize=1)
-
-        def _read_stream() -> None:
-            try:
-                result_queue.put((True, self._context.tvrecorder.run_raw(grab_command)))
-            except Exception as exc:
-                result_queue.put((False, exc))
-
-        stream_thread = Thread(target=_read_stream, daemon=True)
-        stream_thread.start()
-
+        proc = dvbctrl.start_command(grab_command)
         try:
             deadline = time.monotonic() + capture_seconds
-            while stream_thread.is_alive() and time.monotonic() < deadline:
+            while time.monotonic() < deadline:
                 self._raise_if_stopping()
-                time.sleep(0.25)
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    time.sleep(min(0.25, remaining))
         finally:
-            self._stop_ota_capture_with_separate_client()
-
-        stream_thread.join(timeout=5.0)
-        if stream_thread.is_alive():
-            raise RuntimeError(
-                "epgdata stream did not finish after epgcapstop; capture timed out"
+            stop_thread = Thread(
+                target=self._stop_ota_capture_with_separate_client,
+                daemon=True,
             )
-        if result_queue.empty():
-            raise RuntimeError("epgdata capture did not produce any result")
+            stop_thread.start()
+            try:
+                proc.send_signal(_signal.SIGINT)
+            except (ProcessLookupError, OSError):
+                pass
+            stop_thread.join(timeout=5.0)
 
-        ok, payload = result_queue.get()
-        if ok:
-            return payload
-        raise payload
+        try:
+            stdout, _ = proc.communicate(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, _ = proc.communicate()
+
+        return SimpleNamespace(stdout=stdout)
 
     def _stop_ota_capture_with_separate_client(self) -> None:
         dvbctrl = getattr(self._context, "dvbctrl", None)

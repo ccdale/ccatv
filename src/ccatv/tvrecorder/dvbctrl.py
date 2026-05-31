@@ -93,6 +93,35 @@ class DvbCtrlClient:
                 f"(returncode={result.returncode}): {result.stderr.strip()}"
             )
 
+    def start_command(self, command: str) -> subprocess.Popen[str]:
+        """Launch a dvbctrl streaming command and return the Popen handle.
+
+        Unlike run_command, this does not wait for the process to exit.
+        Use for long-running commands such as ``epgdata`` that stream until
+        interrupted.  Caller is responsible for terminating the process
+        (e.g. via SIGINT) and reading stdout.
+        """
+        command_parts = shlex.split(command)
+        args = [
+            self.executable_path,
+            "-h",
+            self.host,
+            "-a",
+            str(self.adapter_index),
+            *command_parts,
+        ]
+        try:
+            return subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            raise DvbCtrlExecutableNotFound(
+                f"dvbctrl executable not found: {self.executable_path}"
+            ) from exc
+
     def _sleep_before_retry(self, attempt: int) -> None:
         if self.transient_retry_delay_seconds <= 0:
             return
