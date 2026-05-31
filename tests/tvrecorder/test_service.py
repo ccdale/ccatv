@@ -110,6 +110,30 @@ def test_frontend_status_extracts_lock_and_signal_fields() -> None:
     assert status.ber == 0
 
 
+def test_frontend_status_extracts_lock_from_tuner_status_line() -> None:
+    client = StubDvbCtrlClient(
+        responses={
+            "festatus": _result(
+                "festatus",
+                (
+                    "Tuner status: [ Signal, Lock, Carrier, VITERBI, Sync ]\n"
+                    "Signal Strength: 100%\n"
+                    "SNR: 100%\n"
+                    "BER: -1\n"
+                ),
+            )
+        }
+    )
+    service = TvRecorderService(client)
+
+    status = service.frontend_status()
+
+    assert status.locked is True
+    assert status.signal == 100
+    assert status.snr == 100
+    assert status.ber == -1
+
+
 def test_select_service_uses_typed_command_path() -> None:
     client = StubDvbCtrlClient(
         responses={

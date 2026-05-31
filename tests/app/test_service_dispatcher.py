@@ -74,6 +74,11 @@ def _build_context() -> SimpleNamespace:
             timeout_seconds=10.0,
             transient_retry_count=2,
             transient_retry_delay_seconds=0.2,
+            run_command=lambda _command: SimpleNamespace(
+                stdout="",
+                stderr="",
+                returncode=0,
+            ),
         ),
         dvbstreamer=SimpleNamespace(
             health_check=lambda: SimpleNamespace(state=DvbStreamerState.RUNNING),
@@ -1719,6 +1724,23 @@ def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
         health_check=lambda: SimpleNamespace(state=DvbStreamerState.STOPPED),
         start=lambda: start_calls.__setitem__("count", start_calls["count"] + 1),
     )
+    control_calls = {"count": 0}
+
+    def _run_command(_command: str):
+        control_calls["count"] += 1
+        if control_calls["count"] == 1:
+            raise RuntimeError("control unavailable")
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    context.dvbctrl = SimpleNamespace(
+        executable_path="dvbctrl",
+        host="localhost",
+        adapter_index=0,
+        timeout_seconds=10.0,
+        transient_retry_count=2,
+        transient_retry_delay_seconds=0.2,
+        run_command=_run_command,
+    )
     dispatcher = ServiceCommandDispatcher(context)
 
     monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
@@ -1763,6 +1785,63 @@ def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
 
     assert response["ok"] is True
     assert start_calls["count"] == 1
+
+
+def test_dispatch_metadata_ota_sync_does_not_start_manager_when_control_ready(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    start_calls = {"count": 0}
+    context.dvbstreamer = SimpleNamespace(
+        health_check=lambda: SimpleNamespace(state=DvbStreamerState.STOPPED),
+        start=lambda: start_calls.__setitem__("count", start_calls["count"] + 1),
+    )
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+    )
+
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            del command
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        lambda _connection, _raw_text, source: SimpleNamespace(
+            channels_upserted=1,
+            programs_upserted=1,
+            broadcasts_upserted=1,
+            parsed_events=1,
+            ingest_run_id=1,
+            source=source,
+        ),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "captureSeconds": 0.01,
+        },
+    })
+
+    assert response["ok"] is True
+    assert start_calls["count"] == 0
 
 
 def test_dispatch_metadata_sd_sync_run_with_full_refresh(monkeypatch) -> None:

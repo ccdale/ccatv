@@ -1204,21 +1204,7 @@ class ServiceCommandDispatcher:
         logger = self._context.logger
         self._raise_if_stopping()
 
-        manager = getattr(self._context, "dvbstreamer", None)
-        if manager is not None:
-            try:
-                status = manager.health_check()
-                state = getattr(status, "state", None)
-                if state != DvbStreamerState.RUNNING:
-                    manager.start()
-                    logger.info("OTA EPG sync started dvbstreamer manager")
-            except Exception as exc:
-                logger.error("OTA EPG sync failed starting dvbstreamer: %s", exc)
-                raise ServiceCommandError(
-                    code="OTA_GRAB_FAILED",
-                    message=f"failed to start dvbstreamer: {exc}",
-                    retryable=True,
-                ) from exc
+        self._ensure_ota_control_ready()
 
         resolved_channel = self._context.tvrecorder.resolve_service_name(
             channel_name.strip()
@@ -1287,6 +1273,55 @@ class ServiceCommandDispatcher:
                 "ingestRunId": stats.ingest_run_id,
             }
         }
+
+    def _ensure_ota_control_ready(self) -> None:
+        logger = self._context.logger
+        dvbctrl = getattr(self._context, "dvbctrl", None)
+
+        if dvbctrl is not None:
+            try:
+                dvbctrl.run_command("stats")
+                return
+            except Exception:
+                pass
+
+        manager = getattr(self._context, "dvbstreamer", None)
+        if manager is None:
+            return
+
+        try:
+            status = manager.health_check()
+            state = getattr(status, "state", None)
+            if state != DvbStreamerState.RUNNING:
+                manager.start()
+                logger.info("OTA EPG sync started dvbstreamer manager")
+
+            deadline = time.monotonic() + 5.0
+            last_error: Exception | None = None
+            while time.monotonic() < deadline:
+                self._raise_if_stopping()
+                try:
+                    if dvbctrl is None:
+                        return
+                    dvbctrl.run_command("stats")
+                    return
+                except Exception as exc:
+                    last_error = exc
+                time.sleep(0.25)
+
+            if last_error is not None:
+                raise RuntimeError(
+                    "dvbctrl control endpoint did not become ready: "
+                    f"{last_error}"
+                )
+            raise RuntimeError("dvbctrl control endpoint did not become ready")
+        except Exception as exc:
+            logger.error("OTA EPG sync failed starting dvbstreamer: %s", exc)
+            raise ServiceCommandError(
+                code="OTA_GRAB_FAILED",
+                message=f"failed to start dvbstreamer: {exc}",
+                retryable=True,
+            ) from exc
 
     def _capture_ota_epg_stream(self, *, grab_command: str, capture_seconds: float):
         self._context.tvrecorder.run_raw("epgcapstart")

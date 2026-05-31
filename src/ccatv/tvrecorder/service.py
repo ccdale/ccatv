@@ -157,7 +157,7 @@ class TvRecorderService:
         """Return parsed lock/signal fields from frontend status output."""
         result = self.festatus()
         fields = _parse_kv_lines(result.stdout)
-        lock_raw = _pick_value(fields, "lock", "locked", "status")
+        lock_raw = _pick_value(fields, "lock", "locked", "status", "tuner status")
         signal_raw = _pick_value(fields, "signal", "signal strength")
         snr_raw = _pick_value(fields, "snr")
         ber_raw = _pick_value(fields, "ber")
@@ -503,6 +503,10 @@ def _parse_lock_value(value: str | None) -> bool | None:
     if value is None:
         return None
     normalized = value.strip().lower()
+    if "no lock" in normalized or "unlocked" in normalized:
+        return False
+    if "lock" in normalized:
+        return True
     if normalized in {"1", "true", "yes", "on", "locked", "ok"}:
         return True
     if normalized in {"0", "false", "no", "off", "unlocked", "none"}:
