@@ -1384,6 +1384,13 @@ def test_service_commands_are_dispatchable(
         )
 
     monkeypatch.setattr(dispatcher, "_run_sd_sync", _stub_run_sd_sync)
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
     monkeypatch.setattr(
         context.tvrecorder,
         "run_raw",
@@ -1438,7 +1445,7 @@ def test_service_commands_are_dispatchable(
         (
             "metadata.ota.sync.run",
             {
-                "grabCommand": "epg",
+                "grabCommand": "epgdata",
             },
         ),
         (
@@ -1509,11 +1516,22 @@ def test_dispatch_metadata_sd_sync_run(monkeypatch) -> None:
 def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
+    raw_calls: list[str] = []
 
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
     monkeypatch.setattr(
         context.tvrecorder,
         "run_raw",
-        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+        lambda command: (
+            raw_calls.append(command),
+            SimpleNamespace(stdout="<epg></epg>"),
+        )[1],
     )
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
@@ -1531,11 +1549,12 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
         "apiVersion": API_VERSION,
         "command": "metadata.ota.sync.run",
         "payload": {
-            "grabCommand": "epg",
+            "grabCommand": "epgdata",
         },
     })
 
     assert response["ok"] is True
+    assert raw_calls == ["epgcapstart", "epgdata", "epgcapstop"]
     stats = response["payload"]["stats"]
     assert stats["channelsUpserted"] == 3
     assert stats["programsUpserted"] == 9
@@ -1548,8 +1567,16 @@ def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
 
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
+
     def _raise_grab_error(_command):
-        raise RuntimeError("dvbctrl failed")
+        raise RuntimeError("unknown command")
 
     monkeypatch.setattr(context.tvrecorder, "run_raw", _raise_grab_error)
 
@@ -1557,7 +1584,7 @@ def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
         "apiVersion": API_VERSION,
         "command": "metadata.ota.sync.run",
         "payload": {
-            "grabCommand": "epg",
+            "grabCommand": "epgdata",
         },
     })
 
@@ -1570,6 +1597,13 @@ def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
 
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
     monkeypatch.setattr(
         context.tvrecorder,
         "run_raw",
@@ -1589,13 +1623,82 @@ def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
         "apiVersion": API_VERSION,
         "command": "metadata.ota.sync.run",
         "payload": {
-            "grabCommand": "epg",
+            "grabCommand": "epgdata",
         },
     })
 
     assert response["ok"] is False
     assert response["error"]["code"] == "OTA_INGEST_FAILED"
     assert response["error"]["retryable"] is True
+
+
+def test_dispatch_metadata_ota_sync_frontend_lock_timeout(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=False),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "frontendLockTimeoutSeconds": 0.01,
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OTA_GRAB_FAILED"
+
+
+def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    start_calls = {"count": 0}
+    context.dvbstreamer = SimpleNamespace(
+        health_check=lambda: SimpleNamespace(state="stopped"),
+        start=lambda: start_calls.__setitem__("count", start_calls["count"] + 1),
+    )
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        lambda _connection, _raw_text, source: SimpleNamespace(
+            channels_upserted=1,
+            programs_upserted=1,
+            broadcasts_upserted=1,
+            parsed_events=1,
+            ingest_run_id=1,
+            source=source,
+        ),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    assert start_calls["count"] == 1
 
 
 def test_dispatch_metadata_sd_sync_run_with_full_refresh(monkeypatch) -> None:

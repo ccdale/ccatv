@@ -421,7 +421,7 @@ def test_epg_sync_ota_command_runs_once(tmp_path: Path) -> None:
         [
             "epg-sync-ota",
             "--grab-command",
-            "epg",
+            "epgdata",
             "--database-path",
             str(tmp_path / "ccatv.sqlite3"),
         ],
@@ -436,7 +436,7 @@ def test_epg_sync_ota_command_runs_once(tmp_path: Path) -> None:
         (
             "metadata.ota.sync.run",
             {
-                "grabCommand": "epg",
+                "grabCommand": "epgdata",
                 "databasePath": str(tmp_path / "ccatv.sqlite3"),
             },
         )

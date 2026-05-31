@@ -766,7 +766,7 @@ def run_service_daemon(
                         "apiVersion": "v1alpha1",
                         "command": "metadata.ota.sync.run",
                         "payload": {
-                            "grabCommand": "epg",
+                            "grabCommand": "epgdata",
                         },
                     }
                 )

@@ -103,8 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ota_sync_parser.add_argument(
         "--grab-command",
-        default="epg",
-        help="raw dvbctrl command used to grab EPG payload (default: epg)",
+        default="epgdata",
+        help="raw dvbctrl command used to fetch EPG payload (default: epgdata)",
     )
     ota_sync_parser.add_argument(
         "--database-path",

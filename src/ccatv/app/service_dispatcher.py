@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from queue import Queue
 from threading import Lock, Thread
+import time
 import xml.etree.ElementTree as ET
 
 from ccatv import __app_name__, __version__
@@ -37,6 +38,7 @@ from ccatv.tvrecorder.config import (
     TvRecorderConfig,
     TvRecorderConfigStore,
 )
+from ccatv.tvrecorder.manager import DvbStreamerState
 
 API_VERSION = "v1alpha1"
 
@@ -1167,18 +1169,64 @@ class ServiceCommandDispatcher:
                 message="databasePath must be a non-empty string when provided",
             )
 
-        grab_command = payload.get("grabCommand", "epg")
+        grab_command = payload.get("grabCommand", "epgdata")
         if not isinstance(grab_command, str) or not grab_command.strip():
             raise ServiceCommandError(
                 code="VALIDATION_ERROR",
                 message="grabCommand must be a non-empty string when provided",
             )
 
+        channel_name = payload.get("channelName", "BBC TWO HD")
+        if not isinstance(channel_name, str) or not channel_name.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channelName must be a non-empty string when provided",
+            )
+
+        frontend_lock_timeout_seconds = payload.get("frontendLockTimeoutSeconds", 15.0)
+        if (
+            not isinstance(frontend_lock_timeout_seconds, int | float)
+            or frontend_lock_timeout_seconds <= 0
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="frontendLockTimeoutSeconds must be greater than 0",
+            )
+
         logger = self._context.logger
         self._raise_if_stopping()
 
+        manager = getattr(self._context, "dvbstreamer", None)
+        if manager is not None:
+            try:
+                status = manager.health_check()
+                state = getattr(status, "state", None)
+                if state != DvbStreamerState.RUNNING:
+                    manager.start()
+                    logger.info("OTA EPG sync started dvbstreamer manager")
+            except Exception as exc:
+                logger.error("OTA EPG sync failed starting dvbstreamer: %s", exc)
+                raise ServiceCommandError(
+                    code="OTA_GRAB_FAILED",
+                    message=f"failed to start dvbstreamer: {exc}",
+                    retryable=True,
+                ) from exc
+
+        resolved_channel = self._context.tvrecorder.resolve_service_name(
+            channel_name.strip()
+        )
+
         try:
-            grab_result = self._context.tvrecorder.run_raw(grab_command.strip())
+            self._context.tvrecorder.select_service(resolved_channel)
+            self._wait_for_frontend_lock(
+                timeout_seconds=float(frontend_lock_timeout_seconds),
+            )
+
+            self._context.tvrecorder.run_raw("epgcapstart")
+            try:
+                grab_result = self._context.tvrecorder.run_raw(grab_command.strip())
+            finally:
+                self._context.tvrecorder.run_raw("epgcapstop")
         except Exception as exc:
             logger.error(
                 "OTA EPG grab failed (command=%s): %s",
@@ -1232,6 +1280,27 @@ class ServiceCommandDispatcher:
                 "ingestRunId": stats.ingest_run_id,
             }
         }
+
+    def _wait_for_frontend_lock(self, *, timeout_seconds: float) -> None:
+        deadline = time.monotonic() + timeout_seconds
+        last_error: Exception | None = None
+
+        while time.monotonic() < deadline:
+            self._raise_if_stopping()
+            try:
+                status = self._context.tvrecorder.frontend_status()
+                if status.locked:
+                    return
+            except Exception as exc:
+                last_error = exc
+            time.sleep(0.25)
+
+        if last_error is not None:
+            raise RuntimeError(
+                "frontend did not lock before timeout "
+                f"(last error: {last_error})"
+            )
+        raise RuntimeError("frontend did not lock before timeout")
 
     def _metadata_sd_sync_status_get(
         self, payload: dict[str, object]
