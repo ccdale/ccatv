@@ -413,6 +413,8 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
         print("--capture-seconds must be greater than 0", file=deps.stderr)
         return 2
 
+    print("OTA EPG sync starting...", file=deps.stdout)
+
     client = deps.service_client_factory()
     try:
         payload = {

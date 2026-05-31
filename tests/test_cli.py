@@ -434,6 +434,7 @@ def test_epg_sync_ota_command_runs_once(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert stderr.getvalue() == ""
+    assert "OTA EPG sync starting..." in stdout.getvalue()
     assert "OTA EPG sync complete" in stdout.getvalue()
     assert stub_client.closed is True
     assert stub_client.executed == [
