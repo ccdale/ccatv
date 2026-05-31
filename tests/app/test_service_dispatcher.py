@@ -26,6 +26,7 @@ from ccatv.metadata.schedules_direct_contract import (
 from ccatv.runtime_config import RuntimeConfigStore
 from ccatv.storage import PersistenceStore, apply_migrations
 from ccatv.tvrecorder.config import TvRecorderConfigStore
+from ccatv.tvrecorder.manager import DvbStreamerState
 from ccatv.tvrecorder.orchestrator import OrchestratorResult
 from ccatv.tvrecorder.service import TvRecorderService
 
@@ -66,6 +67,18 @@ def _build_context() -> SimpleNamespace:
         persistence=persistence,
         settings=SimpleNamespace(database_path=":memory:"),
         tvrecorder=tvrecorder,
+        dvbctrl=SimpleNamespace(
+            executable_path="dvbctrl",
+            host="localhost",
+            adapter_index=0,
+            timeout_seconds=10.0,
+            transient_retry_count=2,
+            transient_retry_delay_seconds=0.2,
+        ),
+        dvbstreamer=SimpleNamespace(
+            health_check=lambda: SimpleNamespace(state=DvbStreamerState.RUNNING),
+            start=lambda: None,
+        ),
     )
 
 
@@ -1517,9 +1530,11 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
     raw_calls: list[str] = []
+    selected_channels: list[str] = []
+    stop_commands: list[str] = []
 
     monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
-    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda name: selected_channels.append(name))
     monkeypatch.setattr(
         context.tvrecorder,
         "frontend_status",
@@ -1533,6 +1548,16 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
             SimpleNamespace(stdout="<epg></epg>"),
         )[1],
     )
+
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            stop_commands.append(command)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
         lambda _connection, _raw_text, source: SimpleNamespace(
@@ -1550,11 +1575,15 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
         "command": "metadata.ota.sync.run",
         "payload": {
             "grabCommand": "epgdata",
+            "channelName": "BBC TWO HD",
+            "captureSeconds": 0.01,
         },
     })
 
     assert response["ok"] is True
-    assert raw_calls == ["epgcapstart", "epgdata", "epgcapstop"]
+    assert selected_channels == ["BBC TWO HD"]
+    assert raw_calls == ["epgcapstart", "epgdata"]
+    assert stop_commands == ["epgcapstop"]
     stats = response["payload"]["stats"]
     assert stats["channelsUpserted"] == 3
     assert stats["programsUpserted"] == 9
@@ -1575,16 +1604,29 @@ def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
         lambda: SimpleNamespace(locked=True),
     )
 
-    def _raise_grab_error(_command):
-        raise RuntimeError("unknown command")
+    def _raise_grab_error(command):
+        if command == "epgdata":
+            raise RuntimeError("unknown command")
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
 
     monkeypatch.setattr(context.tvrecorder, "run_raw", _raise_grab_error)
+
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            del command
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
 
     response = dispatcher.dispatch({
         "apiVersion": API_VERSION,
         "command": "metadata.ota.sync.run",
         "payload": {
             "grabCommand": "epgdata",
+            "captureSeconds": 0.01,
         },
     })
 
@@ -1610,6 +1652,16 @@ def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
         lambda _command: SimpleNamespace(stdout="<epg></epg>"),
     )
 
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            del command
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
+
     def _raise_ingest_error(_connection, _raw_text, source):
         del source
         raise ValueError("broken epg")
@@ -1624,6 +1676,7 @@ def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
         "command": "metadata.ota.sync.run",
         "payload": {
             "grabCommand": "epgdata",
+            "captureSeconds": 0.01,
         },
     })
 
@@ -1649,6 +1702,7 @@ def test_dispatch_metadata_ota_sync_frontend_lock_timeout(monkeypatch) -> None:
         "command": "metadata.ota.sync.run",
         "payload": {
             "frontendLockTimeoutSeconds": 0.01,
+            "captureSeconds": 0.01,
         },
     })
 
@@ -1662,7 +1716,7 @@ def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
     context = _build_context()
     start_calls = {"count": 0}
     context.dvbstreamer = SimpleNamespace(
-        health_check=lambda: SimpleNamespace(state="stopped"),
+        health_check=lambda: SimpleNamespace(state=DvbStreamerState.STOPPED),
         start=lambda: start_calls.__setitem__("count", start_calls["count"] + 1),
     )
     dispatcher = ServiceCommandDispatcher(context)
@@ -1679,6 +1733,16 @@ def test_dispatch_metadata_ota_sync_starts_dvbstreamer_when_not_running(
         "run_raw",
         lambda _command: SimpleNamespace(stdout="<epg></epg>"),
     )
+
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            del command
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
     monkeypatch.setattr(
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
         lambda _connection, _raw_text, source: SimpleNamespace(

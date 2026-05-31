@@ -107,6 +107,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="raw dvbctrl command used to fetch EPG payload (default: epgdata)",
     )
     ota_sync_parser.add_argument(
+        "--channel-name",
+        default="BBC TWO HD",
+        help="channel to select before OTA capture (default: BBC TWO HD)",
+    )
+    ota_sync_parser.add_argument(
+        "--capture-seconds",
+        type=float,
+        default=10.0,
+        help="seconds to capture OTA epgdata stream before stopping (default: 10)",
+    )
+    ota_sync_parser.add_argument(
         "--database-path",
         default=None,
         help="override sqlite database path",
@@ -398,10 +409,16 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
 
 
 def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
+    if args.capture_seconds <= 0:
+        print("--capture-seconds must be greater than 0", file=deps.stderr)
+        return 2
+
     client = deps.service_client_factory()
     try:
         payload = {
             "grabCommand": args.grab_command,
+            "channelName": args.channel_name,
+            "captureSeconds": float(args.capture_seconds),
         }
         if args.database_path:
             payload["databasePath"] = str(args.database_path)

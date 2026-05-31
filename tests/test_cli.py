@@ -422,6 +422,10 @@ def test_epg_sync_ota_command_runs_once(tmp_path: Path) -> None:
             "epg-sync-ota",
             "--grab-command",
             "epgdata",
+            "--channel-name",
+            "BBC TWO HD",
+            "--capture-seconds",
+            "5",
             "--database-path",
             str(tmp_path / "ccatv.sqlite3"),
         ],
@@ -437,10 +441,26 @@ def test_epg_sync_ota_command_runs_once(tmp_path: Path) -> None:
             "metadata.ota.sync.run",
             {
                 "grabCommand": "epgdata",
+                "channelName": "BBC TWO HD",
+                "captureSeconds": 5.0,
                 "databasePath": str(tmp_path / "ccatv.sqlite3"),
             },
         )
     ]
+
+
+def test_epg_sync_ota_rejects_non_positive_capture_seconds() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(stdout=stdout, stderr=stderr)
+
+    exit_code = main(
+        ["epg-sync-ota", "--capture-seconds", "0"],
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert "--capture-seconds must be greater than 0" in stderr.getvalue()
 
 
 def test_epg_sync_sd_daily_uses_14_day_window() -> None:

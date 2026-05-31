@@ -39,6 +39,7 @@ from ccatv.tvrecorder.config import (
     TvRecorderConfigStore,
 )
 from ccatv.tvrecorder.manager import DvbStreamerState
+from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 
 API_VERSION = "v1alpha1"
 
@@ -1193,6 +1194,13 @@ class ServiceCommandDispatcher:
                 message="frontendLockTimeoutSeconds must be greater than 0",
             )
 
+        capture_seconds = payload.get("captureSeconds", 10.0)
+        if not isinstance(capture_seconds, int | float) or capture_seconds <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="captureSeconds must be greater than 0",
+            )
+
         logger = self._context.logger
         self._raise_if_stopping()
 
@@ -1222,11 +1230,10 @@ class ServiceCommandDispatcher:
                 timeout_seconds=float(frontend_lock_timeout_seconds),
             )
 
-            self._context.tvrecorder.run_raw("epgcapstart")
-            try:
-                grab_result = self._context.tvrecorder.run_raw(grab_command.strip())
-            finally:
-                self._context.tvrecorder.run_raw("epgcapstop")
+            grab_result = self._capture_ota_epg_stream(
+                grab_command=grab_command.strip(),
+                capture_seconds=float(capture_seconds),
+            )
         except Exception as exc:
             logger.error(
                 "OTA EPG grab failed (command=%s): %s",
@@ -1280,6 +1287,57 @@ class ServiceCommandDispatcher:
                 "ingestRunId": stats.ingest_run_id,
             }
         }
+
+    def _capture_ota_epg_stream(self, *, grab_command: str, capture_seconds: float):
+        self._context.tvrecorder.run_raw("epgcapstart")
+
+        result_queue: Queue[tuple[bool, object]] = Queue(maxsize=1)
+
+        def _read_stream() -> None:
+            try:
+                result_queue.put((True, self._context.tvrecorder.run_raw(grab_command)))
+            except Exception as exc:
+                result_queue.put((False, exc))
+
+        stream_thread = Thread(target=_read_stream, daemon=True)
+        stream_thread.start()
+
+        try:
+            deadline = time.monotonic() + capture_seconds
+            while stream_thread.is_alive() and time.monotonic() < deadline:
+                self._raise_if_stopping()
+                time.sleep(0.25)
+        finally:
+            self._stop_ota_capture_with_separate_client()
+
+        stream_thread.join(timeout=5.0)
+        if stream_thread.is_alive():
+            raise RuntimeError(
+                "epgdata stream did not finish after epgcapstop; capture timed out"
+            )
+        if result_queue.empty():
+            raise RuntimeError("epgdata capture did not produce any result")
+
+        ok, payload = result_queue.get()
+        if ok:
+            return payload
+        raise payload
+
+    def _stop_ota_capture_with_separate_client(self) -> None:
+        dvbctrl = getattr(self._context, "dvbctrl", None)
+        if dvbctrl is None:
+            self._context.tvrecorder.run_raw("epgcapstop")
+            return
+
+        stop_client = DvbCtrlClient(
+            executable_path=dvbctrl.executable_path,
+            host=dvbctrl.host,
+            adapter_index=dvbctrl.adapter_index,
+            timeout_seconds=dvbctrl.timeout_seconds,
+            transient_retry_count=dvbctrl.transient_retry_count,
+            transient_retry_delay_seconds=dvbctrl.transient_retry_delay_seconds,
+        )
+        stop_client.run_command("epgcapstop")
 
     def _wait_for_frontend_lock(self, *, timeout_seconds: float) -> None:
         deadline = time.monotonic() + timeout_seconds
