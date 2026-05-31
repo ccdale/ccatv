@@ -128,6 +128,8 @@ M6. Multi-front-end enablement.
 	- [x] Initial playback interface and mpv IPC backend scaffold.
 	- [x] Add thin playback session service state/orchestration layer for GTK-facing usage.
 - Build Flask app for remote scheduling/recording dashboard.
+	- [ ] Recordings table UX follow-up: add page-size selector (10/25/50) and persist user preference.
+	- [ ] Recordings table UX follow-up: add bulk-delete mode with multi-select checkboxes.
 - Publish full installation instructions for `ccatv-service`, Flask dashboard, and GTK4 app entrypoint.
 - GTK4 live TV / guide shell UI.
 - inputlirc remote mapping.

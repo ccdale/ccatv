@@ -385,6 +385,162 @@ def test_epg_sync_sd_command_rejects_invalid_window(
     assert "--window-hours must be greater than 0" in stderr.getvalue()
 
 
+def test_epg_sync_ota_command_runs_once(tmp_path: Path) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+            self.closed = False
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "channelsUpserted": 5,
+                    "programsUpserted": 42,
+                    "broadcastsUpserted": 96,
+                    "parsedEvents": 96,
+                    "ingestRunId": 33,
+                }
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(
+        [
+            "epg-sync-ota",
+            "--grab-command",
+            "epg",
+            "--database-path",
+            str(tmp_path / "ccatv.sqlite3"),
+        ],
+        deps=deps,
+    )
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert "OTA EPG sync complete" in stdout.getvalue()
+    assert stub_client.closed is True
+    assert stub_client.executed == [
+        (
+            "metadata.ota.sync.run",
+            {
+                "grabCommand": "epg",
+                "databasePath": str(tmp_path / "ccatv.sqlite3"),
+            },
+        )
+    ]
+
+
+def test_epg_sync_sd_daily_uses_14_day_window() -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "channelsUpserted": 1,
+                    "programsUpserted": 1,
+                    "schedulesUpserted": 1,
+                    "staleSchedulesPruned": 0,
+                    "ingestRunId": 8,
+                }
+            }
+
+        def close(self) -> None:
+            return None
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["epg-sync-sd-daily", "--lineup-id", "UK-TEST"], deps=deps)
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert "Schedules Direct daily sync complete" in stdout.getvalue()
+    assert stub_client.executed == [
+        (
+            "metadata.sd.sync.run",
+            {
+                "lineupId": "UK-TEST",
+                "seed": False,
+                "windowHours": 336,
+                "clearExisting": False,
+            },
+        )
+    ]
+
+
+def test_epg_sync_sd_full_uses_14_day_clear_existing() -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "channelsUpserted": 1,
+                    "programsUpserted": 1,
+                    "schedulesUpserted": 1,
+                    "staleSchedulesPruned": 1,
+                    "ingestRunId": 9,
+                }
+            }
+
+        def close(self) -> None:
+            return None
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["epg-sync-sd-full", "--lineup-id", "UK-TEST"], deps=deps)
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert "Schedules Direct full sync complete" in stdout.getvalue()
+    assert stub_client.executed == [
+        (
+            "metadata.sd.sync.run",
+            {
+                "lineupId": "UK-TEST",
+                "seed": False,
+                "windowHours": 336,
+                "clearExisting": True,
+            },
+        )
+    ]
+
+
 def test_recordings_backfill_metadata_command_runs() -> None:
     class _StubServiceClient:
         def __init__(self) -> None:

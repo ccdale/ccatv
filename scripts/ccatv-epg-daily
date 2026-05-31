@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_DIR="${HOME}/src/ccatv"
+STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/ccatv"
+LOG_DIR="${STATE_DIR}/logs"
+LOG_FILE="${LOG_DIR}/ccatv-epg-sync.log"
+
+SD_LINEUP_ID="${CCATV_SD_LINEUP_ID:-${1:-}}"
+
+mkdir -p "${LOG_DIR}"
+
+if [[ ! -d "${REPO_DIR}" ]]; then
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ERROR missing repo directory: ${REPO_DIR}" | tee -a "${LOG_FILE}" >&2
+  exit 1
+fi
+
+if [[ -z "${SD_LINEUP_ID}" ]]; then
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ERROR missing lineup id; set CCATV_SD_LINEUP_ID or pass as arg" | tee -a "${LOG_FILE}" >&2
+  exit 2
+fi
+
+run_step() {
+  local name="$1"
+  shift
+
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] START ${name}" | tee -a "${LOG_FILE}"
+  if (cd "${REPO_DIR}" && "$@") >>"${LOG_FILE}" 2>&1; then
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] SUCCESS ${name}" | tee -a "${LOG_FILE}"
+    return 0
+  fi
+
+  local status=$?
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] FAILURE ${name} (exit=${status})" | tee -a "${LOG_FILE}" >&2
+  return "${status}"
+}
+
+run_step "ota-epg-sync" uv run ccatv epg-sync-ota
+run_step "schedules-direct-daily-sync" uv run ccatv epg-sync-sd-daily --lineup-id "${SD_LINEUP_ID}"
+
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] COMPLETE daily epg workflow" | tee -a "${LOG_FILE}"

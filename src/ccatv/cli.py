@@ -97,6 +97,64 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync_parser.set_defaults(handler=run_epg_sync_sd)
 
+    ota_sync_parser = subparsers.add_parser(
+        "epg-sync-ota",
+        help="Grab and ingest OTA EPG metadata from dvbstreamer",
+    )
+    ota_sync_parser.add_argument(
+        "--grab-command",
+        default="epg",
+        help="raw dvbctrl command used to grab EPG payload (default: epg)",
+    )
+    ota_sync_parser.add_argument(
+        "--database-path",
+        default=None,
+        help="override sqlite database path",
+    )
+    ota_sync_parser.set_defaults(handler=run_epg_sync_ota)
+
+    sd_daily_parser = subparsers.add_parser(
+        "epg-sync-sd-daily",
+        help="Run the daily Schedules Direct rolling-window sync (14 days)",
+    )
+    sd_daily_parser.add_argument(
+        "--lineup-id",
+        required=True,
+        help="Schedules Direct lineup identifier",
+    )
+    sd_daily_parser.add_argument(
+        "--database-path",
+        default=None,
+        help="override sqlite database path",
+    )
+    sd_daily_parser.add_argument(
+        "--credentials-path",
+        default=None,
+        help="override schedulesdirect credentials file path",
+    )
+    sd_daily_parser.set_defaults(handler=run_epg_sync_sd_daily)
+
+    sd_full_parser = subparsers.add_parser(
+        "epg-sync-sd-full",
+        help="Run a manual full Schedules Direct refresh (14-day window)",
+    )
+    sd_full_parser.add_argument(
+        "--lineup-id",
+        required=True,
+        help="Schedules Direct lineup identifier",
+    )
+    sd_full_parser.add_argument(
+        "--database-path",
+        default=None,
+        help="override sqlite database path",
+    )
+    sd_full_parser.add_argument(
+        "--credentials-path",
+        default=None,
+        help="override schedulesdirect credentials file path",
+    )
+    sd_full_parser.set_defaults(handler=run_epg_sync_sd_full)
+
     channel_map_parser = subparsers.add_parser(
         "channel-map",
         help="Set or clear the dvbstreamer service name for an EPG channel",
@@ -339,6 +397,116 @@ def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
     return 0
 
 
+def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
+    client = deps.service_client_factory()
+    try:
+        payload = {
+            "grabCommand": args.grab_command,
+        }
+        if args.database_path:
+            payload["databasePath"] = str(args.database_path)
+
+        result = client.execute("metadata.ota.sync.run", payload)
+        stats = result.get("stats")
+        if not isinstance(stats, dict):
+            raise RuntimeError("metadata.ota.sync.run returned malformed stats payload")
+    except ServiceClientError as exc:
+        print(f"OTA EPG sync failed: {exc.message}", file=deps.stderr)
+        return 2
+    except Exception as exc:
+        print(f"OTA EPG sync failed: {exc}", file=deps.stderr)
+        return 2
+    finally:
+        client.close()
+
+    print(
+        (
+            "OTA EPG sync complete "
+            f"(channels={stats.get('channelsUpserted')}, "
+            f"programs={stats.get('programsUpserted')}, "
+            f"broadcasts={stats.get('broadcastsUpserted')}, "
+            f"parsed_events={stats.get('parsedEvents')}, "
+            f"run_id={stats.get('ingestRunId')})"
+        ),
+        file=deps.stdout,
+    )
+    return 0
+
+
+def _run_epg_sync_sd_window(
+    *,
+    lineup_id: str,
+    window_hours: float,
+    clear_existing: bool,
+    credentials_path: str | None,
+    database_path: str | None,
+    deps: CliDependencies,
+) -> int:
+    client = deps.service_client_factory()
+    try:
+        payload: dict[str, object] = {
+            "lineupId": lineup_id,
+            "seed": False,
+            "windowHours": window_hours,
+            "clearExisting": clear_existing,
+        }
+        if database_path:
+            payload["databasePath"] = str(database_path)
+        if credentials_path:
+            payload["credentialsPath"] = str(credentials_path)
+
+        response_payload = client.execute("metadata.sd.sync.run", payload)
+        stats = response_payload.get("stats")
+        if not isinstance(stats, dict):
+            raise RuntimeError("metadata.sd.sync.run returned malformed stats payload")
+    except ServiceClientError as exc:
+        print(f"Schedules Direct sync failed: {exc.message}", file=deps.stderr)
+        return 2
+    except Exception as exc:
+        print(f"Schedules Direct sync failed: {exc}", file=deps.stderr)
+        return 2
+    finally:
+        client.close()
+
+    mode = "full" if clear_existing else "daily"
+    print(
+        (
+            f"Schedules Direct {mode} sync complete "
+            f"(lineup={lineup_id}, "
+            f"window_hours={window_hours}, "
+            f"channels={stats.get('channelsUpserted')}, "
+            f"programs={stats.get('programsUpserted')}, "
+            f"schedules={stats.get('schedulesUpserted')}, "
+            f"pruned={stats.get('staleSchedulesPruned')}, "
+            f"run_id={stats.get('ingestRunId')})"
+        ),
+        file=deps.stdout,
+    )
+    return 0
+
+
+def run_epg_sync_sd_daily(args: argparse.Namespace, deps: CliDependencies) -> int:
+    return _run_epg_sync_sd_window(
+        lineup_id=args.lineup_id,
+        window_hours=14 * 24,
+        clear_existing=False,
+        credentials_path=args.credentials_path,
+        database_path=args.database_path,
+        deps=deps,
+    )
+
+
+def run_epg_sync_sd_full(args: argparse.Namespace, deps: CliDependencies) -> int:
+    return _run_epg_sync_sd_window(
+        lineup_id=args.lineup_id,
+        window_hours=14 * 24,
+        clear_existing=True,
+        credentials_path=args.credentials_path,
+        database_path=args.database_path,
+        deps=deps,
+    )
+
+
 def run_channel_map(args: argparse.Namespace, deps: CliDependencies) -> int:
     """Set or clear the dvbstreamer service name mapping for an EPG channel."""
     channel_name = args.channel_name
@@ -442,6 +610,9 @@ __all__ = [
     "build_parser",
     "main",
     "run_channel_map",
+    "run_epg_sync_ota",
+    "run_epg_sync_sd_daily",
+    "run_epg_sync_sd_full",
     "run_epg_sync_sd",
     "run_recordings_backfill_metadata",
     "run_setup",

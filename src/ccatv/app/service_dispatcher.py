@@ -14,6 +14,7 @@ from ccatv.app.bootstrap import AppContext
 from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.metadata import SchedulesDirectHttpClient
 from ccatv.metadata.guide_preference import source_priority
+from ccatv.metadata.ota_epg import ingest_dvbstreamer_epg
 from ccatv.metadata.schedules_direct_contract import (
     GuideSyncWindow,
     SchedulesDirectApiError,
@@ -47,6 +48,7 @@ SERVICE_CAPABILITIES = [
     "recording.worker.cycle",
     "metadata.channels",
     "metadata.guide",
+    "metadata.ota.sync",
     "metadata.sd.sync",
     "runtime.setup",
 ]
@@ -65,6 +67,7 @@ SERVICE_COMMANDS = [
     "metadata.channels.favorite.set",
     "metadata.channels.service-name.set",
     "metadata.guide.list",
+    "metadata.ota.sync.run",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
     "runtime.setup.save",
@@ -188,6 +191,8 @@ class ServiceCommandDispatcher:
             return self._metadata_channels_service_name_set(payload)
         if command == "metadata.guide.list":
             return self._metadata_guide_list(payload)
+        if command == "metadata.ota.sync.run":
+            return self._metadata_ota_sync_run(payload)
         if command == "metadata.sd.sync.run":
             return self._metadata_sd_sync_run(payload)
         if command == "metadata.sd.sync.status.get":
@@ -1071,6 +1076,13 @@ class ServiceCommandDispatcher:
                 message="timeoutSeconds must be greater than 0",
             )
 
+        clear_existing = payload.get("clearExisting", False)
+        if not isinstance(clear_existing, bool):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="clearExisting must be a boolean",
+            )
+
         self._raise_if_stopping()
 
         try:
@@ -1081,6 +1093,7 @@ class ServiceCommandDispatcher:
                     window_hours=float(window_hours),
                     credentials_path=credentials_path,
                     database_path=database_path,
+                    clear_existing=clear_existing,
                 ),
                 timeout_seconds=float(timeout_seconds),
             )
@@ -1132,6 +1145,90 @@ class ServiceCommandDispatcher:
                 "programsUpserted": stats.programs_upserted,
                 "schedulesUpserted": stats.schedules_upserted,
                 "staleSchedulesPruned": stats.stale_schedules_pruned,
+                "ingestRunId": stats.ingest_run_id,
+                "fullRefresh": clear_existing,
+            }
+        }
+
+    def _metadata_ota_sync_run(self, payload: dict[str, object]) -> dict[str, object]:
+        source = payload.get("source", "dvbstreamer_ota")
+        if not isinstance(source, str) or not source.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="source must be a non-empty string when provided",
+            )
+
+        database_path = payload.get("databasePath")
+        if database_path is not None and (
+            not isinstance(database_path, str) or not database_path.strip()
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="databasePath must be a non-empty string when provided",
+            )
+
+        grab_command = payload.get("grabCommand", "epg")
+        if not isinstance(grab_command, str) or not grab_command.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="grabCommand must be a non-empty string when provided",
+            )
+
+        logger = self._context.logger
+        self._raise_if_stopping()
+
+        try:
+            grab_result = self._context.tvrecorder.run_raw(grab_command.strip())
+        except Exception as exc:
+            logger.error(
+                "OTA EPG grab failed (command=%s): %s",
+                grab_command.strip(),
+                exc,
+            )
+            raise ServiceCommandError(
+                code="OTA_GRAB_FAILED",
+                message=str(exc),
+                retryable=True,
+            ) from exc
+
+        target_connection = self._context.persistence.connection
+        close_after = False
+        if database_path is not None:
+            target_connection = initialize_database(Path(database_path.strip()))
+            close_after = True
+
+        try:
+            stats = ingest_dvbstreamer_epg(
+                target_connection,
+                grab_result.stdout,
+                source=source.strip(),
+            )
+        except Exception as exc:
+            logger.error("OTA EPG ingest failed: %s", exc)
+            raise ServiceCommandError(
+                code="OTA_INGEST_FAILED",
+                message=str(exc),
+                retryable=True,
+            ) from exc
+        finally:
+            if close_after:
+                target_connection.close()
+
+        logger.info(
+            "OTA EPG sync complete (source=%s, channels=%d, programs=%d, broadcasts=%d, run_id=%s)",
+            source.strip(),
+            stats.channels_upserted,
+            stats.programs_upserted,
+            stats.broadcasts_upserted,
+            stats.ingest_run_id,
+        )
+
+        return {
+            "stats": {
+                "channelsUpserted": stats.channels_upserted,
+                "programsUpserted": stats.programs_upserted,
+                "broadcastsUpserted": stats.broadcasts_upserted,
+                "parsedEvents": stats.parsed_events,
                 "ingestRunId": stats.ingest_run_id,
             }
         }
@@ -1244,6 +1341,7 @@ class ServiceCommandDispatcher:
         window_hours: float,
         credentials_path: str | None,
         database_path: str | None,
+        clear_existing: bool,
     ):
         credential_store = SchedulesDirectCredentialStore(
             path=Path(credentials_path) if credentials_path else None
@@ -1262,6 +1360,23 @@ class ServiceCommandDispatcher:
         try:
             self._raise_if_stopping()
             await client.authenticate(credentials)
+            if clear_existing:
+                with connection:
+                    connection.execute(
+                        """
+                        DELETE FROM epg_broadcasts
+                        WHERE channel_id IN (
+                            SELECT id
+                            FROM epg_channels
+                            WHERE source = 'schedules_direct'
+                        )
+                          AND (
+                              json_extract(metadata_json, '$.lineup_id') = ?
+                              OR json_extract(metadata_json, '$.lineup_id') IS NULL
+                          )
+                        """,
+                        (lineup_id,),
+                    )
             self._raise_if_stopping()
             now = datetime.now(timezone.utc)
             if seed:

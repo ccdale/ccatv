@@ -198,6 +198,48 @@ Notes:
 	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
 	- `POST /api/schedules`
 
+### 4.1 EPG refresh commands
+
+OTA grab + ingest (manual):
+
+```bash
+uv run ccatv epg-sync-ota
+```
+
+Schedules Direct daily rolling update (14-day window):
+
+```bash
+uv run ccatv epg-sync-sd-daily --lineup-id YOUR_LINEUP_ID
+```
+
+Schedules Direct manual full refresh (14-day window, clears existing SD window rows first):
+
+```bash
+uv run ccatv epg-sync-sd-full --lineup-id YOUR_LINEUP_ID
+```
+
+Daily sequential runner (OTA first, then SD daily update), with success/failure lines in log:
+
+```bash
+~/.local/bin/ccatv-epg-daily YOUR_LINEUP_ID
+```
+
+Runner log file:
+
+- `~/.local/state/ccatv/logs/ccatv-epg-sync.log`
+
+Install local helper scripts (including `ccatv-epg-daily`):
+
+```bash
+./scripts/install-local-scripts.sh
+```
+
+Example `cron` entry for daily sequential execution around 03:00:
+
+```cron
+0 3 * * * CCATV_SD_LINEUP_ID=YOUR_LINEUP_ID ~/.local/bin/ccatv-epg-daily
+```
+
 ### 5. GTK4 app installation status
 
 GTK4 live UI shell is not fully implemented yet, so there is currently no end-user `ccatv-gtk` entrypoint to install/run.

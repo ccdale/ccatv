@@ -59,7 +59,10 @@ def _build_context() -> SimpleNamespace:
         persistence=persistence,
     )
     return SimpleNamespace(
-        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+        logger=SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            error=lambda *args, **kwargs: None,
+        ),
         persistence=persistence,
         settings=SimpleNamespace(database_path=":memory:"),
         tvrecorder=tvrecorder,
@@ -1381,6 +1384,22 @@ def test_service_commands_are_dispatchable(
         )
 
     monkeypatch.setattr(dispatcher, "_run_sd_sync", _stub_run_sd_sync)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        lambda _connection, _raw, source: SimpleNamespace(
+            channels_upserted=0,
+            programs_upserted=0,
+            broadcasts_upserted=0,
+            parsed_events=0,
+            ingest_run_id=1,
+            source=source,
+        ),
+    )
 
     runtime_store = RuntimeConfigStore(config_dir=tmp_path / "ccatv")
     recorder_store = TvRecorderConfigStore(config_dir=tmp_path / "dvbstreamer")
@@ -1414,6 +1433,12 @@ def test_service_commands_are_dispatchable(
                 "channel": "BBC TWO HD",
                 "startAtUtc": "2026-05-25T20:00:00Z",
                 "windowHours": 2,
+            },
+        ),
+        (
+            "metadata.ota.sync.run",
+            {
+                "grabCommand": "epg",
             },
         ),
         (
@@ -1478,6 +1503,130 @@ def test_dispatch_metadata_sd_sync_run(monkeypatch) -> None:
     assert sd_stats["schedulesUpserted"] == 3
     assert sd_stats["staleSchedulesPruned"] == 4
     assert sd_stats["ingestRunId"] == 9
+    assert sd_stats["fullRefresh"] is False
+
+
+def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        lambda _connection, _raw_text, source: SimpleNamespace(
+            channels_upserted=3,
+            programs_upserted=9,
+            broadcasts_upserted=27,
+            parsed_events=27,
+            ingest_run_id=22,
+            source=source,
+        ),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "grabCommand": "epg",
+        },
+    })
+
+    assert response["ok"] is True
+    stats = response["payload"]["stats"]
+    assert stats["channelsUpserted"] == 3
+    assert stats["programsUpserted"] == 9
+    assert stats["broadcastsUpserted"] == 27
+    assert stats["parsedEvents"] == 27
+    assert stats["ingestRunId"] == 22
+
+
+def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    def _raise_grab_error(_command):
+        raise RuntimeError("dvbctrl failed")
+
+    monkeypatch.setattr(context.tvrecorder, "run_raw", _raise_grab_error)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "grabCommand": "epg",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OTA_GRAB_FAILED"
+    assert response["error"]["retryable"] is True
+
+
+def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout="<epg></epg>"),
+    )
+
+    def _raise_ingest_error(_connection, _raw_text, source):
+        del source
+        raise ValueError("broken epg")
+
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        _raise_ingest_error,
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "grabCommand": "epg",
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OTA_INGEST_FAILED"
+    assert response["error"]["retryable"] is True
+
+
+def test_dispatch_metadata_sd_sync_run_with_full_refresh(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    captured: dict[str, object] = {}
+
+    async def _stub_run_sd_sync(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            channels_upserted=1,
+            programs_upserted=1,
+            schedules_upserted=1,
+            stale_schedules_pruned=1,
+            ingest_run_id=10,
+        )
+
+    monkeypatch.setattr(dispatcher, "_run_sd_sync", _stub_run_sd_sync)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.sd.sync.run",
+        "payload": {
+            "lineupId": "UK-TEST",
+            "clearExisting": True,
+        },
+    })
+
+    assert response["ok"] is True
+    assert captured["clear_existing"] is True
+    assert response["payload"]["stats"]["fullRefresh"] is True
 
 
 def test_dispatch_metadata_sd_sync_maps_auth_error(monkeypatch) -> None:
