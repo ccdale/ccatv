@@ -40,6 +40,7 @@ class _SetupStubServiceClient:
 
         adapter_count = int(payload["adapterCount"])
         host = str(payload["host"])
+        ota_epg_channel_name = str(payload["otaEpgChannelName"])
         username = str(payload["username"])
         password = str(payload["password"])
 
@@ -55,6 +56,7 @@ class _SetupStubServiceClient:
             RuntimeConfig(
                 dvb_adapter_count=adapter_count,
                 dvbstreamer_host=host,
+                ota_epg_channel_name=ota_epg_channel_name,
             )
         )
         return {
@@ -97,6 +99,7 @@ def test_run_setup_persists_credentials(tmp_path: Path) -> None:
     runtime = RuntimeConfigStore(config_dir=tmp_path).load()
     assert runtime.dvbstreamer_host == "localhost"
     assert runtime.dvb_adapter_count == 1
+    assert runtime.ota_epg_channel_name == "BBC TWO HD"
     assert stub_client.closed is True
     assert stub_client.executed
 
@@ -226,6 +229,38 @@ def test_run_setup_preserves_runtime_defaults_when_host_not_provided(
     runtime = RuntimeConfigStore(config_dir=tmp_path).load()
     assert runtime.dvbstreamer_host == "druidmedia"
     assert runtime.dvb_adapter_count == 4
+
+
+def test_run_setup_persists_ota_epg_channel_override(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    prompts = iter(["secret", "secret"])
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    store = TvRecorderConfigStore(config_dir=tmp_path)
+    stub_client = _SetupStubServiceClient(runtime_store=runtime_store, store=store)
+    deps = CliDependencies(
+        input_fn=lambda prompt: "alice",
+        password_fn=lambda prompt: next(prompts),
+        runtime_store=runtime_store,
+        stderr=stderr,
+        stdout=stdout,
+        store=store,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = run_setup(
+        Namespace(
+            adapter_count=1,
+            host="localhost",
+            ota_epg_channel_name="BBC ONE East",
+            username="alice",
+        ),
+        deps=deps,
+    )
+
+    assert exit_code == 0
+    runtime = RuntimeConfigStore(config_dir=tmp_path).load()
+    assert runtime.ota_epg_channel_name == "BBC ONE East"
 
 
 def test_run_setup_surfaces_service_error(tmp_path: Path) -> None:
@@ -445,6 +480,53 @@ def test_epg_sync_ota_command_runs_once(tmp_path: Path) -> None:
                 "channelName": "BBC TWO HD",
                 "captureSeconds": 5.0,
                 "databasePath": str(tmp_path / "ccatv.sqlite3"),
+            },
+        )
+    ]
+
+
+def test_epg_sync_ota_uses_runtime_default_channel_when_omitted(tmp_path: Path) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {"stats": {"channelsUpserted": 1, "programsUpserted": 1, "broadcastsUpserted": 1, "parsedEvents": 1, "ingestRunId": 1}}
+
+        def close(self) -> None:
+            return None
+
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    runtime_store.save(
+        RuntimeConfig(
+            dvb_adapter_count=1,
+            dvbstreamer_host="localhost",
+            ota_epg_channel_name="BBC ONE East",
+        )
+    )
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        runtime_store=runtime_store,
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["epg-sync-ota", "--capture-seconds", "5"], deps=deps)
+
+    assert exit_code == 0
+    assert stub_client.executed == [
+        (
+            "metadata.ota.sync.run",
+            {
+                "grabCommand": "epgdata",
+                "channelName": "BBC ONE East",
+                "captureSeconds": 5.0,
             },
         )
     ]

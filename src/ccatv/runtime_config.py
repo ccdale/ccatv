@@ -18,6 +18,7 @@ class RuntimeConfig:
 
     dvb_adapter_count: int = 1
     dvbstreamer_host: str = "localhost"
+    ota_epg_channel_name: str = "BBC TWO HD"
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,9 +62,19 @@ class RuntimeConfigStore:
         if not isinstance(adapter_count, int) or adapter_count < 1:
             raise RuntimeConfigError(f"invalid dvb_adapter_count value: {self.path}")
 
+        ota_epg_channel_name = raw_data.get("ota_epg_channel_name", "BBC TWO HD")
+        if (
+            not isinstance(ota_epg_channel_name, str)
+            or not ota_epg_channel_name.strip()
+        ):
+            raise RuntimeConfigError(
+                f"invalid ota_epg_channel_name value: {self.path}"
+            )
+
         return RuntimeConfig(
             dvb_adapter_count=adapter_count,
             dvbstreamer_host=host.strip(),
+            ota_epg_channel_name=ota_epg_channel_name.strip(),
         )
 
     def save(self, config: RuntimeConfig) -> Path:
@@ -74,6 +85,7 @@ class RuntimeConfigStore:
         payload = {
             "dvb_adapter_count": config.dvb_adapter_count,
             "dvbstreamer_host": config.dvbstreamer_host,
+            "ota_epg_channel_name": config.ota_epg_channel_name,
         }
         self.path.write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",

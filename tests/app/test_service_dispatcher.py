@@ -95,7 +95,10 @@ def _build_context() -> SimpleNamespace:
             error=lambda *args, **kwargs: None,
         ),
         persistence=persistence,
-        settings=SimpleNamespace(database_path=":memory:"),
+        settings=SimpleNamespace(
+            database_path=":memory:",
+            ota_epg_channel_name="BBC TWO HD",
+        ),
         tvrecorder=tvrecorder,
         dvbctrl=SimpleNamespace(
             executable_path="dvbctrl",
@@ -1094,6 +1097,7 @@ def test_dispatch_runtime_setup_save_persists_config(
         "payload": {
             "adapterCount": 4,
             "host": "druidmedia",
+            "otaEpgChannelName": "BBC ONE East",
             "password": "secret",
             "username": "alice",
         },
@@ -1107,6 +1111,7 @@ def test_dispatch_runtime_setup_save_persists_config(
     runtime = runtime_store.load()
     assert runtime.dvb_adapter_count == 4
     assert runtime.dvbstreamer_host == "druidmedia"
+    assert runtime.ota_epg_channel_name == "BBC ONE East"
 
     recorder = recorder_store.load()
     assert recorder.dvbctrl_credentials is not None
@@ -1124,6 +1129,7 @@ def test_dispatch_runtime_setup_save_rejects_invalid_payload() -> None:
         "payload": {
             "adapterCount": 0,
             "host": " ",
+            "otaEpgChannelName": " ",
             "password": "",
             "username": " ",
         },

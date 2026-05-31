@@ -80,6 +80,7 @@ class AppSettings:
     dvbstreamer_output_mrl: str = "null://"
     dvbstreamer_path: str = "dvbstreamer"
     dvbstreamer_stop_timeout_seconds: float = 5.0
+    ota_epg_channel_name: str = "BBC TWO HD"
     dvb_adapter_count: int = 1
     dvb_adapter_index: int = 0
     dvbctrl_timeout_seconds: float = 10.0
@@ -122,6 +123,10 @@ class AppSettings:
             dvbstreamer_output_mrl=os.getenv("CCATV_DVBSTREAMER_OUTPUT_MRL", "null://"),
             dvbstreamer_path=os.getenv("CCATV_DVBSTREAMER_PATH", "dvbstreamer"),
             dvbstreamer_stop_timeout_seconds=stop_timeout_seconds,
+            ota_epg_channel_name=_env_non_empty_str(
+                "CCATV_OTA_EPG_CHANNEL_NAME",
+                runtime_config.ota_epg_channel_name,
+            ),
             dvb_adapter_count=_env_positive_int(
                 "CCATV_DVB_ADAPTER_COUNT",
                 runtime_config.dvb_adapter_count,

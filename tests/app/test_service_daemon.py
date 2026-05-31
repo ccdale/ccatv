@@ -42,6 +42,9 @@ class StubWorker:
 @dataclass(slots=True)
 class StubContext:
     logger: logging.Logger
+    settings: object = field(
+        default_factory=lambda: SimpleNamespace(ota_epg_channel_name="BBC TWO HD")
+    )
     dvbstreamer: object = field(default_factory=lambda: StubDvbStreamer())
 
 
@@ -301,12 +304,15 @@ def test_run_service_daemon_daily_metadata_sync_runs_sequential_steps(
     monkeypatch,
 ) -> None:
     worker = StubWorker()
-    context = StubContext(logger=logging.getLogger("test.daemon.daily.sync"))
-    dispatch_calls: list[str] = []
+    context = StubContext(
+        logger=logging.getLogger("test.daemon.daily.sync"),
+        settings=SimpleNamespace(ota_epg_channel_name="BBC ONE East"),
+    )
+    dispatch_calls: list[tuple[str, dict[str, object]]] = []
 
     class _StubDispatcher:
         def dispatch(self, request):
-            dispatch_calls.append(str(request.get("command")))
+            dispatch_calls.append((request["command"], request.get("payload", {})))
             return {
                 "apiVersion": "v1alpha1",
                 "ok": True,
@@ -354,8 +360,21 @@ def test_run_service_daemon_daily_metadata_sync_runs_sequential_steps(
     assert result == 0
     assert worker.cycle_count >= 1
     assert dispatch_calls == [
-        "metadata.ota.sync.run",
-        "metadata.sd.sync.run",
+        (
+            "metadata.ota.sync.run",
+            {
+                "grabCommand": "epgdata",
+                "channelName": "BBC ONE East",
+            },
+        ),
+        (
+            "metadata.sd.sync.run",
+            {
+                "clearExisting": False,
+                "lineupId": "UK-TEST",
+                "windowHours": 336,
+            },
+        ),
     ]
 
 

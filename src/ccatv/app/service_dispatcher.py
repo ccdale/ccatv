@@ -236,6 +236,13 @@ class ServiceCommandDispatcher:
                 message="adapterCount must be an integer greater than 0",
             )
 
+        ota_epg_channel_name = payload.get("otaEpgChannelName")
+        if not isinstance(ota_epg_channel_name, str) or not ota_epg_channel_name.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="otaEpgChannelName must be a non-empty string",
+            )
+
         credentials_path = TvRecorderConfigStore().save(
             TvRecorderConfig(
                 dvbctrl_credentials=DvbCtrlCredentials(
@@ -248,6 +255,7 @@ class ServiceCommandDispatcher:
             RuntimeConfig(
                 dvb_adapter_count=adapter_count,
                 dvbstreamer_host=host.strip(),
+                ota_epg_channel_name=ota_epg_channel_name.strip(),
             )
         )
 
@@ -1180,7 +1188,12 @@ class ServiceCommandDispatcher:
                 message="grabCommand must be a non-empty string when provided",
             )
 
-        channel_name = payload.get("channelName", "BBC TWO HD")
+        default_ota_channel_name = getattr(
+            self._context.settings,
+            "ota_epg_channel_name",
+            "BBC TWO HD",
+        )
+        channel_name = payload.get("channelName", default_ota_channel_name)
         if not isinstance(channel_name, str) or not channel_name.strip():
             raise ServiceCommandError(
                 code="VALIDATION_ERROR",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
+import os
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -51,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setup_parser.add_argument("--adapter-count", type=int, help="number of adapters")
     setup_parser.add_argument("--host", help="dvbstreamer/dvbctrl host")
+    setup_parser.add_argument(
+        "--ota-epg-channel-name",
+        help="default OTA EPG channel name for sync operations",
+    )
     setup_parser.add_argument("--username", help="dvbctrl username")
     setup_parser.set_defaults(handler=run_setup)
 
@@ -108,8 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ota_sync_parser.add_argument(
         "--channel-name",
-        default="BBC TWO HD",
-        help="channel to select before OTA capture (default: BBC TWO HD)",
+        default=None,
+        help=(
+            "channel to select before OTA capture "
+            "(default: runtime config or CCATV_OTA_EPG_CHANNEL_NAME)"
+        ),
     )
     ota_sync_parser.add_argument(
         "--capture-seconds",
@@ -262,6 +270,15 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
         print("Adapter count must be greater than 0.", file=deps.stderr)
         return 2
 
+    ota_epg_channel_name_arg = getattr(args, "ota_epg_channel_name", None)
+    if ota_epg_channel_name_arg is None:
+        ota_epg_channel_name = runtime_defaults.ota_epg_channel_name
+    else:
+        ota_epg_channel_name = str(ota_epg_channel_name_arg).strip()
+        if not ota_epg_channel_name:
+            print("OTA EPG channel name cannot be empty.", file=deps.stderr)
+            return 2
+
     client = deps.service_client_factory()
     try:
         response_payload = client.execute(
@@ -269,6 +286,7 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
             {
                 "adapterCount": int(adapter_count),
                 "host": host,
+                "otaEpgChannelName": ota_epg_channel_name,
                 "password": password,
                 "username": username,
             },
@@ -413,13 +431,15 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
         print("--capture-seconds must be greater than 0", file=deps.stderr)
         return 2
 
+    channel_name = _resolve_ota_epg_channel_name(args.channel_name, deps.runtime_store)
+
     print("OTA EPG sync starting...", file=deps.stdout)
 
     client = deps.service_client_factory()
     try:
         payload = {
             "grabCommand": args.grab_command,
-            "channelName": args.channel_name,
+            "channelName": channel_name,
             "captureSeconds": float(args.capture_seconds),
         }
         if args.database_path:
@@ -450,6 +470,23 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
         file=deps.stdout,
     )
     return 0
+
+
+def _resolve_ota_epg_channel_name(
+    explicit_channel_name: str | None,
+    runtime_store: RuntimeConfigStore,
+) -> str:
+    if explicit_channel_name is not None:
+        return explicit_channel_name
+
+    env_channel_name = os.getenv("CCATV_OTA_EPG_CHANNEL_NAME")
+    if env_channel_name is not None and env_channel_name.strip():
+        return env_channel_name.strip()
+
+    try:
+        return runtime_store.load().ota_epg_channel_name
+    except RuntimeConfigError:
+        return RuntimeConfig().ota_epg_channel_name
 
 
 def _run_epg_sync_sd_window(
