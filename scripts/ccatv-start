@@ -27,6 +27,7 @@ ensure_web_env() {
   local web_listen_port="5000"
   local web_service_host="127.0.0.1"
   local web_service_port="8787"
+  local sd_lineup_id=""
 
   if [[ -f "${WEB_ENV}" ]]; then
     # shellcheck disable=SC1090
@@ -40,6 +41,7 @@ ensure_web_env() {
     web_listen_port="${CCATV_WEB_LISTEN_PORT:-${web_listen_port}}"
     web_service_host="${CCATV_WEB_SERVICE_HOST:-${web_service_host}}"
     web_service_port="${CCATV_WEB_SERVICE_PORT:-${web_service_port}}"
+    sd_lineup_id="${CCATV_SD_LINEUP_ID:-}"
   fi
 
   if [[ -z "${service_token}" ]]; then
@@ -62,6 +64,7 @@ CCATV_WEB_LISTEN_HOST=${web_listen_host}
 CCATV_WEB_LISTEN_PORT=${web_listen_port}
 CCATV_WEB_SERVICE_HOST=${web_service_host}
 CCATV_WEB_SERVICE_PORT=${web_service_port}
+CCATV_SD_LINEUP_ID=${sd_lineup_id}
 EOF
   chmod 600 "${WEB_ENV}"
 }
@@ -107,6 +110,15 @@ start_component() {
 ensure_web_env
 load_web_env
 
+SERVICE_ARGS=(--output-directory "${RECORDINGS_DIR}" --poll-interval-seconds 5)
+if [[ -n "${CCATV_SD_LINEUP_ID:-}" ]]; then
+  SERVICE_ARGS+=(
+    --enable-daily-metadata-sync
+    --daily-metadata-sync-time 03:00
+    --sd-lineup-id "${CCATV_SD_LINEUP_ID}"
+  )
+fi
+
 cd "${REPO_DIR}"
 uv sync
 
@@ -114,7 +126,7 @@ start_component \
   "ccatv-service" \
   "${LOG_DIR}/ccatv-service.log" \
   "${RUN_DIR}/ccatv-service.pid" \
-  uv run ccatv-service --output-directory "${RECORDINGS_DIR}" --poll-interval-seconds 5
+  uv run ccatv-service "${SERVICE_ARGS[@]}"
 
 start_component \
   "ccatv-api" \

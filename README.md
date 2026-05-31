@@ -224,6 +224,19 @@ Daily sequential runner (OTA first, then SD daily update), with success/failure 
 ~/.local/bin/ccatv-epg-daily YOUR_LINEUP_ID
 ```
 
+Built-in service scheduler option (recommended):
+
+```bash
+uv run ccatv-service \
+	--output-directory ~/.local/share/ccatv/recordings \
+	--enable-daily-metadata-sync \
+	--daily-metadata-sync-time 03:00 \
+	--sd-lineup-id YOUR_LINEUP_ID
+```
+
+This runs daily metadata updates in the daemon scheduler loop at local 03:00,
+sequentially as OTA first then Schedules Direct daily update.
+
 Runner log file:
 
 - `~/.local/state/ccatv/logs/ccatv-epg-sync.log`
@@ -234,7 +247,7 @@ Install local helper scripts (including `ccatv-epg-daily`):
 ./scripts/install-local-scripts.sh
 ```
 
-Example `cron` entry for daily sequential execution around 03:00:
+Optional `cron` fallback for daily sequential execution around 03:00:
 
 ```cron
 0 3 * * * CCATV_SD_LINEUP_ID=YOUR_LINEUP_ID ~/.local/bin/ccatv-epg-daily

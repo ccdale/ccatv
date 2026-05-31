@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import logging
 import os
@@ -20,6 +21,22 @@ from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.app.service_dispatcher import ServiceCommandDispatcher
 
 IPC_MAX_REQUEST_BYTES = 1024 * 1024
+
+
+def _parse_hhmm(value: str) -> tuple[int, int] | None:
+    parts = value.split(":", 1)
+    if len(parts) != 2:
+        return None
+    hour_str, minute_str = parts
+    if not hour_str.isdigit() or not minute_str.isdigit():
+        return None
+    hour = int(hour_str)
+    minute = int(minute_str)
+    if hour < 0 or hour > 23:
+        return None
+    if minute < 0 or minute > 59:
+        return None
+    return hour, minute
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,6 +106,27 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Bearer token required by HTTP JSON transport; "
             "required when --http-bind-host is set"
+        ),
+    )
+    parser.add_argument(
+        "--enable-daily-metadata-sync",
+        action="store_true",
+        help=(
+            "run daily built-in metadata sync in scheduler loop "
+            "(OTA first, then Schedules Direct daily update)"
+        ),
+    )
+    parser.add_argument(
+        "--daily-metadata-sync-time",
+        default="03:00",
+        help="local time (HH:MM) for daily built-in metadata sync",
+    )
+    parser.add_argument(
+        "--sd-lineup-id",
+        default=os.getenv("CCATV_SD_LINEUP_ID"),
+        help=(
+            "Schedules Direct lineup id for built-in daily metadata sync "
+            "(or set CCATV_SD_LINEUP_ID)"
         ),
     )
     return parser
@@ -583,6 +621,9 @@ def run_service_daemon(
     max_jobs_per_cycle: int | None,
     poll_interval_seconds: float,
     run_once: bool,
+    enable_daily_metadata_sync: bool = False,
+    daily_metadata_sync_time: str = "03:00",
+    sd_lineup_id: str | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> int:
     logger = context.logger
@@ -594,11 +635,35 @@ def run_service_daemon(
         poll_interval_seconds=poll_interval_seconds,
     )
     worker_cycle_lock = getattr(context, "worker_cycle_lock", None)
+    dispatcher = _build_dispatcher(context, should_stop=stop_predicate)
+
+    sync_target = _parse_hhmm(daily_metadata_sync_time)
+    if sync_target is None:
+        logger.error(
+            "invalid daily metadata sync time; expected HH:MM but got %r",
+            daily_metadata_sync_time,
+        )
+        return 1
+    sync_hour, sync_minute = sync_target
+
+    if enable_daily_metadata_sync and not sd_lineup_id:
+        logger.error(
+            "--enable-daily-metadata-sync requires --sd-lineup-id or CCATV_SD_LINEUP_ID"
+        )
+        return 1
+
+    last_daily_sync_date: str | None = None
 
     logger.info(
         "service daemon started (mode=scheduler_loop, poll_interval_seconds=%s)",
         poll_interval_seconds,
     )
+    if enable_daily_metadata_sync:
+        logger.info(
+            "daily metadata sync enabled (time=%s local, lineup_id=%s)",
+            f"{sync_hour:02d}:{sync_minute:02d}",
+            sd_lineup_id,
+        )
 
     dvbstreamer = getattr(context, "dvbstreamer", None)
     if dvbstreamer is not None:
@@ -681,6 +746,67 @@ def run_service_daemon(
                         result.recording_id,
                         result.error,
                     )
+
+        if enable_daily_metadata_sync:
+            now_local = datetime.now().astimezone()
+            should_run_daily = (
+                now_local.hour > sync_hour
+                or (now_local.hour == sync_hour and now_local.minute >= sync_minute)
+            )
+            today_local = now_local.strftime("%Y-%m-%d")
+            if should_run_daily and last_daily_sync_date != today_local:
+                logger.info(
+                    "daily metadata sync starting (local_date=%s, local_time=%s)",
+                    today_local,
+                    now_local.strftime("%H:%M"),
+                )
+
+                ota_response = dispatcher.dispatch(
+                    {
+                        "apiVersion": "v1alpha1",
+                        "command": "metadata.ota.sync.run",
+                        "payload": {
+                            "grabCommand": "epg",
+                        },
+                    }
+                )
+                if ota_response.get("ok") is True:
+                    logger.info("daily metadata sync step complete: OTA EPG")
+                else:
+                    error = ota_response.get("error", {})
+                    logger.error(
+                        "daily metadata sync step failed: OTA EPG (code=%s, message=%s)",
+                        error.get("code"),
+                        error.get("message"),
+                    )
+
+                sd_response = dispatcher.dispatch(
+                    {
+                        "apiVersion": "v1alpha1",
+                        "command": "metadata.sd.sync.run",
+                        "payload": {
+                            "lineupId": sd_lineup_id,
+                            "windowHours": 14 * 24,
+                            "clearExisting": False,
+                        },
+                    }
+                )
+                if sd_response.get("ok") is True:
+                    logger.info("daily metadata sync step complete: Schedules Direct")
+                else:
+                    error = sd_response.get("error", {})
+                    logger.error(
+                        "daily metadata sync step failed: Schedules Direct (code=%s, message=%s)",
+                        error.get("code"),
+                        error.get("message"),
+                    )
+
+                if ota_response.get("ok") is True and sd_response.get("ok") is True:
+                    logger.info("daily metadata sync complete: success")
+                else:
+                    logger.error("daily metadata sync complete: failure")
+                last_daily_sync_date = today_local
+
         time.sleep(poll_interval_seconds)
 
     logger.info("service daemon stop requested")
@@ -707,6 +833,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--http-auth-token is required when --http-bind-host is set")
     if args.http_auth_token and not args.http_bind_host:
         parser.error("--http-auth-token requires --http-bind-host")
+    if _parse_hhmm(args.daily_metadata_sync_time) is None:
+        parser.error("--daily-metadata-sync-time must be in HH:MM 24-hour format")
 
     context = bootstrap_app()
     stop_requested = Event()
@@ -759,6 +887,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_jobs_per_cycle=args.max_jobs_per_cycle,
             poll_interval_seconds=args.poll_interval_seconds,
             run_once=args.run_once,
+            enable_daily_metadata_sync=args.enable_daily_metadata_sync,
+            daily_metadata_sync_time=args.daily_metadata_sync_time,
+            sd_lineup_id=args.sd_lineup_id,
             should_stop=stop_requested.is_set,
         )
     finally:

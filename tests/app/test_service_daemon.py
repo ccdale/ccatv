@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from http import client as http_client
 import socket
 import threading
@@ -294,6 +295,92 @@ def test_run_service_daemon_forever_continues_after_cycle_error(monkeypatch) -> 
 
     assert result == 0
     assert worker.cycle_count >= 1
+
+
+def test_run_service_daemon_daily_metadata_sync_runs_sequential_steps(
+    monkeypatch,
+) -> None:
+    worker = StubWorker()
+    context = StubContext(logger=logging.getLogger("test.daemon.daily.sync"))
+    dispatch_calls: list[str] = []
+
+    class _StubDispatcher:
+        def dispatch(self, request):
+            dispatch_calls.append(str(request.get("command")))
+            return {
+                "apiVersion": "v1alpha1",
+                "ok": True,
+                "payload": {},
+            }
+
+    class _FixedDateTime:
+        @classmethod
+        def now(cls):
+            del cls
+            return datetime(2026, 5, 31, 3, 5, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon._build_dispatcher",
+        lambda *_args, **_kwargs: _StubDispatcher(),
+    )
+    monkeypatch.setattr("ccatv.app.service_daemon.datetime", _FixedDateTime)
+
+    sleep_calls = {"count": 0}
+
+    def _should_stop() -> bool:
+        return sleep_calls["count"] >= 1
+
+    def _fake_sleep(_seconds: float) -> None:
+        sleep_calls["count"] += 1
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time.sleep", _fake_sleep)
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=False,
+        enable_daily_metadata_sync=True,
+        daily_metadata_sync_time="03:00",
+        sd_lineup_id="UK-TEST",
+        should_stop=_should_stop,
+    )
+
+    assert result == 0
+    assert worker.cycle_count >= 1
+    assert dispatch_calls == [
+        "metadata.ota.sync.run",
+        "metadata.sd.sync.run",
+    ]
+
+
+def test_run_service_daemon_daily_metadata_sync_requires_lineup(monkeypatch) -> None:
+    worker = StubWorker()
+    context = StubContext(logger=logging.getLogger("test.daemon.daily.lineup"))
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=False,
+        enable_daily_metadata_sync=True,
+        daily_metadata_sync_time="03:00",
+        sd_lineup_id=None,
+    )
+
+    assert result == 1
+    assert worker.cycle_count == 0
 
 
 def test_main_dispatch_command_json(monkeypatch, capsys) -> None:
