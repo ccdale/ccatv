@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import sqlite3
 import threading
 import time
@@ -58,16 +59,19 @@ class _MockPopen:
         self.args = ["dvbctrl", "-h", "localhost", "-a", "0", "epgdata"]
         self.returncode = 0
         self._stdout_data = stdout_data
+        self.signals_sent: list[int] = []
+        self.communicate_timeouts: list[float | None] = []
+        self.killed = False
 
     def send_signal(self, sig) -> None:  # noqa: ANN001
-        del sig
+        self.signals_sent.append(sig)
 
     def communicate(self, timeout: float | None = None) -> tuple[str, str]:
-        del timeout
+        self.communicate_timeouts.append(timeout)
         return self._stdout_data, ""
 
     def kill(self) -> None:
-        pass
+        self.killed = True
 
 
 def _build_context() -> SimpleNamespace:
@@ -1625,6 +1629,67 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
     assert stats["broadcastsUpserted"] == 27
     assert stats["parsedEvents"] == 27
     assert stats["ingestRunId"] == 22
+
+
+def test_dispatch_metadata_ota_sync_sends_sigint_and_epgcapstop(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    popen = _MockPopen("<epg></epg>")
+    stop_commands: list[str] = []
+
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "run_raw",
+        lambda _command: SimpleNamespace(stdout=""),
+    )
+    monkeypatch.setattr(
+        context.dvbctrl,
+        "start_command",
+        lambda _command: popen,
+    )
+
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            stop_commands.append(command)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        lambda _connection, _raw_text, source: SimpleNamespace(
+            channels_upserted=1,
+            programs_upserted=1,
+            broadcasts_upserted=1,
+            parsed_events=1,
+            ingest_run_id=1,
+            source=source,
+        ),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "grabCommand": "epgdata",
+            "captureSeconds": 0.01,
+        },
+    })
+
+    assert response["ok"] is True
+    assert popen.signals_sent == [signal.SIGINT]
+    assert popen.communicate_timeouts == [5.0]
+    assert popen.killed is False
+    assert stop_commands == ["epgcapstop"]
 
 
 def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
