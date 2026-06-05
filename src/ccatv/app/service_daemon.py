@@ -673,8 +673,9 @@ def run_service_daemon(
     last_daily_sync_date: str | None = None
 
     logger.info(
-        "service daemon started (mode=scheduler_loop, poll_interval_seconds=%s)",
+        "service daemon started (mode=scheduler_loop, poll_interval_seconds=%s, max_jobs_per_cycle=%s)",
         poll_interval_seconds,
+        max_jobs_per_cycle,
     )
     if enable_daily_metadata_sync:
         logger.info(

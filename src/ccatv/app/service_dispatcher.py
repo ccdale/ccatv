@@ -679,6 +679,19 @@ class ServiceCommandDispatcher:
                 message=str(exc),
             ) from exc
 
+        all_jobs = self._context.persistence.list_scheduler_jobs()
+        scheduled_count = sum(1 for item in all_jobs if item.state == "scheduled")
+        running_count = sum(1 for item in all_jobs if item.state == "running")
+        self._context.logger.info(
+            "scheduler job created: job_id=%s channel=%s start_at_utc=%s duration_seconds=%s scheduled=%s running=%s",
+            job.id,
+            job.channel_name,
+            job.start_at_utc,
+            job.duration_seconds,
+            scheduled_count,
+            running_count,
+        )
+
         return {
             "job": {
                 "id": job.id,

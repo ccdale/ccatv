@@ -159,8 +159,22 @@ class RecorderOrchestrator:
         max_jobs: int | None = None,
     ) -> list[OrchestratorResult]:
         due_jobs = self.list_due_scheduler_jobs(now_utc=now_utc)
+        total_due_jobs = len(due_jobs)
+        if total_due_jobs == 0:
+            return []
+
+        deferred_jobs = 0
         if max_jobs is not None:
+            deferred_jobs = max(0, total_due_jobs - max_jobs)
             due_jobs = due_jobs[:max_jobs]
+
+        self.logger.info(
+            "scheduler cycle: due_jobs=%s executing=%s deferred=%s max_jobs_per_cycle=%s",
+            total_due_jobs,
+            len(due_jobs),
+            deferred_jobs,
+            max_jobs,
+        )
 
         return [
             self.run_job(job_id=job.id, output_path=output_path_builder(job))
