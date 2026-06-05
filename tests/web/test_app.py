@@ -139,6 +139,10 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "Sign in" in body
     assert "Record programme" in body
     assert "Scheduled recordings" in body
+    assert "7-day timeline guide" in body
+    assert "arrow keys" in body
+    assert "Favourite channels" in body
+    assert "record-badge" in body
     assert "Channel Manager" in body
     assert 'href="/channel-manager"' in body
     assert "View Recordings" in body

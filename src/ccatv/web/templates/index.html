@@ -55,28 +55,45 @@
       .panel-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.5); }
       .panel-header p { margin-top: 0.35rem; color: var(--muted); font-size: 0.95rem; }
       .panel-body { padding: 1rem; }
-      .channel-list, .programme-list, .schedule-list { display: grid; gap: 0.75rem; }
+      .channel-list, .schedule-list { display: grid; gap: 0.75rem; }
       .channel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.6rem; align-items: stretch; }
-      .channel-button, .programme-card, .schedule-card { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel-strong); color: var(--ink); border-radius: 22px; }
+      .channel-button, .schedule-card { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel-strong); color: var(--ink); border-radius: 22px; }
       .channel-button { padding: 0.95rem 1rem; }
-      .channel-button.active { background: var(--accent-soft); border-color: rgba(15, 118, 110, 0.35); }
       .channel-favorite { min-width: 3.5rem; padding-inline: 0.8rem; background: #fff5e8; color: #8a3b00; border: 1px solid #f4d7b3; }
       .channel-favorite.active { background: #ffe8c7; color: #6b2f00; border-color: #f0bf7a; }
-      .channel-meta, .programme-meta, .schedule-meta, .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
-      .programme-card, .schedule-card { display: grid; gap: 0.9rem; padding: 1rem; }
-      .programme-card h3, .schedule-card h3 { font-size: 1.16rem; }
-      .programme-body, .schedule-body { display: grid; gap: 0.55rem; }
-      .programme-actions, .schedule-actions { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+      .channel-meta, .schedule-meta, .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
+      .schedule-card { display: grid; gap: 0.9rem; padding: 1rem; }
+      .schedule-card h3 { font-size: 1.16rem; }
+      .schedule-body { display: grid; gap: 0.55rem; }
+      .schedule-actions { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.92rem; }
       .pill.neutral { background: rgba(29, 29, 27, 0.08); color: var(--ink); }
       .inline-message.error { color: var(--error); }
+      .timeline-shell { border: 1px solid var(--line); border-radius: 20px; background: rgba(255, 255, 255, 0.72); overflow: hidden; }
+      .timeline-ruler { padding: 0.75rem 0.9rem; border-bottom: 1px solid var(--line); overflow-x: auto; }
+      .timeline-ruler-track { position: relative; height: 1.8rem; }
+      .timeline-ruler-hour { position: absolute; top: 0.35rem; transform: translateX(-50%); font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+      .timeline-ruler-line { position: absolute; top: 0.05rem; bottom: 0.05rem; width: 1px; background: rgba(29, 29, 27, 0.2); }
+      .timeline-board { max-height: 58vh; overflow: auto; padding: 0.65rem 0.9rem 0.9rem; display: grid; gap: 0.6rem; }
+      .timeline-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 0.55rem; align-items: center; }
+      .timeline-channel-label { padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.9); font-weight: 700; font-size: 0.9rem; }
+      .timeline-track { position: relative; min-height: 2.5rem; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(251,245,234,0.8)); overflow: hidden; }
+      .timeline-empty { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 0.75rem; color: var(--muted); font-size: 0.85rem; }
+      .timeline-programme { position: absolute; top: 0.24rem; bottom: 0.24rem; border-radius: 10px; border: 1px solid rgba(15, 118, 110, 0.45); background: linear-gradient(180deg, rgba(15, 118, 110, 0.18), rgba(15, 118, 110, 0.28)); color: var(--ink); padding: 0.32rem 0.48rem; font-size: 0.8rem; overflow: hidden; cursor: pointer; }
+      .timeline-programme.is-recording { border-color: rgba(180, 35, 24, 0.7); background: linear-gradient(180deg, rgba(180, 35, 24, 0.18), rgba(180, 35, 24, 0.26)); }
+      .timeline-programme-time { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+      .timeline-programme-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+      .record-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.3rem; border-radius: 999px; background: #b42318; color: #fff; font-size: 0.72rem; margin-right: 0.25rem; vertical-align: middle; }
+      .timeline-hover-card { margin-top: 0.75rem; padding: 0.9rem; border: 1px dashed var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.7); display: grid; gap: 0.5rem; }
+      .timeline-hover-meta { color: var(--muted); font-size: 0.9rem; }
       @media (max-width: 1080px) {
         .layout { grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); }
         .schedule-panel { grid-column: 1 / -1; }
       }
       @media (max-width: 820px) {
         .auth-bar, .layout { grid-template-columns: 1fr; }
-        .programme-actions, .schedule-actions { align-items: flex-start; flex-direction: column; }
+        .schedule-actions { align-items: flex-start; flex-direction: column; }
+        .timeline-row { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -100,24 +117,31 @@
       <section class="layout">
         <div class="panel">
           <div class="panel-header">
-            <h2>Channels</h2>
-            <p>Pick a channel to load today's guide window.</p>
+            <h2>Favourite channels</h2>
+            <p>Timeline rows are limited to favourites only.</p>
           </div>
           <div class="panel-body">
             <div id="channel-list" class="channel-list">
-              <div class="empty">Sign in to load channels.</div>
+              <div class="empty">Sign in to load favourite channels.</div>
             </div>
           </div>
         </div>
 
         <div class="panel">
           <div class="panel-header">
-            <h2 id="guide-title">Today's programmes</h2>
-            <p id="guide-subtitle">Choose a channel to fetch its schedule.</p>
+            <h2 id="guide-title">7-day timeline guide</h2>
+            <p id="guide-subtitle">Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.</p>
           </div>
           <div class="panel-body">
-            <div id="programme-list" class="programme-list">
-              <div class="empty">No programme data loaded yet.</div>
+            <div class="timeline-shell">
+              <div id="timeline-ruler" class="timeline-ruler"></div>
+              <div id="timeline-board" class="timeline-board">
+                <div class="empty">No timeline data loaded yet.</div>
+              </div>
+            </div>
+            <div id="timeline-hover" class="timeline-hover-card">
+              <strong>Programme details</strong>
+              <div class="timeline-hover-meta">Hover over a programme tile to view description and schedule actions.</div>
             </div>
           </div>
         </div>
@@ -142,23 +166,29 @@
 
     <script>
       const bootstrap = {{ {"authRequired": auth_required, "authenticated": authenticated}|tojson }};
+      const MIN_TILE_MINUTES = 10;
+      const PIXELS_PER_MINUTE = 2;
+      const TIMELINE_RANGE_DAYS = 7;
       const tokenInput = document.getElementById("token-input");
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
       const refreshSchedulesButton = document.getElementById("refresh-schedules-button");
       const channelList = document.getElementById("channel-list");
-      const programmeList = document.getElementById("programme-list");
       const scheduleList = document.getElementById("schedule-list");
       const guideTitle = document.getElementById("guide-title");
       const guideSubtitle = document.getElementById("guide-subtitle");
+      const timelineRuler = document.getElementById("timeline-ruler");
+      const timelineBoard = document.getElementById("timeline-board");
+      const timelineHover = document.getElementById("timeline-hover");
       const statusNode = document.getElementById("status");
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let channels = [];
+      let favouriteChannels = [];
       let schedules = [];
-      let selectedChannel = null;
-      let currentProgrammes = [];
-      let schedulingMessages = new Map();
+      let timelineData = new Map();
+      let timelineOriginMs = 0;
+      let timelineStartMs = 0;
 
       class ApiError extends Error {
         constructor(message, code = null) {
@@ -181,15 +211,17 @@
 
       function resetViews() {
         channels = [];
+        favouriteChannels = [];
         schedules = [];
-        selectedChannel = null;
-        currentProgrammes = [];
-        schedulingMessages = new Map();
+        timelineData = new Map();
+        timelineOriginMs = 0;
+        timelineStartMs = 0;
         renderChannels();
         renderSchedules();
-        renderProgrammes([]);
-        guideTitle.textContent = "Today's programmes";
-        guideSubtitle.textContent = "Choose a channel to fetch its schedule.";
+        renderTimeline();
+        renderTimelineHover(null, null);
+        guideTitle.textContent = "7-day timeline guide";
+        guideSubtitle.textContent = "Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.";
       }
 
       async function fetchJson(url, options = {}) {
@@ -210,6 +242,10 @@
 
       function findScheduledJob(programme) {
         return schedules.find((job) => scheduleKey(job.channelName, job.startAtUtc) === scheduleKey(programme.channelName, programme.startAtUtc));
+      }
+
+      function toUtcNoMillis(date) {
+        return date.toISOString().replace(/\.\d{3}Z$/, "Z");
       }
 
       function formatTime(value) {
@@ -247,6 +283,19 @@
         return parts.join(" | ");
       }
 
+      function visibleWindowMinutes() {
+        const px = Math.max(360, timelineBoard.clientWidth - 220);
+        return Math.max(120, Math.floor(px / PIXELS_PER_MINUTE));
+      }
+
+      function clampTimelineStart(nextStartMs) {
+        const rangeMs = TIMELINE_RANGE_DAYS * 24 * 60 * 60 * 1000;
+        const windowMs = visibleWindowMinutes() * 60 * 1000;
+        const maxStart = timelineOriginMs + rangeMs - windowMs;
+        if (maxStart <= timelineOriginMs) return timelineOriginMs;
+        return Math.min(Math.max(nextStartMs, timelineOriginMs), maxStart);
+      }
+
       async function saveFavoriteChannel(channel, favorite) {
         await fetchJson("/api/channels/favorite", {
           method: "POST",
@@ -260,25 +309,23 @@
         if (!isAuthenticated) {
           const empty = document.createElement("div");
           empty.className = "empty";
-          empty.textContent = "Sign in to load channels.";
+          empty.textContent = "Sign in to load favourite channels.";
           channelList.append(empty);
           return;
         }
-        if (!channels.length) {
+        if (!favouriteChannels.length) {
           const empty = document.createElement("div");
           empty.className = "empty";
-          empty.textContent = "No channels available.";
+          empty.textContent = "No favourite channels selected yet.";
           channelList.append(empty);
           return;
         }
-        for (const channel of channels) {
+        for (const channel of favouriteChannels) {
           const row = document.createElement("div");
           row.className = "channel-row";
 
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "channel-button" + (selectedChannel && selectedChannel.name === channel.name ? " active" : "");
-          button.addEventListener("click", () => { void loadGuide(channel); });
+          const button = document.createElement("div");
+          button.className = "channel-button";
           const name = document.createElement("div");
           name.textContent = channel.name;
           const meta = document.createElement("div");
@@ -298,6 +345,7 @@
             try {
               await saveFavoriteChannel(channel, nextFavorite);
               await loadChannels();
+              await loadTimeline();
               setStatus(`${channel.name} favourite ${nextFavorite ? "enabled" : "cleared"}.`);
             } catch (error) {
               setStatus(error.message, "error");
@@ -309,6 +357,179 @@
           row.append(button, favoriteButton);
           channelList.append(row);
         }
+      }
+
+      function parseProgramme(programme) {
+        const startMs = Date.parse(programme.startAtUtc || "");
+        const stopMs = Date.parse(programme.stopAtUtc || "");
+        if (!Number.isFinite(startMs) || !Number.isFinite(stopMs) || stopMs <= startMs) {
+          return null;
+        }
+        const durationMinutes = (stopMs - startMs) / 60000;
+        if (durationMinutes < MIN_TILE_MINUTES) {
+          return null;
+        }
+        return { ...programme, startMs, stopMs, durationMinutes };
+      }
+
+      function renderTimelineHover(programme, matchingJob) {
+        timelineHover.replaceChildren();
+        const title = document.createElement("strong");
+        title.textContent = programme ? (programme.title || programme.channelName) : "Programme details";
+        const meta = document.createElement("div");
+        meta.className = "timeline-hover-meta";
+        if (!programme) {
+          meta.textContent = "Hover over a programme tile to view description and schedule actions.";
+          timelineHover.append(title, meta);
+          return;
+        }
+        meta.textContent = `${programme.channelName} | ${formatLongDateTime(programme.startAtUtc)} to ${formatTime(programme.stopAtUtc)} | ${formatDuration(programme.durationSeconds)}`;
+        const description = document.createElement("div");
+        description.textContent = programme.description || "No description available.";
+        timelineHover.append(title, meta, description);
+        if (matchingJob) {
+          const scheduled = document.createElement("div");
+          scheduled.className = "pill";
+          scheduled.textContent = `Job ${matchingJob.id} | ${matchingJob.state}`;
+          timelineHover.append(scheduled);
+          return;
+        }
+        const recordButton = document.createElement("button");
+        recordButton.type = "button";
+        recordButton.textContent = "Record programme";
+        recordButton.addEventListener("click", () => { void createRecording(programme, recordButton); });
+        timelineHover.append(recordButton);
+      }
+
+      function renderTimelineRuler(startMs, windowMinutes) {
+        timelineRuler.replaceChildren();
+        const track = document.createElement("div");
+        track.className = "timeline-ruler-track";
+        track.style.width = `${windowMinutes * PIXELS_PER_MINUTE}px`;
+        const endMs = startMs + (windowMinutes * 60 * 1000);
+        const hourCursor = new Date(startMs);
+        hourCursor.setMinutes(0, 0, 0);
+        if (hourCursor.getTime() < startMs) {
+          hourCursor.setHours(hourCursor.getHours() + 1);
+        }
+        while (hourCursor.getTime() <= endMs) {
+          const offsetMinutes = (hourCursor.getTime() - startMs) / 60000;
+          const x = offsetMinutes * PIXELS_PER_MINUTE;
+          const line = document.createElement("div");
+          line.className = "timeline-ruler-line";
+          line.style.left = `${x}px`;
+          const label = document.createElement("div");
+          label.className = "timeline-ruler-hour";
+          label.style.left = `${x}px`;
+          label.textContent = new Intl.DateTimeFormat([], {
+            weekday: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          }).format(hourCursor);
+          track.append(line, label);
+          hourCursor.setHours(hourCursor.getHours() + 1);
+        }
+        timelineRuler.append(track);
+      }
+
+      function renderTimeline() {
+        timelineBoard.replaceChildren();
+        if (!isAuthenticated) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Sign in to view timeline data.";
+          timelineBoard.append(empty);
+          return;
+        }
+        if (!favouriteChannels.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Mark channels as favourites to build the timeline.";
+          timelineBoard.append(empty);
+          return;
+        }
+        if (!timelineOriginMs) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Loading timeline data...";
+          timelineBoard.append(empty);
+          return;
+        }
+
+        timelineStartMs = clampTimelineStart(timelineStartMs || timelineOriginMs);
+        const windowMinutes = visibleWindowMinutes();
+        const windowStartMs = timelineStartMs;
+        const windowEndMs = windowStartMs + (windowMinutes * 60 * 1000);
+        renderTimelineRuler(windowStartMs, windowMinutes);
+
+        for (const channel of favouriteChannels) {
+          const row = document.createElement("div");
+          row.className = "timeline-row";
+
+          const label = document.createElement("div");
+          label.className = "timeline-channel-label";
+          label.textContent = channel.name;
+
+          const track = document.createElement("div");
+          track.className = "timeline-track";
+          track.style.width = `${windowMinutes * PIXELS_PER_MINUTE}px`;
+
+          const programmes = timelineData.get(channel.name) || [];
+          let renderedAny = false;
+          for (const programme of programmes) {
+            const clipStart = Math.max(programme.startMs, windowStartMs);
+            const clipEnd = Math.min(programme.stopMs, windowEndMs);
+            if (clipEnd <= clipStart) continue;
+            const clipMinutes = (clipEnd - clipStart) / 60000;
+            if (clipMinutes < MIN_TILE_MINUTES) continue;
+            const left = ((clipStart - windowStartMs) / 60000) * PIXELS_PER_MINUTE;
+            const width = clipMinutes * PIXELS_PER_MINUTE;
+            const matchingJob = findScheduledJob(programme);
+
+            const tile = document.createElement("button");
+            tile.type = "button";
+            tile.className = "timeline-programme" + (matchingJob ? " is-recording" : "");
+            tile.style.left = `${left}px`;
+            tile.style.width = `${Math.max(width, MIN_TILE_MINUTES * PIXELS_PER_MINUTE)}px`;
+            tile.addEventListener("mouseenter", () => {
+              renderTimelineHover(programme, matchingJob || null);
+            });
+            tile.addEventListener("focus", () => {
+              renderTimelineHover(programme, matchingJob || null);
+            });
+
+            const title = document.createElement("div");
+            title.className = "timeline-programme-title";
+            if (matchingJob && Date.parse(programme.startAtUtc) >= Date.now()) {
+              const badge = document.createElement("span");
+              badge.className = "record-badge";
+              badge.textContent = "R";
+              title.append(badge);
+            }
+            title.append(document.createTextNode(programme.title));
+
+            const time = document.createElement("div");
+            time.className = "timeline-programme-time";
+            time.textContent = `${formatTime(programme.startAtUtc)} - ${formatTime(programme.stopAtUtc)}`;
+
+            tile.append(title, time);
+            track.append(tile);
+            renderedAny = true;
+          }
+
+          if (!renderedAny) {
+            const empty = document.createElement("div");
+            empty.className = "timeline-empty";
+            empty.textContent = "No programmes in this window.";
+            track.append(empty);
+          }
+
+          row.append(label, track);
+          timelineBoard.append(row);
+        }
+
+        guideTitle.textContent = "7-day timeline guide";
+        guideSubtitle.textContent = `Window ${formatLongDateTime(new Date(windowStartMs).toISOString())} to ${formatLongDateTime(new Date(windowEndMs).toISOString())}. Left/Right: page, Up/Down: day.`;
       }
 
       function renderSchedules() {
@@ -349,63 +570,10 @@
         }
       }
 
-      function renderProgrammes(programmes) {
-        programmeList.replaceChildren();
-        if (!programmes.length) {
-          const empty = document.createElement("div");
-          empty.className = "empty";
-          empty.textContent = selectedChannel ? "No programmes found for today on this channel." : "No programme data loaded yet.";
-          programmeList.append(empty);
-          return;
-        }
-        for (const programme of programmes) {
-          const card = document.createElement("article");
-          card.className = "programme-card";
-          const body = document.createElement("div");
-          body.className = "programme-body";
-          const heading = document.createElement("h3");
-          heading.textContent = programme.title;
-          const meta = document.createElement("div");
-          meta.className = "programme-meta";
-          meta.textContent = `${formatTime(programme.startAtUtc)} to ${formatTime(programme.stopAtUtc)} | ${formatDuration(programme.durationSeconds)}`;
-          body.append(heading, meta);
-          if (programme.description) {
-            const description = document.createElement("p");
-            description.textContent = programme.description;
-            body.append(description);
-          }
-          const actions = document.createElement("div");
-          actions.className = "programme-actions";
-          const matchingJob = findScheduledJob(programme);
-          const pill = document.createElement("div");
-          pill.className = "pill" + (matchingJob ? "" : " neutral");
-          pill.textContent = matchingJob ? `Job ${matchingJob.id} | ${matchingJob.state}` : programme.channelName;
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = matchingJob ? "Already scheduled" : "Record programme";
-          button.disabled = Boolean(matchingJob);
-          button.addEventListener("click", () => { void createRecording(programme, button); });
-          actions.append(pill, button);
-          card.append(body, actions);
-          const inline = schedulingMessages.get(scheduleKey(programme.channelName, programme.startAtUtc));
-          if (inline) {
-            const msg = document.createElement("div");
-            msg.className = `inline-message ${inline.level}`;
-            msg.textContent = inline.message;
-            card.append(msg);
-          }
-          programmeList.append(card);
-        }
-      }
-
-      function startOfTodayLocal() {
-        const now = new Date();
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      }
-
       async function loadChannels() {
         const payload = await fetchJson("/api/channels");
         channels = payload.channels || [];
+        favouriteChannels = channels.filter((channel) => channel.favoriteChannel);
         renderChannels();
       }
 
@@ -418,35 +586,48 @@
         renderSchedules();
       }
 
-      async function loadGuide(channel) {
-        selectedChannel = channel;
-        renderChannels();
-        guideTitle.textContent = channel.name;
-        guideSubtitle.textContent = "Loading today's programmes...";
-        const start = startOfTodayLocal();
-        const end = new Date(start.getTime());
-        end.setDate(end.getDate() + 1);
+      async function loadTimeline() {
+        timelineData = new Map();
+        renderTimeline();
+        if (!favouriteChannels.length) {
+          renderTimelineHover(null, null);
+          return;
+        }
+        if (!timelineOriginMs) {
+          timelineOriginMs = Date.now();
+          timelineStartMs = timelineOriginMs;
+        }
+        const start = new Date(timelineOriginMs);
         try {
-          const query = new URLSearchParams({
-            channel: channel.name,
-            startAtUtc: start.toISOString().replace(/\.\d{3}Z$/, "Z"),
-            windowHours: String((end.getTime() - start.getTime()) / 3600000),
-          });
-          const payload = await fetchJson(`/api/guide?${query.toString()}`);
-          currentProgrammes = payload.programs || [];
-          renderProgrammes(currentProgrammes);
-          guideSubtitle.textContent = `Showing ${currentProgrammes.length} programme(s) for today.`;
-          setStatus(`Loaded guide for ${channel.name}.`);
+          const allPayloads = await Promise.all(favouriteChannels.map(async (channel) => {
+            const query = new URLSearchParams({
+              channel: channel.name,
+              startAtUtc: toUtcNoMillis(start),
+              windowHours: String(TIMELINE_RANGE_DAYS * 24),
+            });
+            const payload = await fetchJson(`/api/guide?${query.toString()}`);
+            return { channelName: channel.name, programs: payload.programs || [] };
+          }));
+
+          for (const item of allPayloads) {
+            const programs = item.programs
+              .map((programme) => parseProgramme(programme))
+              .filter((programme) => programme !== null)
+              .sort((a, b) => a.startMs - b.startMs);
+            timelineData.set(item.channelName, programs);
+          }
+          renderTimeline();
+          setStatus(`Loaded timeline for ${favouriteChannels.length} favourite channel(s).`);
         } catch (error) {
-          guideSubtitle.textContent = "Unable to load guide data.";
+          guideSubtitle.textContent = "Unable to load timeline guide data.";
+          timelineData = new Map();
+          renderTimeline();
           setStatus(error.message, "error");
         }
       }
 
       async function createRecording(programme, button) {
         button.disabled = true;
-        const key = scheduleKey(programme.channelName, programme.startAtUtc);
-        schedulingMessages.delete(key);
         try {
           const durationSeconds = programme.durationSeconds || Math.max(60, Math.round((new Date(programme.stopAtUtc) - new Date(programme.startAtUtc)) / 1000));
           const payload = await fetchJson("/api/schedules", {
@@ -462,13 +643,12 @@
               programStopAtUtc: programme.stopAtUtc,
             }),
           });
-          schedulingMessages.set(key, { level: "info", message: `Scheduled as job ${payload.job.id}.` });
           await loadSchedules();
-          renderProgrammes(currentProgrammes);
+          renderTimeline();
+          renderTimelineHover(programme, findScheduledJob(programme) || null);
           setStatus(`Scheduled ${programme.title} on ${programme.channelName} as job ${payload.job.id}.`);
         } catch (error) {
-          schedulingMessages.set(key, { level: "error", message: error.message });
-          renderProgrammes(currentProgrammes);
+          renderTimelineHover(programme, null);
           setStatus(`Failed to schedule ${programme.title}: ${error.message}`, "error");
         } finally {
           button.disabled = false;
@@ -477,10 +657,10 @@
 
       async function initializeAfterAuth() {
         await Promise.all([loadChannels(), loadSchedules()]);
-        currentProgrammes = [];
-        renderProgrammes(currentProgrammes);
-        guideTitle.textContent = "Today's programmes";
-        guideSubtitle.textContent = "Choose a channel to fetch its schedule.";
+        timelineOriginMs = Date.now();
+        timelineStartMs = timelineOriginMs;
+        await loadTimeline();
+        renderTimelineHover(null, null);
         setStatus(`Loaded ${channels.length} channels and ${schedules.length} job(s).`);
       }
 
@@ -541,10 +721,39 @@
         }
         void loadSchedules()
           .then(() => {
-            renderProgrammes(currentProgrammes);
+            renderTimeline();
             setStatus(`Loaded ${schedules.length} job(s).`);
           })
           .catch((error) => setStatus(error.message, "error"));
+      });
+
+      window.addEventListener("resize", () => {
+        if (isAuthenticated) {
+          renderTimeline();
+        }
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (!isAuthenticated || !timelineOriginMs) return;
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          return;
+        }
+        let deltaMs = 0;
+        if (event.key === "ArrowLeft") {
+          deltaMs = -visibleWindowMinutes() * 60 * 1000;
+        } else if (event.key === "ArrowRight") {
+          deltaMs = visibleWindowMinutes() * 60 * 1000;
+        } else if (event.key === "ArrowUp") {
+          deltaMs = 24 * 60 * 60 * 1000;
+        } else if (event.key === "ArrowDown") {
+          deltaMs = -24 * 60 * 60 * 1000;
+        } else {
+          return;
+        }
+        event.preventDefault();
+        timelineStartMs = clampTimelineStart(timelineStartMs + deltaMs);
+        renderTimeline();
       });
       tokenInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
