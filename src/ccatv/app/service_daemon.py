@@ -829,6 +829,11 @@ def run_service_daemon(
 
         time.sleep(poll_interval_seconds)
 
+    # Wait for any recording threads still running after the shutdown signal
+    orchestrator = getattr(context, "recorder_orchestrator", None)
+    if orchestrator is not None:
+        orchestrator.join_running_jobs()
+
     logger.info("service daemon stop requested")
     return 0
 

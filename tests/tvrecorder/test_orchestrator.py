@@ -57,6 +57,24 @@ def _iso_at(timestamp_seconds: float) -> str:
     )
 
 
+def _sync_thread_factory(**kwargs):
+    """Thread factory for tests: runs the target synchronously in the calling thread."""
+    target = kwargs["target"]
+    args = kwargs.get("args", ())
+
+    class _SyncThread:
+        def start(self) -> None:
+            target(*args)
+
+        def is_alive(self) -> bool:
+            return False
+
+        def join(self, timeout: float | None = None) -> None:
+            pass
+
+    return _SyncThread()
+
+
 def test_orchestrator_run_job_success_path(tmp_path: Path) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     persistence = PersistenceStore(connection=connection)
@@ -263,6 +281,7 @@ def test_orchestrator_run_due_jobs_filters_scheduled_due_items(
         periodic_policy=PeriodicCheckPolicy(growth_min_bytes=1, interval_seconds=10.0),
         now_fn=clock.now,
         sleep_fn=clock.sleep,
+        thread_factory=_sync_thread_factory,
     )
 
     try:

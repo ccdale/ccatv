@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 import re
 import shlex
+import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Any, Protocol
 
 from ccatv.storage import PersistenceStore, RecordingStateRecord, SchedulerJobRecord
 from ccatv.tvrecorder.service import TvRecorderService
@@ -133,6 +134,11 @@ class RecorderOrchestrator:
     sleep_fn: Callable[[float], None] = time.sleep
     should_stop: Callable[[], bool] = lambda: False
     logger: logging.Logger = logging.getLogger("ccatv")
+    thread_factory: Callable[..., Any] = threading.Thread
+    _active_jobs: dict[int, tuple[Any, list[OrchestratorResult]]] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _results_lock: Any = field(default_factory=threading.Lock, init=False, repr=False)
 
     def list_due_scheduler_jobs(
         self,
@@ -158,30 +164,80 @@ class RecorderOrchestrator:
         now_utc: str | None = None,
         max_jobs: int | None = None,
     ) -> list[OrchestratorResult]:
+        # Collect results from recording threads that completed since the last cycle
+        completed_results = self._collect_completed_threads()
+
+        # Find new due jobs, skipping any already running on a recording thread
         due_jobs = self.list_due_scheduler_jobs(now_utc=now_utc)
+        with self._results_lock:
+            active_job_ids = set(self._active_jobs.keys())
+        due_jobs = [j for j in due_jobs if j.id not in active_job_ids]
+
         total_due_jobs = len(due_jobs)
-        if total_due_jobs == 0:
-            return []
+        if total_due_jobs > 0:
+            deferred_jobs = 0
+            if max_jobs is not None:
+                deferred_jobs = max(0, total_due_jobs - max_jobs)
+                due_jobs = due_jobs[:max_jobs]
 
-        deferred_jobs = 0
-        if max_jobs is not None:
-            deferred_jobs = max(0, total_due_jobs - max_jobs)
-            due_jobs = due_jobs[:max_jobs]
+            executing_ids = [job.id for job in due_jobs]
+            self.logger.info(
+                "scheduler cycle: due_jobs=%s executing=%s deferred=%s max_jobs_per_cycle=%s job_ids=%s",
+                total_due_jobs,
+                len(due_jobs),
+                deferred_jobs,
+                max_jobs,
+                executing_ids,
+            )
 
-        executing_ids = [job.id for job in due_jobs]
-        self.logger.info(
-            "scheduler cycle: due_jobs=%s executing=%s deferred=%s max_jobs_per_cycle=%s job_ids=%s",
-            total_due_jobs,
-            len(due_jobs),
-            deferred_jobs,
-            max_jobs,
-            executing_ids,
-        )
+            for job in due_jobs:
+                output_path = output_path_builder(job)
+                result_holder: list[OrchestratorResult] = []
+                thread = self.thread_factory(
+                    target=self._run_job_in_thread,
+                    args=(job.id, output_path, result_holder),
+                    daemon=True,
+                    name=f"ccatv-recording-{job.id}",
+                )
+                with self._results_lock:
+                    self._active_jobs[job.id] = (thread, result_holder)
+                thread.start()
 
-        return [
-            self.run_job(job_id=job.id, output_path=output_path_builder(job))
-            for job in due_jobs
-        ]
+        # Also collect threads that finished synchronously (e.g. test runners)
+        just_finished = self._collect_completed_threads()
+        return completed_results + just_finished
+
+    def _collect_completed_threads(self) -> list[OrchestratorResult]:
+        """Pop and return results from recording threads that have finished."""
+        collected: list[OrchestratorResult] = []
+        with self._results_lock:
+            done_ids = [
+                jid for jid, (t, _) in self._active_jobs.items() if not t.is_alive()
+            ]
+            for job_id in done_ids:
+                _, result_holder = self._active_jobs.pop(job_id)
+                collected.extend(result_holder)
+        return collected
+
+    def _run_job_in_thread(
+        self,
+        job_id: int,
+        output_path: str,
+        result_holder: list[OrchestratorResult],
+    ) -> None:
+        """Run a scheduler job and store the result for collection on the next cycle."""
+        result = self.run_job(job_id=job_id, output_path=output_path)
+        result_holder.append(result)
+
+    def join_running_jobs(self) -> None:
+        """Block until all active recording threads have completed. Called on shutdown."""
+        with self._results_lock:
+            snapshot = list(self._active_jobs.items())
+        for job_id, (thread, _) in snapshot:
+            self.logger.info(
+                "shutdown: waiting for active recording to finish: job_id=%s", job_id
+            )
+            thread.join()
 
     def run_job(self, *, job_id: int, output_path: str) -> OrchestratorResult:
         job = self.persistence.get_scheduler_job(job_id, required=True)
