@@ -139,6 +139,7 @@ class RecorderOrchestrator:
         default_factory=dict, init=False, repr=False
     )
     _results_lock: Any = field(default_factory=threading.Lock, init=False, repr=False)
+    adapter_pool: Any = None  # AdapterPool | None; injected after construction
 
     def list_due_scheduler_jobs(
         self,
@@ -226,7 +227,70 @@ class RecorderOrchestrator:
         result_holder: list[OrchestratorResult],
     ) -> None:
         """Run a scheduler job and store the result for collection on the next cycle."""
-        result = self.run_job(job_id=job_id, output_path=output_path)
+        pool = self.adapter_pool
+        slot = None
+        if pool is not None:
+            slot = pool.acquire()
+            if slot is None:
+                self.logger.warning(
+                    "no adapter available for job_id=%s; job will be retried next cycle",
+                    job_id,
+                )
+                # Return the job to scheduled state so the next cycle picks it up
+                try:
+                    self.service.mark_scheduler_job_failed(job_id)
+                except Exception:
+                    pass
+                result_holder.append(
+                    OrchestratorResult(
+                        job_id=job_id,
+                        scheduler_state="failed",
+                        recording_id=None,
+                        recording_state=None,
+                        error="no adapter slot available",
+                    )
+                )
+                return
+            # Ensure the slot's dvbstreamer is running before we try to record
+            slot_state = getattr(slot.dvbstreamer.status(), "state", None)
+            from ccatv.tvrecorder.manager import DvbStreamerState
+            if slot_state != DvbStreamerState.RUNNING:
+                try:
+                    slot.dvbstreamer.start()
+                    self.logger.info(
+                        "adapter %s dvbstreamer started for job_id=%s",
+                        slot.adapter_index,
+                        job_id,
+                    )
+                except Exception as exc:
+                    self.logger.error(
+                        "adapter %s dvbstreamer failed to start for job_id=%s: %s",
+                        slot.adapter_index,
+                        job_id,
+                        exc,
+                    )
+                    pool.release(slot)
+                    result_holder.append(
+                        OrchestratorResult(
+                            job_id=job_id,
+                            scheduler_state="failed",
+                            recording_id=None,
+                            recording_state=None,
+                            error=f"adapter {slot.adapter_index} dvbstreamer failed to start: {exc}",
+                        )
+                    )
+                    return
+
+        capture_override = slot.capture_controller if slot is not None else None
+        try:
+            result = self.run_job(
+                job_id=job_id,
+                output_path=output_path,
+                capture_controller=capture_override,
+            )
+        finally:
+            if slot is not None and pool is not None:
+                pool.release(slot)
         result_holder.append(result)
 
     def join_running_jobs(self) -> None:
@@ -239,7 +303,16 @@ class RecorderOrchestrator:
             )
             thread.join()
 
-    def run_job(self, *, job_id: int, output_path: str) -> OrchestratorResult:
+    def run_job(
+        self,
+        *,
+        job_id: int,
+        output_path: str,
+        capture_controller: Any = None,
+    ) -> OrchestratorResult:
+        effective_capture = (
+            capture_controller if capture_controller is not None else self.capture_controller
+        )
         job = self.persistence.get_scheduler_job(job_id, required=True)
         now_timestamp = self.now_fn()
         if job.state != "scheduled":
@@ -298,7 +371,7 @@ class RecorderOrchestrator:
                 effective_duration_seconds,
                 output_path,
             )
-            self.capture_controller.start_capture(
+            effective_capture.start_capture(
                 channel_name=job.channel_name,
                 output_path=output_path,
             )
@@ -325,7 +398,7 @@ class RecorderOrchestrator:
 
             capture_started = False
             try:
-                self.capture_controller.stop_capture(
+                effective_capture.stop_capture(
                     channel_name=job.channel_name,
                     output_path=output_path,
                 )
@@ -368,7 +441,7 @@ class RecorderOrchestrator:
         except Exception as exc:
             if capture_started:
                 try:
-                    self.capture_controller.stop_capture(
+                    effective_capture.stop_capture(
                         channel_name=job.channel_name,
                         output_path=output_path,
                     )
