@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import shlex
 import time
@@ -131,6 +132,7 @@ class RecorderOrchestrator:
     now_fn: Callable[[], float] = time.time
     sleep_fn: Callable[[float], None] = time.sleep
     should_stop: Callable[[], bool] = lambda: False
+    logger: logging.Logger = logging.getLogger("ccatv")
 
     def list_due_scheduler_jobs(
         self,
@@ -191,6 +193,14 @@ class RecorderOrchestrator:
                 program_start_at_utc=job.program_start_at_utc,
                 program_stop_at_utc=job.program_stop_at_utc,
             )
+            self.logger.info(
+                "recording started: job_id=%s channel=%s program=%s duration=%s seconds output=%s",
+                job.id,
+                job.channel_name,
+                job.program_title,
+                job.duration_seconds,
+                output_path,
+            )
             self.capture_controller.start_capture(
                 channel_name=job.channel_name,
                 output_path=output_path,
@@ -201,9 +211,19 @@ class RecorderOrchestrator:
             if early.state == "failed":
                 raise RuntimeError("early growth check failed")
 
+            self.logger.debug(
+                "recording growth checks started: job_id=%s recording_id=%s",
+                job.id,
+                recording.id,
+            )
             self._run_periodic_growth_checks(
                 recording_id=recording.id,
                 recording_duration_seconds=job.duration_seconds,
+            )
+            self.logger.debug(
+                "recording growth checks completed: job_id=%s recording_id=%s",
+                job.id,
+                recording.id,
             )
 
             capture_started = False
@@ -219,6 +239,11 @@ class RecorderOrchestrator:
                 recording.id,
                 ended_at_utc=_format_utc_iso(self.now_fn()),
             )
+            self.logger.debug(
+                "recording capture completed: job_id=%s recording_id=%s",
+                job.id,
+                recording.id,
+            )
             stable = self.service.verify_recording_output_stable_after_stop_default(
                 recording.id
             )
@@ -230,6 +255,13 @@ class RecorderOrchestrator:
                 raise RuntimeError("post-processing did not produce ready state")
 
             scheduler = self.service.mark_scheduler_job_completed(job.id)
+            self.logger.info(
+                "recording completed successfully: job_id=%s channel=%s program=%s recording_id=%s",
+                job.id,
+                job.channel_name,
+                job.program_title,
+                final.id,
+            )
             return OrchestratorResult(
                 job_id=job.id,
                 scheduler_state=scheduler.state,
@@ -307,9 +339,16 @@ class RecorderOrchestrator:
             return
 
         remaining_seconds = float(recording_duration_seconds)
+        check_count = 0
         while remaining_seconds > 0:
             # Exit early if shutdown is requested
             if self.should_stop():
+                self.logger.info(
+                    "recording interrupted by shutdown: recording_id=%s remaining_seconds=%.1f checks_completed=%d",
+                    recording_id,
+                    remaining_seconds,
+                    check_count,
+                )
                 break
 
             sleep_seconds = min(
@@ -317,6 +356,7 @@ class RecorderOrchestrator:
                 remaining_seconds,
             )
             remaining_seconds -= sleep_seconds
+            check_count += 1
             result = self.service.verify_recording_output_growth(
                 recording_id,
                 checks=1,
@@ -325,6 +365,15 @@ class RecorderOrchestrator:
             )
             if result.state == "failed":
                 raise RuntimeError("periodic growth check failed")
+            
+            # Log progress for longer recordings (every 5 checks or at key intervals)
+            if check_count % 5 == 0 or remaining_seconds <= 30:
+                self.logger.debug(
+                    "recording in progress: recording_id=%s remaining_seconds=%.1f checks_completed=%d",
+                    recording_id,
+                    remaining_seconds,
+                    check_count,
+                )
 
 
 def _append_error(existing: str | None, label: str, detail: str) -> str:

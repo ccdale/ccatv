@@ -114,6 +114,7 @@ def bootstrap_app() -> AppContext:
         service=tvrecorder,
         persistence=persistence,
         capture_controller=DvbCtrlCaptureController(service=tvrecorder),
+        logger=logger,
         periodic_policy=PeriodicCheckPolicy(
             growth_min_bytes=settings.recording_growth_min_bytes,
             interval_seconds=settings.recording_periodic_growth_interval_seconds,
