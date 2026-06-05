@@ -72,7 +72,7 @@ def test_start_sets_running_state(monkeypatch: pytest.MonkeyPatch) -> None:
     assert status.pid == 1234
 
 
-def test_start_uses_daemon_debug_flags_by_default(
+def test_start_uses_debug_flags_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_process = _FakeProcess(poll_value=None)
@@ -90,7 +90,6 @@ def test_start_uses_daemon_debug_flags_by_default(
     assert status.state == DvbStreamerState.RUNNING
     assert captured["args"] == [
         "dvbstreamer",
-        "-D",
         "-d",
         "-a",
         "0",

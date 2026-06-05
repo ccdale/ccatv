@@ -233,10 +233,13 @@ class RecorderOrchestrator:
             slot = pool.acquire()
             if slot is None:
                 self.logger.warning(
-                    "no adapter available for job_id=%s; job will be retried next cycle",
+                    "no free adapter slot: failing job_id=%s (pool_capacity=%s in_use=%s available=%s)",
                     job_id,
+                    getattr(pool, "capacity", "?"),
+                    getattr(pool, "in_use_count", "?"),
+                    getattr(pool, "available_count", "?"),
                 )
-                # Return the job to scheduled state so the next cycle picks it up
+                # No free slot means we fail this job immediately by design.
                 try:
                     self.service.mark_scheduler_job_failed(job_id)
                 except Exception:

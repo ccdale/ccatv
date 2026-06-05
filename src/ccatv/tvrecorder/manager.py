@@ -34,7 +34,9 @@ class DvbStreamerConfig:
     adapter_index: int = 0
     bind_address: str = "127.0.0.1"
     executable_path: str = "dvbstreamer"
-    extra_args: tuple[str, ...] = ("-D", "-d")
+    # Keep dvbstreamer in the foreground so the managed process is the real
+    # worker process and does not leave daemonized zombies behind.
+    extra_args: tuple[str, ...] = ("-d",)
     output_mrl: str = "null://"
 
 

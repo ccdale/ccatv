@@ -50,6 +50,15 @@ class AdapterPool:
     def capacity(self) -> int:
         return len(self.slots)
 
+    @property
+    def available_count(self) -> int:
+        with self._lock:
+            return len(self._available)
+
+    @property
+    def in_use_count(self) -> int:
+        return self.capacity - self.available_count
+
     def acquire(self) -> AdapterSlot | None:
         """Return an idle slot, or None if all slots are in use."""
         with self._lock:
