@@ -40,6 +40,7 @@ def test_from_env_loads_core_defaults(monkeypatch) -> None:
     assert settings.dvbstreamer_host == "localhost"
     assert settings.dvbstreamer_output_mrl == "null://"
     assert settings.dvbstreamer_path == "dvbstreamer"
+    assert settings.dvbstreamer_debug_output is False
     assert settings.dvbstreamer_stop_timeout_seconds == 5.0
     assert settings.ota_epg_channel_name == "BBC TWO HD"
     assert settings.dvb_adapter_count == 1
@@ -63,6 +64,7 @@ def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
     monkeypatch.setenv("CCATV_DVBSTREAMER_HOST", "10.0.0.5")
     monkeypatch.setenv("CCATV_DVBSTREAMER_OUTPUT_MRL", "udp://239.10.10.10:1234")
     monkeypatch.setenv("CCATV_DVBSTREAMER_PATH", "/opt/bin/dvbstreamer")
+    monkeypatch.setenv("CCATV_DVBSTREAMER_DEBUG_OUTPUT", "true")
     monkeypatch.setenv("CCATV_DVBSTREAMER_STOP_TIMEOUT_SECONDS", "6.25")
     monkeypatch.setenv("CCATV_OTA_EPG_CHANNEL_NAME", "BBC ONE East")
     monkeypatch.setenv("CCATV_DVB_ADAPTER_COUNT", "3")
@@ -86,6 +88,7 @@ def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
     assert settings.dvbstreamer_host == "10.0.0.5"
     assert settings.dvbstreamer_output_mrl == "udp://239.10.10.10:1234"
     assert settings.dvbstreamer_path == "/opt/bin/dvbstreamer"
+    assert settings.dvbstreamer_debug_output is True
     assert settings.dvbstreamer_stop_timeout_seconds == 6.25
     assert settings.ota_epg_channel_name == "BBC ONE East"
     assert settings.dvb_adapter_count == 3

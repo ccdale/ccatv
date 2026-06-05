@@ -69,6 +69,18 @@ def _env_non_empty_str(name: str, default: str) -> str:
     return trimmed
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 @dataclass(frozen=True, slots=True)
 class AppSettings:
     """Runtime settings loaded from environment variables."""
@@ -79,6 +91,7 @@ class AppSettings:
     dvbstreamer_host: str = "localhost"
     dvbstreamer_output_mrl: str = "null://"
     dvbstreamer_path: str = "dvbstreamer"
+    dvbstreamer_debug_output: bool = False
     dvbstreamer_stop_timeout_seconds: float = 5.0
     ota_epg_channel_name: str = "BBC TWO HD"
     dvb_adapter_count: int = 1
@@ -122,6 +135,10 @@ class AppSettings:
             ),
             dvbstreamer_output_mrl=os.getenv("CCATV_DVBSTREAMER_OUTPUT_MRL", "null://"),
             dvbstreamer_path=os.getenv("CCATV_DVBSTREAMER_PATH", "dvbstreamer"),
+            dvbstreamer_debug_output=_env_bool(
+                "CCATV_DVBSTREAMER_DEBUG_OUTPUT",
+                False,
+            ),
             dvbstreamer_stop_timeout_seconds=stop_timeout_seconds,
             ota_epg_channel_name=_env_non_empty_str(
                 "CCATV_OTA_EPG_CHANNEL_NAME",

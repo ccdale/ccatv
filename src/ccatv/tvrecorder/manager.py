@@ -33,6 +33,7 @@ class DvbStreamerConfig:
 
     adapter_index: int = 0
     bind_address: str = "127.0.0.1"
+    debug_output: bool = False
     executable_path: str = "dvbstreamer"
     # Keep dvbstreamer in the foreground so the managed process is the real
     # worker process and does not leave daemonized zombies behind.
@@ -87,10 +88,12 @@ class DvbStreamerManager:
             args.extend(["-o", self.config.output_mrl])
 
         try:
+            stdout_target = subprocess.PIPE if self.config.debug_output else subprocess.DEVNULL
+            stderr_target = subprocess.PIPE if self.config.debug_output else subprocess.DEVNULL
             process = subprocess.Popen(
                 args,
-                stderr=subprocess.PIPE,
-                stdout=subprocess.PIPE,
+                stderr=stderr_target,
+                stdout=stdout_target,
                 text=True,
             )
         except FileNotFoundError as exc:

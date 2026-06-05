@@ -131,6 +131,7 @@ def bootstrap_app() -> AppContext:
         config=DvbStreamerConfig(
             adapter_index=settings.dvb_adapter_index,
             bind_address=settings.dvbstreamer_bind_address,
+            debug_output=getattr(settings, "dvbstreamer_debug_output", False),
             executable_path=settings.dvbstreamer_path,
             output_mrl=settings.dvbstreamer_output_mrl,
         ),
@@ -215,6 +216,7 @@ def bootstrap_app() -> AppContext:
                 config=DvbStreamerConfig(
                     adapter_index=adapter_idx,
                     bind_address=settings.dvbstreamer_bind_address,
+                    debug_output=getattr(settings, "dvbstreamer_debug_output", False),
                     executable_path=settings.dvbstreamer_path,
                     output_mrl=settings.dvbstreamer_output_mrl,
                 ),

@@ -100,6 +100,46 @@ def test_start_uses_debug_flags_by_default(
     ]
 
 
+def test_start_discards_stdio_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_process = _FakeProcess(poll_value=None)
+    captured_kwargs: dict[str, object] = {}
+
+    def _popen(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(config=DvbStreamerConfig(adapter_index=0))
+    status = manager.start()
+
+    assert status.state == DvbStreamerState.RUNNING
+    assert captured_kwargs["stdout"] is subprocess.DEVNULL
+    assert captured_kwargs["stderr"] is subprocess.DEVNULL
+
+
+def test_start_uses_pipes_when_debug_output_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_process = _FakeProcess(poll_value=None)
+    captured_kwargs: dict[str, object] = {}
+
+    def _popen(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return fake_process
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+    manager = DvbStreamerManager(
+        config=DvbStreamerConfig(adapter_index=0, debug_output=True)
+    )
+    status = manager.start()
+
+    assert status.state == DvbStreamerState.RUNNING
+    assert captured_kwargs["stdout"] is subprocess.PIPE
+    assert captured_kwargs["stderr"] is subprocess.PIPE
+
+
 def test_start_raises_when_executable_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     def _popen(*args, **kwargs):
         raise FileNotFoundError("missing")
