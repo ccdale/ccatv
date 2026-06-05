@@ -45,6 +45,12 @@
       .status.error { color: #b91c1c; background: rgba(185, 28, 28, 0.08); }
       .toolbar { margin-top: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
       .toolbar a { color: var(--ink); text-decoration: none; border-bottom: 1px dashed #94a3b8; }
+      .upcoming-wrap { margin-top: 0.9rem; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); padding: 0.9rem; }
+      .upcoming-header { display: flex; justify-content: space-between; align-items: center; gap: 0.65rem; flex-wrap: wrap; }
+      .upcoming-header h2 { font-size: 1.15rem; }
+      .upcoming-list { margin-top: 0.75rem; display: grid; gap: 0.55rem; }
+      .upcoming-card { border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.8); padding: 0.65rem 0.75rem; display: grid; gap: 0.25rem; }
+      .upcoming-meta { color: var(--muted); font-size: 0.9rem; }
       .table-wrap { margin-top: 0.9rem; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); overflow: auto; }
       table { width: 100%; border-collapse: collapse; min-width: 980px; }
       th, td { padding: 0.8rem 0.75rem; border-bottom: 1px solid rgba(31, 41, 55, 0.08); text-align: left; vertical-align: top; }
@@ -89,6 +95,16 @@
         <button id="refresh-button" class="ghost" type="button">Refresh recordings</button>
       </div>
 
+      <section class="upcoming-wrap">
+        <div class="upcoming-header">
+          <h2>Upcoming recordings</h2>
+          <span class="subtitle">Scheduled jobs that have not started yet.</span>
+        </div>
+        <div id="upcoming-list" class="upcoming-list">
+          <div class="empty">Sign in to load upcoming recordings.</div>
+        </div>
+      </section>
+
       <section class="table-wrap">
         <table>
           <thead>
@@ -120,6 +136,7 @@
       const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
       const statusNode = document.getElementById("status");
+      const upcomingList = document.getElementById("upcoming-list");
       const recordingTableBody = document.getElementById("recording-table-body");
       const paginationMeta = document.getElementById("pagination-meta");
       const prevPageButton = document.getElementById("prev-page-button");
@@ -127,6 +144,7 @@
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let recordings = [];
+      let schedules = [];
       const pageSize = 10;
       let currentPage = 1;
 
@@ -188,6 +206,59 @@
 
       function recordingDescription(recording) {
         return recording.description || recording.descriptionLong || recording.descriptionShort || "No description available for this recording.";
+      }
+
+      function formatDuration(durationSeconds) {
+        if (!durationSeconds) return "unknown duration";
+        const minutes = Math.round(durationSeconds / 60);
+        if (minutes < 60) return `${minutes} min`;
+        const hours = Math.floor(minutes / 60);
+        const remainder = minutes % 60;
+        return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+      }
+
+      function isUpcomingSchedule(job) {
+        const startedAt = new Date(job.startAtUtc);
+        if (Number.isNaN(startedAt.getTime())) {
+          return true;
+        }
+        return startedAt.getTime() >= Date.now();
+      }
+
+      function renderUpcomingSchedules() {
+        upcomingList.replaceChildren();
+        if (!isAuthenticated) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Sign in to load upcoming recordings.";
+          upcomingList.append(empty);
+          return;
+        }
+        if (!schedules.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No upcoming recordings found.";
+          upcomingList.append(empty);
+          return;
+        }
+        for (const job of schedules) {
+          const card = document.createElement("article");
+          card.className = "upcoming-card";
+
+          const title = document.createElement("strong");
+          title.textContent = job.programTitle || job.channelName || `Job ${job.id}`;
+
+          const meta = document.createElement("div");
+          meta.className = "upcoming-meta";
+          meta.textContent = `${job.channelName || "-"} | ${formatDateTime(job.startAtUtc)} | ${formatDuration(job.durationSeconds)}`;
+
+          const state = document.createElement("span");
+          state.className = "pill";
+          state.textContent = `${job.state} | job ${job.id}`;
+
+          card.append(title, meta, state);
+          upcomingList.append(card);
+        }
       }
 
       function statePresentation(recording) {
@@ -320,17 +391,28 @@
         renderRecordings();
       }
 
+      async function loadSchedules() {
+        const payload = await fetchJson("/api/schedules");
+        schedules = (payload.jobs || [])
+          .filter(isUpcomingSchedule)
+          .slice()
+          .sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
+        renderUpcomingSchedules();
+      }
+
       async function refreshSession() {
         const payload = await fetchJson("/auth/session");
         isAuthenticated = Boolean(payload.authenticated);
         setAuthUiState();
         if (isAuthenticated) {
           tokenInput.value = "";
-          await loadRecordings();
-          setStatus(`Loaded ${recordings.length} recording(s).`);
+          await Promise.all([loadRecordings(), loadSchedules()]);
+          setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
         } else {
           recordings = [];
+          schedules = [];
           renderRecordings();
+          renderUpcomingSchedules();
           setStatus("Enter the web token to sign in.");
         }
       }
@@ -338,9 +420,9 @@
       async function login() {
         if (!bootstrap.authRequired) {
           isAuthenticated = true;
-          await loadRecordings();
+          await Promise.all([loadRecordings(), loadSchedules()]);
           renderRecordings();
-          setStatus(`Loaded ${recordings.length} recording(s).`);
+          setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
           return;
         }
         loginButton.disabled = true;
@@ -353,8 +435,8 @@
           tokenInput.value = "";
           isAuthenticated = true;
           setAuthUiState();
-          await loadRecordings();
-          setStatus(`Loaded ${recordings.length} recording(s).`);
+          await Promise.all([loadRecordings(), loadSchedules()]);
+          setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
         } catch (error) {
           setStatus(error.message, "error");
         } finally {
@@ -369,7 +451,9 @@
         isAuthenticated = false;
         setAuthUiState();
         recordings = [];
+        schedules = [];
         renderRecordings();
+        renderUpcomingSchedules();
         setStatus("Signed out.");
       }
 
@@ -380,8 +464,8 @@
           setStatus("Sign in to refresh recordings.", "error");
           return;
         }
-        void loadRecordings()
-          .then(() => setStatus(`Loaded ${recordings.length} recording(s).`))
+        void Promise.all([loadRecordings(), loadSchedules()])
+          .then(() => setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`))
           .catch((error) => setStatus(error.message, "error"));
       });
       prevPageButton.addEventListener("click", () => {
@@ -401,9 +485,12 @@
       });
 
       setAuthUiState();
+      renderUpcomingSchedules();
       void refreshSession().catch((error) => {
         recordings = [];
+        schedules = [];
         renderRecordings();
+        renderUpcomingSchedules();
         setStatus(error.message, "error");
       });
     </script>

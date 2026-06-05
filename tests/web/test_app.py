@@ -138,10 +138,9 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     body = response.get_data(as_text=True)
     assert "Sign in" in body
     assert "Record programme" in body
-    assert "Scheduled recordings" in body
     assert "7-day timeline guide" in body
     assert "arrow keys" in body
-    assert "Favourite channels" in body
+    assert "Favourite channels only" in body
     assert "record-badge" in body
     assert "Channel Manager" in body
     assert 'href="/channel-manager"' in body
@@ -194,6 +193,7 @@ def test_recordings_page_serves_browser_ui(monkeypatch) -> None:
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "Recordings" in body
+    assert "Upcoming recordings" in body
     assert "Back to Guide" in body
     assert stub.calls == []
 

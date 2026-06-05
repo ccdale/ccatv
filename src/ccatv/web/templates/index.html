@@ -32,7 +32,7 @@
           radial-gradient(circle at top right, rgba(180, 35, 24, 0.1), transparent 24%),
           linear-gradient(180deg, #f8f4ee 0%, var(--bg) 100%);
       }
-      main { width: min(1260px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
+      main { width: min(1560px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
       .hero { padding: 1.5rem 1.75rem; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); }
       h1, h2, h3, p { margin: 0; }
       .hero h1 { font-size: clamp(2.1rem, 5vw, 4rem); line-height: 0.95; letter-spacing: -0.05em; text-transform: lowercase; }
@@ -50,22 +50,12 @@
       .status { margin-top: 1rem; padding: 0.9rem 1rem; border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.7); color: var(--muted); }
       .status.warning { background: var(--warning-soft); color: var(--warning); }
       .status.error { background: var(--error-soft); color: var(--error); }
-      .layout { margin-top: 1.5rem; display: grid; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(290px, 360px); gap: 1rem; align-items: start; }
+      .layout { margin-top: 1.5rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
       .panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
       .panel-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.5); }
       .panel-header p { margin-top: 0.35rem; color: var(--muted); font-size: 0.95rem; }
       .panel-body { padding: 1rem; }
-      .channel-list, .schedule-list { display: grid; gap: 0.75rem; }
-      .channel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.6rem; align-items: stretch; }
-      .channel-button, .schedule-card { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel-strong); color: var(--ink); border-radius: 22px; }
-      .channel-button { padding: 0.95rem 1rem; }
-      .channel-favorite { min-width: 3.5rem; padding-inline: 0.8rem; background: #fff5e8; color: #8a3b00; border: 1px solid #f4d7b3; }
-      .channel-favorite.active { background: #ffe8c7; color: #6b2f00; border-color: #f0bf7a; }
-      .channel-meta, .schedule-meta, .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
-      .schedule-card { display: grid; gap: 0.9rem; padding: 1rem; }
-      .schedule-card h3 { font-size: 1.16rem; }
-      .schedule-body { display: grid; gap: 0.55rem; }
-      .schedule-actions { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+      .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.92rem; }
       .pill.neutral { background: rgba(29, 29, 27, 0.08); color: var(--ink); }
       .inline-message.error { color: var(--error); }
@@ -86,13 +76,8 @@
       .record-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.3rem; border-radius: 999px; background: #b42318; color: #fff; font-size: 0.72rem; margin-right: 0.25rem; vertical-align: middle; }
       .timeline-hover-card { margin-top: 0.75rem; padding: 0.9rem; border: 1px dashed var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.7); display: grid; gap: 0.5rem; }
       .timeline-hover-meta { color: var(--muted); font-size: 0.9rem; }
-      @media (max-width: 1080px) {
-        .layout { grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); }
-        .schedule-panel { grid-column: 1 / -1; }
-      }
       @media (max-width: 820px) {
         .auth-bar, .layout { grid-template-columns: 1fr; }
-        .schedule-actions { align-items: flex-start; flex-direction: column; }
         .timeline-row { grid-template-columns: 1fr; }
       }
     </style>
@@ -101,7 +86,7 @@
     <main>
       <section class="hero">
         <h1>ccatv web</h1>
-        <p>Sign in with the web token, load channels, view today's programmes for one channel, and queue a recording while keeping scheduled jobs visible.</p>
+        <p>Sign in with the web token, browse a 7-day favourites timeline, and queue recordings directly from programme details.</p>
         <div class="hero-links">
           <a href="/channel-manager">Open Channel Manager</a>
           <a href="/recordings">View Recordings</a>
@@ -117,20 +102,8 @@
       <section class="layout">
         <div class="panel">
           <div class="panel-header">
-            <h2>Favourite channels</h2>
-            <p>Timeline rows are limited to favourites only.</p>
-          </div>
-          <div class="panel-body">
-            <div id="channel-list" class="channel-list">
-              <div class="empty">Sign in to load favourite channels.</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-header">
             <h2 id="guide-title">7-day timeline guide</h2>
-            <p id="guide-subtitle">Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.</p>
+            <p id="guide-subtitle">Favourite channels only. Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.</p>
           </div>
           <div class="panel-body">
             <div class="timeline-shell">
@@ -145,22 +118,6 @@
             </div>
           </div>
         </div>
-
-        <div class="panel schedule-panel">
-          <div class="panel-header">
-            <h2>Scheduled recordings</h2>
-            <p>Refreshes after every successful schedule request.</p>
-          </div>
-          <div class="panel-body">
-            <div class="schedule-actions">
-              <div class="schedule-meta">Jobs are listed in scheduler order. Past jobs are hidden on refresh.</div>
-              <button id="refresh-schedules-button" class="ghost" type="button">Refresh jobs</button>
-            </div>
-            <div id="schedule-list" class="schedule-list" style="margin-top: 0.75rem;">
-              <div class="empty">No jobs loaded yet.</div>
-            </div>
-          </div>
-        </div>
       </section>
     </main>
 
@@ -172,9 +129,6 @@
       const tokenInput = document.getElementById("token-input");
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
-      const refreshSchedulesButton = document.getElementById("refresh-schedules-button");
-      const channelList = document.getElementById("channel-list");
-      const scheduleList = document.getElementById("schedule-list");
       const guideTitle = document.getElementById("guide-title");
       const guideSubtitle = document.getElementById("guide-subtitle");
       const timelineRuler = document.getElementById("timeline-ruler");
@@ -216,12 +170,10 @@
         timelineData = new Map();
         timelineOriginMs = 0;
         timelineStartMs = 0;
-        renderChannels();
-        renderSchedules();
         renderTimeline();
         renderTimelineHover(null, null);
         guideTitle.textContent = "7-day timeline guide";
-        guideSubtitle.textContent = "Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.";
+        guideSubtitle.textContent = "Favourite channels only. Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.";
       }
 
       async function fetchJson(url, options = {}) {
@@ -294,69 +246,6 @@
         const maxStart = timelineOriginMs + rangeMs - windowMs;
         if (maxStart <= timelineOriginMs) return timelineOriginMs;
         return Math.min(Math.max(nextStartMs, timelineOriginMs), maxStart);
-      }
-
-      async function saveFavoriteChannel(channel, favorite) {
-        await fetchJson("/api/channels/favorite", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelName: channel.name, favorite }),
-        });
-      }
-
-      function renderChannels() {
-        channelList.replaceChildren();
-        if (!isAuthenticated) {
-          const empty = document.createElement("div");
-          empty.className = "empty";
-          empty.textContent = "Sign in to load favourite channels.";
-          channelList.append(empty);
-          return;
-        }
-        if (!favouriteChannels.length) {
-          const empty = document.createElement("div");
-          empty.className = "empty";
-          empty.textContent = "No favourite channels selected yet.";
-          channelList.append(empty);
-          return;
-        }
-        for (const channel of favouriteChannels) {
-          const row = document.createElement("div");
-          row.className = "channel-row";
-
-          const button = document.createElement("div");
-          button.className = "channel-button";
-          const name = document.createElement("div");
-          name.textContent = channel.name;
-          const meta = document.createElement("div");
-          meta.className = "channel-meta";
-          meta.textContent = formatChannelMeta(channel);
-          button.append(name, meta);
-
-          const favoriteButton = document.createElement("button");
-          favoriteButton.type = "button";
-          favoriteButton.className = "channel-favorite" + (channel.favoriteChannel ? " active" : "");
-          favoriteButton.title = channel.favoriteChannel ? "Remove from favourites" : "Add to favourites";
-          favoriteButton.setAttribute("aria-label", channel.favoriteChannel ? `Remove ${channel.name} from favourites` : `Add ${channel.name} to favourites`);
-          favoriteButton.textContent = channel.favoriteChannel ? "★" : "☆";
-          favoriteButton.addEventListener("click", async () => {
-            const nextFavorite = !channel.favoriteChannel;
-            favoriteButton.disabled = true;
-            try {
-              await saveFavoriteChannel(channel, nextFavorite);
-              await loadChannels();
-              await loadTimeline();
-              setStatus(`${channel.name} favourite ${nextFavorite ? "enabled" : "cleared"}.`);
-            } catch (error) {
-              setStatus(error.message, "error");
-            } finally {
-              favoriteButton.disabled = false;
-            }
-          });
-
-          row.append(button, favoriteButton);
-          channelList.append(row);
-        }
       }
 
       function parseProgramme(programme) {
@@ -532,49 +421,10 @@
         guideSubtitle.textContent = `Window ${formatLongDateTime(new Date(windowStartMs).toISOString())} to ${formatLongDateTime(new Date(windowEndMs).toISOString())}. Left/Right: page, Up/Down: day.`;
       }
 
-      function renderSchedules() {
-        scheduleList.replaceChildren();
-        if (!isAuthenticated) {
-          const empty = document.createElement("div");
-          empty.className = "empty";
-          empty.textContent = "Sign in to view jobs.";
-          scheduleList.append(empty);
-          return;
-        }
-        if (!schedules.length) {
-          const empty = document.createElement("div");
-          empty.className = "empty";
-          empty.textContent = "No scheduled recordings found.";
-          scheduleList.append(empty);
-          return;
-        }
-        for (const job of schedules) {
-          const card = document.createElement("article");
-          card.className = "schedule-card";
-          const body = document.createElement("div");
-          body.className = "schedule-body";
-          const heading = document.createElement("h3");
-          heading.textContent = job.programTitle || job.channelName;
-          const meta = document.createElement("div");
-          meta.className = "schedule-meta";
-          meta.textContent = `${formatLongDateTime(job.startAtUtc)} | ${formatDuration(job.durationSeconds)}`;
-          body.append(heading, meta);
-          const actions = document.createElement("div");
-          actions.className = "schedule-actions";
-          const pill = document.createElement("div");
-          pill.className = "pill";
-          pill.textContent = `${job.state} | job ${job.id}`;
-          actions.append(pill);
-          card.append(body, actions);
-          scheduleList.append(card);
-        }
-      }
-
       async function loadChannels() {
         const payload = await fetchJson("/api/channels");
         channels = payload.channels || [];
         favouriteChannels = channels.filter((channel) => channel.favoriteChannel);
-        renderChannels();
       }
 
       async function loadSchedules() {
@@ -583,7 +433,6 @@
           .filter(isUpcomingSchedule)
           .slice()
           .sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
-        renderSchedules();
       }
 
       async function loadTimeline() {
@@ -661,7 +510,7 @@
         timelineStartMs = timelineOriginMs;
         await loadTimeline();
         renderTimelineHover(null, null);
-        setStatus(`Loaded ${channels.length} channels and ${schedules.length} job(s).`);
+        setStatus(`Loaded timeline for ${favouriteChannels.length} favourite channel(s) and ${schedules.length} scheduled job(s).`);
       }
 
       async function login() {
@@ -714,19 +563,6 @@
 
       loginButton.addEventListener("click", () => { void login(); });
       logoutButton.addEventListener("click", () => { void logout(); });
-      refreshSchedulesButton.addEventListener("click", () => {
-        if (!isAuthenticated) {
-          setStatus("Sign in to refresh jobs.", "warning");
-          return;
-        }
-        void loadSchedules()
-          .then(() => {
-            renderTimeline();
-            setStatus(`Loaded ${schedules.length} job(s).`);
-          })
-          .catch((error) => setStatus(error.message, "error"));
-      });
-
       window.addEventListener("resize", () => {
         if (isAuthenticated) {
           renderTimeline();
