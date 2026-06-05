@@ -232,6 +232,12 @@ def run_ipc_server(
 ) -> int:
     logger = context.logger
     stop_predicate = should_stop or (lambda: False)
+    
+    # Update orchestrator to be aware of shutdown requests
+    orchestrator = getattr(context, "recorder_orchestrator", None)
+    if orchestrator is not None:
+        orchestrator.should_stop = stop_predicate
+    
     dispatcher = _build_dispatcher(context, should_stop=stop_predicate)
 
     target_path = Path(socket_path)
@@ -336,6 +342,12 @@ def run_http_server(
 ) -> int:
     logger = context.logger
     stop_predicate = should_stop or (lambda: False)
+    
+    # Update orchestrator to be aware of shutdown requests
+    orchestrator = getattr(context, "recorder_orchestrator", None)
+    if orchestrator is not None:
+        orchestrator.should_stop = stop_predicate
+    
     dispatcher = _build_dispatcher(context, should_stop=stop_predicate)
 
     requests_served = 0
@@ -628,6 +640,12 @@ def run_service_daemon(
 ) -> int:
     logger = context.logger
     stop_predicate = should_stop or (lambda: False)
+    
+    # Update orchestrator to be aware of shutdown requests
+    orchestrator = getattr(context, "recorder_orchestrator", None)
+    if orchestrator is not None:
+        orchestrator.should_stop = stop_predicate
+    
     worker = create_scheduler_worker(
         context,
         output_directory=output_directory,

@@ -130,6 +130,7 @@ class RecorderOrchestrator:
     periodic_policy: PeriodicCheckPolicy = PeriodicCheckPolicy()
     now_fn: Callable[[], float] = time.time
     sleep_fn: Callable[[float], None] = time.sleep
+    should_stop: Callable[[], bool] = lambda: False
 
     def list_due_scheduler_jobs(
         self,
@@ -307,6 +308,10 @@ class RecorderOrchestrator:
 
         remaining_seconds = float(recording_duration_seconds)
         while remaining_seconds > 0:
+            # Exit early if shutdown is requested
+            if self.should_stop():
+                break
+
             sleep_seconds = min(
                 self.periodic_policy.interval_seconds,
                 remaining_seconds,
