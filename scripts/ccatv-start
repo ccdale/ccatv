@@ -110,6 +110,31 @@ start_component() {
 ensure_web_env
 load_web_env
 
+print_active_script_paths() {
+  local start_cmd=""
+  local stop_cmd=""
+  local start_real=""
+  local stop_real=""
+
+  start_cmd=$(command -v ccatv-start 2>/dev/null || true)
+  stop_cmd=$(command -v ccatv-stop 2>/dev/null || true)
+
+  if [[ -n "${start_cmd}" ]]; then
+    start_real=$(readlink -f "${start_cmd}" 2>/dev/null || echo "${start_cmd}")
+  fi
+  if [[ -n "${stop_cmd}" ]]; then
+    stop_real=$(readlink -f "${stop_cmd}" 2>/dev/null || echo "${stop_cmd}")
+  fi
+
+  echo "Active commands:"
+  echo "  ccatv-start: ${start_real:-<not found>}"
+  echo "  ccatv-stop:  ${stop_real:-<not found>}"
+  echo "  repo start:  ${REPO_DIR}/scripts/ccatv-start"
+  echo "  repo stop:   ${REPO_DIR}/scripts/ccatv-stop"
+}
+
+print_active_script_paths
+
 SERVICE_ARGS=(--output-directory "${RECORDINGS_DIR}" --poll-interval-seconds 5)
 if [[ -n "${CCATV_SD_LINEUP_ID:-}" ]]; then
   SERVICE_ARGS+=(
