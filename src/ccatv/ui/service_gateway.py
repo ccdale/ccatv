@@ -55,6 +55,16 @@ class GtkServiceGateway:
             },
         )
 
+    def cancel_schedule(self, *, job_id: int) -> dict[str, object]:
+        if job_id < 1:
+            raise ValueError("job_id must be greater than 0")
+        return self._execute(
+            "recording.schedule.cancel",
+            {
+                "id": job_id,
+            },
+        )
+
     def _execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
         client = self._client_factory()
         try:

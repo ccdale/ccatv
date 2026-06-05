@@ -65,6 +65,7 @@ SERVICE_COMMANDS = [
     "recording.list",
     "recording.delete",
     "recording.schedule.create",
+    "recording.schedule.cancel",
     "recording.schedule.list",
     "recording.metadata.backfill",
     "recording.worker.cycle.run",
@@ -182,6 +183,8 @@ class ServiceCommandDispatcher:
             return self._recording_delete(payload)
         if command == "recording.schedule.create":
             return self._recording_schedule_create(payload)
+        if command == "recording.schedule.cancel":
+            return self._recording_schedule_cancel(payload)
         if command == "recording.schedule.list":
             return self._recording_schedule_list(payload)
         if command == "recording.metadata.backfill":
@@ -731,6 +734,51 @@ class ServiceCommandDispatcher:
             ]
         }
 
+    def _recording_schedule_cancel(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        self._raise_if_stopping()
+
+        job_id = payload.get("id")
+        if not isinstance(job_id, int) or job_id < 1:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="id must be an integer greater than 0",
+            )
+
+        try:
+            job = self._context.persistence.get_scheduler_job(job_id, required=True)
+        except ValueError as exc:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=str(exc),
+            ) from exc
+
+        if job.state != "scheduled":
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="only scheduled jobs can be cancelled",
+                details={"state": job.state},
+            )
+
+        cancelled = self._context.persistence.update_scheduler_job_state(
+            job_id,
+            state="cancelled",
+        )
+        self._context.logger.info(
+            "scheduler job cancelled: job_id=%s channel=%s start_at_utc=%s",
+            cancelled.id,
+            cancelled.channel_name,
+            cancelled.start_at_utc,
+        )
+
+        return {
+            "job": {
+                "id": cancelled.id,
+                "state": cancelled.state,
+            }
+        }
+
     def _recording_metadata_backfill(
         self,
         payload: dict[str, object],
@@ -1018,7 +1066,8 @@ class ServiceCommandDispatcher:
                 b.stop_utc,
                 b.duration_seconds,
                 p.title,
-                p.description_long
+                p.description_long,
+                p.genre_primary
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
@@ -1054,6 +1103,7 @@ class ServiceCommandDispatcher:
                     "durationSeconds": int(row[7]) if row[7] is not None else None,
                     "title": str(row[8]),
                     "description": str(row[9]) if row[9] is not None else None,
+                    "genre": str(row[10]) if row[10] is not None else None,
                 }
                 for row in rows
             ],

@@ -410,4 +410,13 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.delete("/api/schedules/<int:job_id>")
+    def api_schedule_cancel(job_id: int):
+        response, status_code = _with_client(
+            _client_factory,
+            "recording.schedule.cancel",
+            {"id": job_id},
+        )
+        return jsonify(response), status_code
+
     return app

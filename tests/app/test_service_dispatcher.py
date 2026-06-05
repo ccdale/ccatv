@@ -208,6 +208,46 @@ def test_dispatch_recording_schedule_list_filters_state() -> None:
     assert jobs[0]["channelName"] == "BBC TWO HD"
     assert jobs[0]["state"] == "scheduled"
 
+
+def test_dispatch_recording_schedule_cancel_marks_job_cancelled() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    job = context.tvrecorder.schedule_recording(
+        channel_name="BBC TWO HD",
+        start_at_utc="2026-05-25T21:00:00Z",
+        duration_seconds=3600,
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.cancel",
+        "payload": {"id": job.id},
+    })
+
+    assert response["ok"] is True
+    assert response["payload"]["job"]["id"] == job.id
+    assert response["payload"]["job"]["state"] == "cancelled"
+
+
+def test_dispatch_recording_schedule_cancel_rejects_non_scheduled_job() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    job = context.persistence.create_scheduler_job(
+        channel_name="BBC ONE HD",
+        start_at_utc="2026-05-25T22:00:00Z",
+        duration_seconds=1800,
+        state="running",
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.schedule.cancel",
+        "payload": {"id": job.id},
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
 def test_dispatch_recording_list_returns_recordings() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -624,10 +664,22 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     )
     context.persistence.connection.execute(
         """
-        INSERT INTO epg_programs(source, source_program_id, title, description_long)
-        VALUES(?, ?, ?, ?)
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary
+        )
+        VALUES(?, ?, ?, ?, ?)
         """,
-        ("schedules_direct", "p1", "Newsnight", "Late-night news and analysis"),
+        (
+            "schedules_direct",
+            "p1",
+            "Newsnight",
+            "Late-night news and analysis",
+            "News",
+        ),
     )
     context.persistence.connection.execute(
         """
@@ -663,6 +715,7 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     assert programs[0]["title"] == "Newsnight"
     assert programs[0]["channelName"] == "BBC TWO HD"
     assert programs[0]["startAtUtc"] == "2026-05-25T21:00:00Z"
+    assert programs[0]["genre"] == "News"
 
 
 def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None:
@@ -1487,6 +1540,7 @@ def test_service_commands_are_dispatchable(
                 "durationSeconds": 120,
             },
         ),
+        ("recording.schedule.cancel", {"id": 1}),
         ("recording.delete", {"id": 1, "deleteFiles": False}),
         ("recording.schedule.list", {}),
         ("recording.metadata.backfill", {"dryRun": True, "limit": 1}),

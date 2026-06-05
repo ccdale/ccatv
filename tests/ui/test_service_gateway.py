@@ -129,6 +129,45 @@ def test_gateway_create_schedule_validates_inputs() -> None:
         )
 
 
+def test_gateway_cancel_schedule_forwards_expected_payload() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _execute(command: str, payload: dict[str, object]) -> dict[str, object]:
+        calls.append((command, payload))
+        return {"job": {"id": 123, "state": "cancelled"}}
+
+    gateway = GtkServiceGateway(
+        socket_path="/tmp/ccatv.sock",
+        _client_factory=lambda: SimpleNamespace(
+            execute=_execute,
+            close=lambda: None,
+        ),
+    )
+
+    payload = gateway.cancel_schedule(job_id=123)
+
+    assert payload["job"]["id"] == 123
+    assert calls == [
+        (
+            "recording.schedule.cancel",
+            {"id": 123},
+        )
+    ]
+
+
+def test_gateway_cancel_schedule_validates_inputs() -> None:
+    gateway = GtkServiceGateway(
+        socket_path="/tmp/ccatv.sock",
+        _client_factory=lambda: SimpleNamespace(
+            execute=lambda *_args, **_kwargs: {},
+            close=lambda: None,
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        gateway.cancel_schedule(job_id=0)
+
+
 def test_gateway_list_schedules_validates_state() -> None:
     gateway = GtkServiceGateway(
         socket_path="/tmp/ccatv.sock",

@@ -81,6 +81,8 @@ class _StubServiceClient:
             }
         if command == "recording.schedule.create":
             return {"job": {"id": 1, "state": "scheduled"}}
+        if command == "recording.schedule.cancel":
+            return {"job": {"id": int(payload.get("id", 0)), "state": "cancelled"}}
         if command == "metadata.guide.list":
             return {
                 "channel": "BBC TWO HD",
@@ -88,7 +90,17 @@ class _StubServiceClient:
                     "startAtUtc": "2026-05-25T20:00:00Z",
                     "endAtUtc": "2026-05-25T22:00:00Z",
                 },
-                "programs": [],
+                "programs": [
+                    {
+                        "channelName": "BBC TWO HD",
+                        "startAtUtc": "2026-05-25T20:00:00Z",
+                        "stopAtUtc": "2026-05-25T21:00:00Z",
+                        "durationSeconds": 3600,
+                        "title": "Example",
+                        "description": "Example description",
+                        "genre": "Drama",
+                    }
+                ],
             }
         return {}
 
@@ -137,7 +149,7 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "Sign in" in body
-    assert "Record programme" in body
+    assert "click tile to record" in body
     assert "7-day timeline guide" in body
     assert "arrow keys" in body
     assert "Favourite channels only" in body
@@ -574,6 +586,30 @@ def test_schedule_create_maps_service_error(monkeypatch) -> None:
             "programStartAtUtc": None,
             "programStopAtUtc": None,
         },
+    )]
+
+
+def test_schedule_cancel_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.delete("/api/schedules/42")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [(
+        "recording.schedule.cancel",
+        {"id": 42},
     )]
 
 

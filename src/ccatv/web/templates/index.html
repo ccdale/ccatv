@@ -69,8 +69,9 @@
       .timeline-channel-label { padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.9); font-weight: 700; font-size: 0.9rem; }
       .timeline-track { position: relative; min-height: 2.5rem; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(251,245,234,0.8)); overflow: hidden; }
       .timeline-empty { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 0.75rem; color: var(--muted); font-size: 0.85rem; }
-      .timeline-programme { position: absolute; top: 0.24rem; bottom: 0.24rem; border-radius: 10px; border: 1px solid rgba(15, 118, 110, 0.45); background: linear-gradient(180deg, rgba(15, 118, 110, 0.18), rgba(15, 118, 110, 0.28)); color: var(--ink); padding: 0.32rem 0.48rem; font-size: 0.8rem; overflow: hidden; cursor: pointer; }
-      .timeline-programme.is-recording { border-color: rgba(180, 35, 24, 0.7); background: linear-gradient(180deg, rgba(180, 35, 24, 0.18), rgba(180, 35, 24, 0.26)); }
+      .timeline-programme { position: absolute; top: 0.24rem; bottom: 0.24rem; border-radius: 10px; border: 1px solid var(--genre-border, rgba(15, 118, 110, 0.45)); background: linear-gradient(180deg, var(--genre-bg-top, rgba(15, 118, 110, 0.18)), var(--genre-bg-bottom, rgba(15, 118, 110, 0.28))); color: var(--ink); padding: 0.32rem 0.48rem; font-size: 0.8rem; overflow: hidden; cursor: pointer; }
+      .timeline-programme.is-selected { outline: 2px solid rgba(29, 29, 27, 0.35); outline-offset: 1px; }
+      .timeline-programme.is-recording { border-color: rgba(180, 35, 24, 0.7); box-shadow: inset 0 0 0 1px rgba(180, 35, 24, 0.22); }
       .timeline-programme-time { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
       .timeline-programme-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
       .record-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.3rem; border-radius: 999px; background: #b42318; color: #fff; font-size: 0.72rem; margin-right: 0.25rem; vertical-align: middle; }
@@ -114,7 +115,7 @@
             </div>
             <div id="timeline-hover" class="timeline-hover-card">
               <strong>Programme details</strong>
-              <div class="timeline-hover-meta">Hover over a programme tile to view description and schedule actions.</div>
+              <div class="timeline-hover-meta">Click a programme tile to view details and toggle recording.</div>
             </div>
           </div>
         </div>
@@ -143,6 +144,18 @@
       let timelineData = new Map();
       let timelineOriginMs = 0;
       let timelineStartMs = 0;
+      let selectedProgrammeKey = null;
+
+      const GENRE_STYLES = {
+        movie: { border: "rgba(124, 58, 237, 0.52)", top: "rgba(124, 58, 237, 0.20)", bottom: "rgba(124, 58, 237, 0.30)" },
+        sport: { border: "rgba(2, 132, 199, 0.52)", top: "rgba(2, 132, 199, 0.20)", bottom: "rgba(2, 132, 199, 0.30)" },
+        news: { border: "rgba(217, 119, 6, 0.52)", top: "rgba(217, 119, 6, 0.20)", bottom: "rgba(217, 119, 6, 0.30)" },
+        drama: { border: "rgba(79, 70, 229, 0.52)", top: "rgba(79, 70, 229, 0.20)", bottom: "rgba(79, 70, 229, 0.30)" },
+        comedy: { border: "rgba(202, 138, 4, 0.52)", top: "rgba(202, 138, 4, 0.20)", bottom: "rgba(202, 138, 4, 0.30)" },
+        documentary: { border: "rgba(6, 95, 70, 0.52)", top: "rgba(6, 95, 70, 0.20)", bottom: "rgba(6, 95, 70, 0.30)" },
+        children: { border: "rgba(147, 51, 234, 0.52)", top: "rgba(147, 51, 234, 0.20)", bottom: "rgba(147, 51, 234, 0.30)" },
+      };
+      const DEFAULT_GENRE_STYLE = { border: "rgba(15, 118, 110, 0.45)", top: "rgba(15, 118, 110, 0.18)", bottom: "rgba(15, 118, 110, 0.28)" };
 
       class ApiError extends Error {
         constructor(message, code = null) {
@@ -170,6 +183,7 @@
         timelineData = new Map();
         timelineOriginMs = 0;
         timelineStartMs = 0;
+        selectedProgrammeKey = null;
         renderTimeline();
         renderTimelineHover(null, null);
         guideTitle.textContent = "7-day timeline guide";
@@ -261,6 +275,23 @@
         return { ...programme, startMs, stopMs, durationMinutes };
       }
 
+      function normalizeGenre(rawGenre) {
+        if (!rawGenre) {
+          return "";
+        }
+        return String(rawGenre).toLowerCase().trim();
+      }
+
+      function genreStyle(rawGenre) {
+        const genre = normalizeGenre(rawGenre);
+        for (const [label, style] of Object.entries(GENRE_STYLES)) {
+          if (genre.includes(label)) {
+            return style;
+          }
+        }
+        return DEFAULT_GENRE_STYLE;
+      }
+
       function renderTimelineHover(programme, matchingJob) {
         timelineHover.replaceChildren();
         const title = document.createElement("strong");
@@ -268,26 +299,28 @@
         const meta = document.createElement("div");
         meta.className = "timeline-hover-meta";
         if (!programme) {
-          meta.textContent = "Hover over a programme tile to view description and schedule actions.";
+          meta.textContent = "Click a programme tile to view details and toggle recording.";
           timelineHover.append(title, meta);
           return;
         }
         meta.textContent = `${programme.channelName} | ${formatLongDateTime(programme.startAtUtc)} to ${formatTime(programme.stopAtUtc)} | ${formatDuration(programme.durationSeconds)}`;
         const description = document.createElement("div");
         description.textContent = programme.description || "No description available.";
-        timelineHover.append(title, meta, description);
+        const genre = document.createElement("div");
+        genre.className = "timeline-hover-meta";
+        genre.textContent = `Genre: ${programme.genre || "Unknown"}`;
+        timelineHover.append(title, meta, genre, description);
         if (matchingJob) {
           const scheduled = document.createElement("div");
           scheduled.className = "pill";
-          scheduled.textContent = `Job ${matchingJob.id} | ${matchingJob.state}`;
+          scheduled.textContent = `Job ${matchingJob.id} | ${matchingJob.state} | click tile to cancel`;
           timelineHover.append(scheduled);
           return;
         }
-        const recordButton = document.createElement("button");
-        recordButton.type = "button";
-        recordButton.textContent = "Record programme";
-        recordButton.addEventListener("click", () => { void createRecording(programme, recordButton); });
-        timelineHover.append(recordButton);
+        const action = document.createElement("div");
+        action.className = "pill neutral";
+        action.textContent = "Not scheduled | click tile to record";
+        timelineHover.append(action);
       }
 
       function renderTimelineRuler(startMs, windowMinutes) {
@@ -374,16 +407,22 @@
             const left = ((clipStart - windowStartMs) / 60000) * PIXELS_PER_MINUTE;
             const width = clipMinutes * PIXELS_PER_MINUTE;
             const matchingJob = findScheduledJob(programme);
+            const isSelected = selectedProgrammeKey === scheduleKey(programme.channelName, programme.startAtUtc);
+            const style = genreStyle(programme.genre);
 
             const tile = document.createElement("button");
             tile.type = "button";
-            tile.className = "timeline-programme" + (matchingJob ? " is-recording" : "");
+            tile.className = "timeline-programme" + (matchingJob ? " is-recording" : "") + (isSelected ? " is-selected" : "");
             tile.style.left = `${left}px`;
             tile.style.width = `${Math.max(width, MIN_TILE_MINUTES * PIXELS_PER_MINUTE)}px`;
-            tile.addEventListener("mouseenter", () => {
-              renderTimelineHover(programme, matchingJob || null);
+            tile.style.setProperty("--genre-border", style.border);
+            tile.style.setProperty("--genre-bg-top", style.top);
+            tile.style.setProperty("--genre-bg-bottom", style.bottom);
+            tile.addEventListener("click", () => {
+              void toggleProgrammeSchedule(programme);
             });
             tile.addEventListener("focus", () => {
+              selectedProgrammeKey = scheduleKey(programme.channelName, programme.startAtUtc);
               renderTimelineHover(programme, matchingJob || null);
             });
 
@@ -475,8 +514,7 @@
         }
       }
 
-      async function createRecording(programme, button) {
-        button.disabled = true;
+      async function createRecording(programme) {
         try {
           const durationSeconds = programme.durationSeconds || Math.max(60, Math.round((new Date(programme.stopAtUtc) - new Date(programme.startAtUtc)) / 1000));
           const payload = await fetchJson("/api/schedules", {
@@ -499,9 +537,32 @@
         } catch (error) {
           renderTimelineHover(programme, null);
           setStatus(`Failed to schedule ${programme.title}: ${error.message}`, "error");
-        } finally {
-          button.disabled = false;
         }
+      }
+
+      async function cancelRecording(jobId, programme) {
+        await fetchJson(`/api/schedules/${jobId}`, {
+          method: "DELETE",
+        });
+        await loadSchedules();
+        renderTimeline();
+        renderTimelineHover(programme, null);
+        setStatus(`Cancelled scheduled recording for ${programme.title}.`);
+      }
+
+      async function toggleProgrammeSchedule(programme) {
+        selectedProgrammeKey = scheduleKey(programme.channelName, programme.startAtUtc);
+        const matchingJob = findScheduledJob(programme);
+        if (matchingJob) {
+          try {
+            await cancelRecording(matchingJob.id, programme);
+          } catch (error) {
+            setStatus(`Failed to cancel ${programme.title}: ${error.message}`, "error");
+            renderTimelineHover(programme, matchingJob);
+          }
+          return;
+        }
+        await createRecording(programme);
       }
 
       async function initializeAfterAuth() {
