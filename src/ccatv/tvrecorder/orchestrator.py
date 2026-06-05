@@ -181,6 +181,10 @@ class RecorderOrchestrator:
         recording: RecordingStateRecord | None = None
         capture_started = False
         cleanup_stop_error: str | None = None
+        effective_duration_seconds = _effective_recording_duration_seconds(
+            job=job,
+            started_at_timestamp=now_timestamp,
+        )
 
         try:
             recording_started_at = self.now_fn()
@@ -198,7 +202,7 @@ class RecorderOrchestrator:
                 job.id,
                 job.channel_name,
                 job.program_title,
-                job.duration_seconds,
+                effective_duration_seconds,
                 output_path,
             )
             self.capture_controller.start_capture(
@@ -218,7 +222,7 @@ class RecorderOrchestrator:
             )
             self._run_periodic_growth_checks(
                 recording_id=recording.id,
-                recording_duration_seconds=job.duration_seconds,
+                recording_duration_seconds=effective_duration_seconds,
             )
             self.logger.debug(
                 "recording growth checks completed: job_id=%s recording_id=%s",
@@ -381,6 +385,19 @@ def _append_error(existing: str | None, label: str, detail: str) -> str:
     if existing:
         return f"{existing}; {message}"
     return message
+
+
+def _effective_recording_duration_seconds(
+    *,
+    job: SchedulerJobRecord,
+    started_at_timestamp: float,
+) -> int:
+    if job.program_stop_at_utc is None:
+        return job.duration_seconds
+
+    stop_timestamp = _parse_utc_iso(job.program_stop_at_utc)
+    remaining_seconds = int(max(0.0, stop_timestamp - started_at_timestamp))
+    return min(job.duration_seconds, remaining_seconds)
 
 
 def _parse_utc_iso(value: str) -> float:
