@@ -35,9 +35,8 @@ class DvbStreamerConfig:
     bind_address: str = "127.0.0.1"
     debug_output: bool = False
     executable_path: str = "dvbstreamer"
-    # Keep dvbstreamer in the foreground so the managed process is the real
-    # worker process and does not leave daemonized zombies behind.
-    extra_args: tuple[str, ...] = ("-d",)
+    # Start remote interface and disable console shell without daemonizing.
+    extra_args: tuple[str, ...] = ("-D",)
     output_mrl: str = "null://"
 
 
