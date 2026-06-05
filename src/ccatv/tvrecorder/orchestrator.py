@@ -168,12 +168,14 @@ class RecorderOrchestrator:
             deferred_jobs = max(0, total_due_jobs - max_jobs)
             due_jobs = due_jobs[:max_jobs]
 
+        executing_ids = [job.id for job in due_jobs]
         self.logger.info(
-            "scheduler cycle: due_jobs=%s executing=%s deferred=%s max_jobs_per_cycle=%s",
+            "scheduler cycle: due_jobs=%s executing=%s deferred=%s max_jobs_per_cycle=%s job_ids=%s",
             total_due_jobs,
             len(due_jobs),
             deferred_jobs,
             max_jobs,
+            executing_ids,
         )
 
         return [
@@ -199,6 +201,27 @@ class RecorderOrchestrator:
             job=job,
             started_at_timestamp=now_timestamp,
         )
+
+        if effective_duration_seconds <= 0:
+            self.logger.warning(
+                "skipping job: programme window expired before recording could start: "
+                "job_id=%s channel=%s program=%s program_stop_at_utc=%s",
+                job.id,
+                job.channel_name,
+                job.program_title,
+                job.program_stop_at_utc,
+            )
+            try:
+                scheduler = self.service.mark_scheduler_job_failed(job.id)
+            except Exception:
+                scheduler = None
+            return OrchestratorResult(
+                job_id=job.id,
+                scheduler_state="failed" if scheduler is None else scheduler.state,
+                recording_id=None,
+                recording_state=None,
+                error="programme window expired before recording could start",
+            )
 
         try:
             recording_started_at = self.now_fn()
@@ -401,6 +424,9 @@ def _append_error(existing: str | None, label: str, detail: str) -> str:
     return message
 
 
+_MIN_RECORDING_SECONDS = 30
+
+
 def _effective_recording_duration_seconds(
     *,
     job: SchedulerJobRecord,
@@ -411,7 +437,10 @@ def _effective_recording_duration_seconds(
 
     stop_timestamp = _parse_utc_iso(job.program_stop_at_utc)
     remaining_seconds = int(max(0.0, stop_timestamp - started_at_timestamp))
-    return min(job.duration_seconds, remaining_seconds)
+    effective = min(job.duration_seconds, remaining_seconds)
+    if effective < _MIN_RECORDING_SECONDS:
+        return 0
+    return effective
 
 
 def _parse_utc_iso(value: str) -> float:

@@ -468,7 +468,9 @@ def test_orchestrator_late_start_uses_remaining_programme_time(
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     persistence = PersistenceStore(connection=connection)
     clock = FakeClock(now_seconds=1_748_000_000.0)
-    sizes = iter([100, 120, 120, 140, 140, 140])
+    # 60s remaining → 6 periodic checks × 2 reads + 2 early reads + 2 stability reads = 16
+    # Last 2 reads must be equal (stable after stop); the rest grow to pass growth checks.
+    sizes = iter([10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 150])
     service = TvRecorderService(
         StubDvbCtrlClient(),
         persistence=persistence,
@@ -484,7 +486,7 @@ def test_orchestrator_late_start_uses_remaining_programme_time(
             periodic_growth_checks=1,
             periodic_growth_interval_seconds=0,
         ),
-        file_size_reader=lambda _path: next(sizes, 140),
+        file_size_reader=lambda _path: next(sizes, 150),
         sleep_fn=clock.sleep,
     )
     orchestrator = RecorderOrchestrator(
@@ -497,7 +499,8 @@ def test_orchestrator_late_start_uses_remaining_programme_time(
 
     try:
         start_at = clock.now_seconds - 50
-        stop_at = clock.now_seconds + 10
+        # 60 seconds remaining is above the minimum floor (30s)
+        stop_at = clock.now_seconds + 60
         job = service.schedule_recording(
             channel_name="BBC TWO HD",
             start_at_utc=_iso_at(start_at),
@@ -511,7 +514,67 @@ def test_orchestrator_late_start_uses_remaining_programme_time(
         after = clock.now_seconds
 
         assert result.scheduler_state == "completed"
-        assert after - before == 10
+        assert after - before == 60
+    finally:
+        connection.close()
+
+
+def test_orchestrator_expired_programme_window_fails_without_capture(
+    tmp_path: Path,
+) -> None:
+    """Jobs picked up after programme end (or < 30s remaining) are failed immediately."""
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    persistence = PersistenceStore(connection=connection)
+    clock = FakeClock(now_seconds=1_748_000_000.0)
+    service = TvRecorderService(
+        StubDvbCtrlClient(),
+        persistence=persistence,
+        padding_policy=RecordingPaddingPolicy(
+            post_finish_seconds=0, pre_start_seconds=0
+        ),
+        health_policy=RecordingHealthCheckPolicy(
+            early_growth_checks=1,
+            early_growth_interval_seconds=0,
+            final_stability_checks=1,
+            final_stability_interval_seconds=0,
+            growth_min_bytes=1,
+        ),
+        file_size_reader=lambda _path: 100,
+        sleep_fn=lambda _: None,
+    )
+    capture = StubCaptureController()
+    orchestrator = RecorderOrchestrator(
+        service=service,
+        persistence=persistence,
+        capture_controller=capture,
+        periodic_policy=PeriodicCheckPolicy(growth_min_bytes=1, interval_seconds=10.0),
+        now_fn=clock.now,
+        sleep_fn=clock.sleep,
+    )
+
+    try:
+        start_at = clock.now_seconds - 3600
+        # Programme ended 10 seconds ago (well under 30s floor)
+        stop_at = clock.now_seconds - 10
+        job = service.schedule_recording(
+            channel_name="BBC TWO HD",
+            start_at_utc=_iso_at(start_at),
+            duration_seconds=3600,
+            program_start_at_utc=_iso_at(start_at),
+            program_stop_at_utc=_iso_at(stop_at),
+        )
+
+        result = orchestrator.run_job(job_id=job.id, output_path="/tmp/bbc2.ts")
+        scheduler = persistence.get_scheduler_job(job.id, required=True)
+
+        assert result.scheduler_state == "failed"
+        assert result.recording_id is None
+        assert result.error is not None
+        assert "programme window expired" in result.error
+        assert scheduler.state == "failed"
+        # No capture was attempted
+        assert capture.start_calls == []
+        assert capture.stop_calls == []
     finally:
         connection.close()
 
