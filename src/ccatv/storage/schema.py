@@ -193,7 +193,10 @@ MIGRATIONS: tuple[Migration, ...] = (
 
 def open_database(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(str(path), check_same_thread=False)
+    # WAL mode allows concurrent reads from recording threads while the main
+    # thread writes scheduler state; writes are still serialised by SQLite.
+    connection.execute("PRAGMA journal_mode = WAL")
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
