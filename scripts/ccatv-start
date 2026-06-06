@@ -18,18 +18,33 @@ if [[ ! -d "${REPO_DIR}" ]]; then
 fi
 
 CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG="${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}"
+CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG="${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --debug-dvbstreamer-output)
       CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG="1"
       shift
       ;;
+    --dvbstreamer-bind-address)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --dvbstreamer-bind-address" >&2
+        exit 2
+      fi
+      CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG="$2"
+      shift 2
+      ;;
+    --dvbstreamer-bind-all)
+      CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG="0.0.0.0"
+      shift
+      ;;
     --help|-h)
       cat <<'EOF'
-Usage: ccatv-start [--debug-dvbstreamer-output]
+Usage: ccatv-start [--debug-dvbstreamer-output] [--dvbstreamer-bind-address ADDRESS] [--dvbstreamer-bind-all]
 
 Options:
   --debug-dvbstreamer-output  Keep dvbstreamer stdout/stderr pipes for debugging.
+  --dvbstreamer-bind-address  Set CCATV_DVBSTREAMER_BIND_ADDRESS for ccatv-service processes.
+  --dvbstreamer-bind-all      Shortcut for --dvbstreamer-bind-address 0.0.0.0.
 EOF
       exit 0
       ;;
@@ -159,6 +174,7 @@ print_active_script_paths() {
 
 print_active_script_paths
 echo "dvbstreamer debug output: ${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}"
+echo "dvbstreamer bind address: ${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}"
 
 SERVICE_ARGS=(--output-directory "${RECORDINGS_DIR}" --poll-interval-seconds 5)
 if [[ -n "${CCATV_SD_LINEUP_ID:-}" ]]; then
@@ -176,13 +192,13 @@ start_component \
   "ccatv-service" \
   "${LOG_DIR}/ccatv-service.log" \
   "${RUN_DIR}/ccatv-service.pid" \
-  env CCATV_DVBSTREAMER_DEBUG_OUTPUT="${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}" uv run ccatv-service "${SERVICE_ARGS[@]}"
+  env CCATV_DVBSTREAMER_BIND_ADDRESS="${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}" uv run ccatv-service "${SERVICE_ARGS[@]}"
 
 start_component \
   "ccatv-api" \
   "${LOG_DIR}/ccatv-api.log" \
   "${RUN_DIR}/ccatv-api.pid" \
-  env CCATV_LOG_LEVEL="${CCATV_LOG_LEVEL:-INFO}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}" uv run ccatv-service --http-bind-host "${CCATV_API_BIND_HOST}" --http-port "${CCATV_API_PORT}" --http-auth-token "${CCATV_SERVICE_AUTH_TOKEN}"
+  env CCATV_LOG_LEVEL="${CCATV_LOG_LEVEL:-INFO}" CCATV_DVBSTREAMER_BIND_ADDRESS="${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}" uv run ccatv-service --http-bind-host "${CCATV_API_BIND_HOST}" --http-port "${CCATV_API_PORT}" --http-auth-token "${CCATV_SERVICE_AUTH_TOKEN}"
 
 start_component \
   "ccatv-web" \
