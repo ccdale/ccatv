@@ -16,6 +16,7 @@ import pytest
 from ccatv.app.service_daemon import (
     IPC_MAX_REQUEST_BYTES,
     _handle_ipc_request,
+    _run_broadcast_time_healthcheck,
     main,
     run_http_server,
     run_ipc_server,
@@ -616,6 +617,32 @@ def test_run_service_daemon_idle_adapter_probe_skips_non_primary_filters(
     assert result == 0
     assert pool.removed == []
     assert busy_service.probe_calls == 0
+
+
+def test_clock_healthcheck_treats_no_date_received_as_not_ready(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    logger = logging.getLogger("test.daemon.clock.no_date")
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            assert command == "date"
+            return SimpleNamespace(stdout="No date/time has been received!\n")
+
+    context = StubContext(logger=logger)
+    context.dvbctrl = _StubDvbCtrl()
+
+    with caplog.at_level(logging.INFO):
+        skew = _run_broadcast_time_healthcheck(
+            context=context,
+            logger=logger,
+            now_timestamp=datetime(2026, 6, 6, 3, 0, 0, tzinfo=timezone.utc).timestamp(),
+            skew_threshold_seconds=60.0,
+        )
+
+    assert skew is None
+    assert "not ready yet" in caplog.text
+    assert "could not parse broadcast time" not in caplog.text
 
 
 def test_main_dispatch_command_json(monkeypatch, capsys) -> None:

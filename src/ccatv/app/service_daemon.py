@@ -108,7 +108,14 @@ def _run_broadcast_time_healthcheck(
         logger.warning("idle healthcheck clock probe failed: %s", exc)
         return None
 
-    broadcast_utc = _extract_broadcast_utc(getattr(result, "stdout", ""))
+    raw_output = getattr(result, "stdout", "")
+    if _is_no_broadcast_time_received_output(raw_output):
+        logger.info(
+            "idle healthcheck clock probe not ready yet (no broadcast date/time received)"
+        )
+        return None
+
+    broadcast_utc = _extract_broadcast_utc(raw_output)
     if broadcast_utc is None:
         logger.warning(
             "idle healthcheck clock probe could not parse broadcast time from dvbctrl date output"
@@ -203,6 +210,11 @@ def _service_filter_name_is_primary(name: str) -> bool:
         ch for ch in name.casefold() if ch not in {"<", ">", " ", "\t"}
     )
     return normalized == "primary"
+
+
+def _is_no_broadcast_time_received_output(output: str) -> bool:
+    normalized = output.casefold()
+    return "no date/time has been received" in normalized
 
 
 def _build_compensated_now_utc(*, timestamp_seconds: float, clock_offset_seconds: float) -> str:
