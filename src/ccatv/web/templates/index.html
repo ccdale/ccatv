@@ -269,11 +269,15 @@
       }
 
       function isUpcomingSchedule(job) {
-        const startedAt = new Date(job.startAtUtc);
-        if (Number.isNaN(startedAt.getTime())) {
+        // Use programStopAtUtc (when the programme ends) as the cutoff, falling
+        // back to startAtUtc.  job.startAtUtc is padded earlier than the actual
+        // programme start so it must not be used as the "still upcoming" cutoff.
+        const cutoffUtc = job.programStopAtUtc || job.startAtUtc;
+        const cutoffAt = new Date(cutoffUtc);
+        if (Number.isNaN(cutoffAt.getTime())) {
           return true;
         }
-        return startedAt.getTime() >= Date.now();
+        return cutoffAt.getTime() >= Date.now();
       }
 
       function formatChannelMeta(channel) {
@@ -470,11 +474,11 @@
             tile.addEventListener("click", () => {
               selectedProgrammeKey = scheduleKey(programme.channelName, programme.startAtUtc);
               renderTimeline();
-              renderTimelineHover(programme, matchingJob || null);
+              renderTimelineHover(programme, findScheduledJob(programme) || null);
             });
             tile.addEventListener("focus", () => {
               selectedProgrammeKey = scheduleKey(programme.channelName, programme.startAtUtc);
-              renderTimelineHover(programme, matchingJob || null);
+              renderTimelineHover(programme, findScheduledJob(programme) || null);
             });
 
             const title = document.createElement("div");
