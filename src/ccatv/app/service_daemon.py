@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+import datetime as datetime_module
+from datetime import datetime, timezone
 import json
 import logging
 import os
+import re
 import signal
 import socket
 import sys
@@ -37,6 +39,155 @@ def _parse_hhmm(value: str) -> tuple[int, int] | None:
     if minute < 0 or minute > 59:
         return None
     return hour, minute
+
+
+_DATE_PATTERNS = (
+    "%Y-%m-%dT%H:%M:%SZ",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S %Z",
+    "%a %b %d %H:%M:%S %Y",
+)
+
+
+def _extract_broadcast_utc(date_output: str) -> datetime | None:
+    for line in date_output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        match = re.search(r"(\d{10})", stripped)
+        if match is not None:
+            try:
+                return datetime_module.datetime.fromtimestamp(
+                    int(match.group(1)),
+                    tz=timezone.utc,
+                )
+            except (OverflowError, ValueError):
+                pass
+
+        for pattern in _DATE_PATTERNS:
+            try:
+                parsed = datetime_module.datetime.strptime(stripped, pattern)
+            except ValueError:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+
+        iso_match = re.search(
+            r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}Z?)",
+            stripped,
+        )
+        if iso_match is not None:
+            token = iso_match.group(1).replace(" ", "T")
+            if token.endswith("Z"):
+                token = token[:-1] + "+00:00"
+            try:
+                return datetime_module.datetime.fromisoformat(token).astimezone(
+                    timezone.utc
+                )
+            except ValueError:
+                continue
+    return None
+
+
+def _run_broadcast_time_healthcheck(
+    *,
+    context: AppContext,
+    logger: logging.Logger,
+    now_timestamp: float,
+    skew_threshold_seconds: float,
+) -> float | None:
+    dvbctrl = getattr(context, "dvbctrl", None)
+    if dvbctrl is None:
+        return None
+
+    try:
+        result = dvbctrl.run_command("date")
+    except Exception as exc:
+        logger.warning("idle healthcheck clock probe failed: %s", exc)
+        return None
+
+    broadcast_utc = _extract_broadcast_utc(getattr(result, "stdout", ""))
+    if broadcast_utc is None:
+        logger.warning(
+            "idle healthcheck clock probe could not parse broadcast time from dvbctrl date output"
+        )
+        return None
+
+    skew_seconds = broadcast_utc.timestamp() - now_timestamp
+    if abs(skew_seconds) > skew_threshold_seconds:
+        system_utc = datetime_module.datetime.fromtimestamp(
+            now_timestamp,
+            tz=timezone.utc,
+        )
+        logger.warning(
+            "idle healthcheck clock skew exceeds threshold: system_utc=%s broadcast_utc=%s skew_seconds=%.1f",
+            system_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            broadcast_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            skew_seconds,
+        )
+    else:
+        logger.info(
+            "idle healthcheck clock skew within threshold: skew_seconds=%.1f",
+            skew_seconds,
+        )
+    return skew_seconds
+
+
+def _run_idle_adapter_healthcheck(*, context: AppContext, logger: logging.Logger) -> None:
+    adapter_pool = getattr(context, "adapter_pool", None)
+    if adapter_pool is None:
+        return
+
+    idle_slots = adapter_pool.idle_slots_snapshot()
+    for slot in idle_slots:
+        probe_service = getattr(slot.capture_controller, "service", None)
+        if probe_service is None:
+            continue
+        try:
+            probe_service.run_raw("lsmuxes")
+        except Exception as exc:
+            removed = adapter_pool.disable_idle_slot(slot.adapter_index)
+            if removed is None:
+                logger.warning(
+                    "idle healthcheck adapter probe failed but slot is no longer idle: adapter=%s error=%s",
+                    slot.adapter_index,
+                    exc,
+                )
+                continue
+
+            try:
+                removed.dvbstreamer.stop(force_kill=True)
+            except Exception:
+                logger.warning(
+                    "idle healthcheck failed to stop removed adapter dvbstreamer: adapter=%s",
+                    slot.adapter_index,
+                    exc_info=True,
+                )
+
+            logger.error(
+                "idle healthcheck removed adapter from pool after failed probe: adapter=%s error=%s",
+                slot.adapter_index,
+                exc,
+            )
+
+
+def _build_compensated_now_utc(*, timestamp_seconds: float, clock_offset_seconds: float) -> str:
+    adjusted_seconds = timestamp_seconds + clock_offset_seconds
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(adjusted_seconds))
+
+
+def _run_worker_cycle(
+    *,
+    worker: object,
+    worker_cycle_lock: object | None,
+    now_utc: str,
+) -> list[object]:
+    if worker_cycle_lock is None:
+        return worker.run_cycle(now_utc=now_utc)
+    with worker_cycle_lock:
+        return worker.run_cycle(now_utc=now_utc)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -671,6 +822,9 @@ def run_service_daemon(
         return 1
 
     last_daily_sync_date: str | None = None
+    clock_offset_seconds = 0.0
+    healthcheck_interval_seconds = max(60.0, poll_interval_seconds)
+    last_idle_healthcheck_at = 0.0
 
     logger.info(
         "service daemon started (mode=scheduler_loop, poll_interval_seconds=%s, max_jobs_per_cycle=%s)",
@@ -723,11 +877,15 @@ def run_service_daemon(
 
     if run_once:
         try:
-            if worker_cycle_lock is None:
-                results = worker.run_cycle()
-            else:
-                with worker_cycle_lock:
-                    results = worker.run_cycle()
+            now_utc = _build_compensated_now_utc(
+                timestamp_seconds=time.time(),
+                clock_offset_seconds=clock_offset_seconds,
+            )
+            results = _run_worker_cycle(
+                worker=worker,
+                worker_cycle_lock=worker_cycle_lock,
+                now_utc=now_utc,
+            )
         except Exception:
             logger.exception("service daemon run-once cycle failed")
             return 1
@@ -746,11 +904,16 @@ def run_service_daemon(
 
     while not stop_predicate():
         try:
-            if worker_cycle_lock is None:
-                results = worker.run_cycle()
-            else:
-                with worker_cycle_lock:
-                    results = worker.run_cycle()
+            now_timestamp = time.time()
+            now_utc = _build_compensated_now_utc(
+                timestamp_seconds=now_timestamp,
+                clock_offset_seconds=clock_offset_seconds,
+            )
+            results = _run_worker_cycle(
+                worker=worker,
+                worker_cycle_lock=worker_cycle_lock,
+                now_utc=now_utc,
+            )
         except Exception:
             logger.exception("service daemon cycle failed")
             results = []
@@ -826,6 +989,27 @@ def run_service_daemon(
                 else:
                     logger.error("daily metadata sync complete: failure")
                 last_daily_sync_date = today_local
+
+        adapter_pool = getattr(context, "adapter_pool", None)
+        is_idle = not results and (
+            adapter_pool is None or getattr(adapter_pool, "in_use_count", 0) == 0
+        )
+        current_time = time.time()
+        should_run_idle_healthchecks = (
+            is_idle
+            and current_time - last_idle_healthcheck_at >= healthcheck_interval_seconds
+        )
+        if should_run_idle_healthchecks:
+            skew_seconds = _run_broadcast_time_healthcheck(
+                context=context,
+                logger=logger,
+                now_timestamp=current_time,
+                skew_threshold_seconds=60.0,
+            )
+            if skew_seconds is not None:
+                clock_offset_seconds = skew_seconds
+            _run_idle_adapter_healthcheck(context=context, logger=logger)
+            last_idle_healthcheck_at = current_time
 
         time.sleep(poll_interval_seconds)
 

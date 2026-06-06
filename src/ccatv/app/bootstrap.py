@@ -71,6 +71,29 @@ class AdapterPool:
         with self._lock:
             self._available.append(slot)
 
+    def idle_slots_snapshot(self) -> tuple[AdapterSlot, ...]:
+        """Return a point-in-time snapshot of idle adapter slots."""
+        with self._lock:
+            return tuple(self._available)
+
+    def disable_idle_slot(self, adapter_index: int) -> AdapterSlot | None:
+        """Remove an idle slot from scheduling and return it for external cleanup.
+
+        Returns None when the slot is unknown or currently in use.
+        """
+        with self._lock:
+            slot = next(
+                (candidate for candidate in self.slots if candidate.adapter_index == adapter_index),
+                None,
+            )
+            if slot is None:
+                return None
+            if slot not in self._available:
+                return None
+            self._available.remove(slot)
+            self.slots.remove(slot)
+            return slot
+
     def stop_all(self, *, force_kill: bool = True) -> None:
         """Gracefully stop all dvbstreamer processes in the pool."""
         for slot in self.slots:

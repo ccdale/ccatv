@@ -30,10 +30,13 @@ class StubWorker:
     cycle_count: int = 0
     fail_first_cycle: bool = False
     cycle_results: list[OrchestratorResult] = field(default_factory=list)
+    now_utc_values: list[str] = field(default_factory=list)
 
-    def run_cycle(self):
+    def run_cycle(self, *, now_utc: str | None = None):
         self.ran_cycle = True
         self.cycle_count += 1
+        if now_utc is not None:
+            self.now_utc_values.append(now_utc)
         if self.fail_first_cycle and self.cycle_count == 1:
             raise RuntimeError("cycle failed")
         return self.cycle_results
@@ -46,6 +49,48 @@ class StubContext:
         default_factory=lambda: SimpleNamespace(ota_epg_channel_name="BBC TWO HD")
     )
     dvbstreamer: object = field(default_factory=lambda: StubDvbStreamer())
+    dvbctrl: object | None = None
+    adapter_pool: object | None = None
+
+
+@dataclass(slots=True)
+class StubIdleSlot:
+    adapter_index: int
+    capture_controller: object
+    dvbstreamer: object = field(default_factory=object)
+
+
+@dataclass(slots=True)
+class StubAdapterPool:
+    slots: list[StubIdleSlot]
+    in_use_count: int = 0
+    removed: list[int] = field(default_factory=list)
+
+    def idle_slots_snapshot(self) -> tuple[StubIdleSlot, ...]:
+        return tuple(self.slots)
+
+    def disable_idle_slot(self, adapter_index: int):
+        for slot in list(self.slots):
+            if slot.adapter_index == adapter_index:
+                self.slots.remove(slot)
+                self.removed.append(adapter_index)
+                return slot
+        return None
+
+
+@dataclass(slots=True)
+class StubProbeService:
+    fail_probe: bool = False
+
+    def run_raw(self, command: str):
+        if self.fail_probe and command == "lsmuxes":
+            raise RuntimeError("probe failed")
+        return object()
+
+
+@dataclass(slots=True)
+class StubCaptureController:
+    service: StubProbeService
 
 
 @dataclass(slots=True)
@@ -400,6 +445,115 @@ def test_run_service_daemon_daily_metadata_sync_requires_lineup(monkeypatch) -> 
 
     assert result == 1
     assert worker.cycle_count == 0
+
+
+def test_run_service_daemon_idle_clock_skew_compensates_cycle_time(
+    monkeypatch,
+) -> None:
+    worker = StubWorker()
+    context = StubContext(logger=logging.getLogger("test.daemon.idle.clock"))
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            if command == "stats":
+                return SimpleNamespace(stdout="Packets=1\n")
+            assert command == "date"
+            # 30 seconds ahead of local clock
+            return SimpleNamespace(stdout="Sat Jun  6 03:00:30 2026\n")
+
+    context.dvbctrl = _StubDvbCtrl()
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    tick = {"count": 0}
+    time_values = [
+        datetime(2026, 6, 6, 3, 0, 0, tzinfo=timezone.utc).timestamp(),
+        datetime(2026, 6, 6, 3, 0, 0, tzinfo=timezone.utc).timestamp(),
+        datetime(2026, 6, 6, 3, 1, 5, tzinfo=timezone.utc).timestamp(),
+        datetime(2026, 6, 6, 3, 1, 5, tzinfo=timezone.utc).timestamp(),
+    ]
+
+    def _fake_time() -> float:
+        if time_values:
+            return time_values.pop(0)
+        return datetime(2026, 6, 6, 3, 1, 5, tzinfo=timezone.utc).timestamp()
+
+    def _should_stop() -> bool:
+        return tick["count"] >= 2
+
+    def _fake_sleep(_seconds: float) -> None:
+        tick["count"] += 1
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time.time", _fake_time)
+    monkeypatch.setattr("ccatv.app.service_daemon.time.sleep", _fake_sleep)
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=False,
+        should_stop=_should_stop,
+    )
+
+    assert result == 0
+    assert worker.now_utc_values[0] == "2026-06-06T03:00:00Z"
+    # Next cycle should include +30 second compensation from broadcast time skew.
+    assert worker.now_utc_values[1] == "2026-06-06T03:00:30Z"
+
+
+def test_run_service_daemon_idle_adapter_probe_removes_failed_slot(monkeypatch) -> None:
+    worker = StubWorker()
+    bad_service = StubProbeService(fail_probe=True)
+    good_service = StubProbeService(fail_probe=False)
+    pool = StubAdapterPool(
+        slots=[
+            StubIdleSlot(adapter_index=0, capture_controller=StubCaptureController(service=bad_service)),
+            StubIdleSlot(adapter_index=1, capture_controller=StubCaptureController(service=good_service)),
+        ]
+    )
+    context = StubContext(logger=logging.getLogger("test.daemon.idle.adapters"))
+    context.adapter_pool = pool
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            if command == "stats":
+                return SimpleNamespace(stdout="Packets=1\n")
+            assert command == "date"
+            return SimpleNamespace(stdout="2026-06-06T03:00:00Z\n")
+
+    context.dvbctrl = _StubDvbCtrl()
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    ticks = {"count": 0}
+
+    def _should_stop() -> bool:
+        return ticks["count"] >= 1
+
+    def _fake_sleep(_seconds: float) -> None:
+        ticks["count"] += 1
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time.sleep", _fake_sleep)
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=False,
+        should_stop=_should_stop,
+    )
+
+    assert result == 0
+    assert pool.removed == [0]
+    assert [slot.adapter_index for slot in pool.slots] == [1]
 
 
 def test_main_dispatch_command_json(monkeypatch, capsys) -> None:
