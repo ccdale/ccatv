@@ -71,11 +71,11 @@ def getsfmrl_command(sfname: str) -> DvbCtrlCommand:
 
 def setsfavsonly_command(sfname: str, status: str = "on") -> DvbCtrlCommand:
     """Build a quoted-safe `setsfavsonly` set service filter to AVS (audio/video/subtitle) only command."""
-    return DvbCtrlCommand(name="setsffavsonly", args=(sfname, status))
+    return DvbCtrlCommand(name="setsfavsonly", args=(sfname, status))
 
 def getsfavsonly_command(sfname: str) -> DvbCtrlCommand:
     """Build a quoted-safe `getsfavsonly` get service filter AVS (audio/video/subtitle) only status command."""
-    return DvbCtrlCommand(name="getsffavsonly", args=(sfname,))
+    return DvbCtrlCommand(name="getsfavsonly", args=(sfname,))
 
 __all__ = [
     "DvbCtrlCommand",
