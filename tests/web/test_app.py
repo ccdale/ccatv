@@ -149,7 +149,7 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "Sign in" in body
-    assert "click tile to record" in body
+    assert "Use the record switch below to schedule or cancel" in body
     assert "7-day timeline guide" in body
     assert "arrow keys" in body
     assert "Favourite channels only" in body

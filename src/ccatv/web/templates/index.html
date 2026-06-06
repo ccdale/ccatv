@@ -77,6 +77,37 @@
       .record-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.3rem; border-radius: 999px; background: #b42318; color: #fff; font-size: 0.72rem; margin-right: 0.25rem; vertical-align: middle; }
       .timeline-hover-card { margin-top: 0.75rem; padding: 0.9rem; border: 1px dashed var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.7); display: grid; gap: 0.5rem; }
       .timeline-hover-meta { color: var(--muted); font-size: 0.9rem; }
+      .record-toggle-row { margin-top: 0.2rem; display: flex; align-items: center; justify-content: space-between; gap: 0.9rem; }
+      .record-toggle-label { font-size: 0.92rem; color: var(--muted); }
+      .record-switch {
+        display: inline-flex;
+        align-items: center;
+        width: 58px;
+        height: 32px;
+        border-radius: 999px;
+        padding: 2px;
+        border: 1px solid rgba(29, 29, 27, 0.2);
+        background: rgba(29, 29, 27, 0.12);
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .record-switch-knob {
+        display: block;
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+        transform: translateX(0);
+        transition: transform 120ms ease;
+      }
+      .record-switch.is-on {
+        background: rgba(180, 35, 24, 0.88);
+        border-color: rgba(180, 35, 24, 0.95);
+      }
+      .record-switch.is-on .record-switch-knob {
+        transform: translateX(26px);
+      }
       @media (max-width: 820px) {
         .auth-bar, .layout { grid-template-columns: 1fr; }
         .timeline-row { grid-template-columns: 1fr; }
@@ -115,7 +146,7 @@
             </div>
             <div id="timeline-hover" class="timeline-hover-card">
               <strong>Programme details</strong>
-              <div class="timeline-hover-meta">Click a programme tile to view details and toggle recording.</div>
+              <div class="timeline-hover-meta">Click a programme tile to view details. Use the record switch below to schedule or cancel.</div>
             </div>
           </div>
         </div>
@@ -299,7 +330,7 @@
         const meta = document.createElement("div");
         meta.className = "timeline-hover-meta";
         if (!programme) {
-          meta.textContent = "Click a programme tile to view details and toggle recording.";
+          meta.textContent = "Click a programme tile to view details. Use the record switch below to schedule or cancel.";
           timelineHover.append(title, meta);
           return;
         }
@@ -309,18 +340,32 @@
         const genre = document.createElement("div");
         genre.className = "timeline-hover-meta";
         genre.textContent = `Genre: ${programme.genre || "Unknown"}`;
-        timelineHover.append(title, meta, genre, description);
-        if (matchingJob) {
-          const scheduled = document.createElement("div");
-          scheduled.className = "pill";
-          scheduled.textContent = `Job ${matchingJob.id} | ${matchingJob.state} | click tile to cancel`;
-          timelineHover.append(scheduled);
-          return;
-        }
-        const action = document.createElement("div");
-        action.className = "pill neutral";
-        action.textContent = "Not scheduled | click tile to record";
-        timelineHover.append(action);
+        const switchRow = document.createElement("div");
+        switchRow.className = "record-toggle-row";
+
+        const switchLabel = document.createElement("span");
+        switchLabel.className = "record-toggle-label";
+        switchLabel.textContent = matchingJob
+          ? `Recording scheduled (job ${matchingJob.id})`
+          : "Not scheduled";
+
+        const switchButton = document.createElement("button");
+        switchButton.type = "button";
+        switchButton.className = "record-switch" + (matchingJob ? " is-on" : "");
+        switchButton.setAttribute("role", "switch");
+        switchButton.setAttribute("aria-checked", matchingJob ? "true" : "false");
+        switchButton.setAttribute("aria-label", matchingJob ? "Cancel scheduled recording" : "Schedule recording");
+
+        const switchKnob = document.createElement("span");
+        switchKnob.className = "record-switch-knob";
+        switchButton.append(switchKnob);
+
+        switchButton.addEventListener("click", () => {
+          void toggleProgrammeSchedule(programme);
+        });
+
+        switchRow.append(switchLabel, switchButton);
+        timelineHover.append(title, meta, genre, description, switchRow);
       }
 
       function renderTimelineRuler(startMs, windowMinutes) {
@@ -419,7 +464,9 @@
             tile.style.setProperty("--genre-bg-top", style.top);
             tile.style.setProperty("--genre-bg-bottom", style.bottom);
             tile.addEventListener("click", () => {
-              void toggleProgrammeSchedule(programme);
+              selectedProgrammeKey = scheduleKey(programme.channelName, programme.startAtUtc);
+              renderTimeline();
+              renderTimelineHover(programme, matchingJob || null);
             });
             tile.addEventListener("focus", () => {
               selectedProgrammeKey = scheduleKey(programme.channelName, programme.startAtUtc);
