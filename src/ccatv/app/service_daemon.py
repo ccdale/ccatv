@@ -145,6 +145,25 @@ def _run_idle_adapter_healthcheck(*, context: AppContext, logger: logging.Logger
         probe_service = getattr(slot.capture_controller, "service", None)
         if probe_service is None:
             continue
+
+        try:
+            filters = probe_service.list_service_filters(include_primary=True)
+        except Exception as exc:
+            logger.warning(
+                "idle healthcheck failed to list service filters: adapter=%s error=%s",
+                slot.adapter_index,
+                exc,
+            )
+            continue
+
+        if not _service_filter_state_is_idle(filters):
+            logger.debug(
+                "idle healthcheck skipped busy adapter: adapter=%s filters=%s",
+                slot.adapter_index,
+                filters,
+            )
+            continue
+
         try:
             probe_service.run_raw("lsmuxes")
         except Exception as exc:
@@ -171,6 +190,19 @@ def _run_idle_adapter_healthcheck(*, context: AppContext, logger: logging.Logger
                 slot.adapter_index,
                 exc,
             )
+
+
+def _service_filter_state_is_idle(filters: list[str]) -> bool:
+    if not filters:
+        return True
+    return all(_service_filter_name_is_primary(name) for name in filters)
+
+
+def _service_filter_name_is_primary(name: str) -> bool:
+    normalized = "".join(
+        ch for ch in name.casefold() if ch not in {"<", ">", " ", "\t"}
+    )
+    return normalized == "primary"
 
 
 def _build_compensated_now_utc(*, timestamp_seconds: float, clock_offset_seconds: float) -> str:

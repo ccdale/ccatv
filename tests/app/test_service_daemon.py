@@ -81,8 +81,16 @@ class StubAdapterPool:
 @dataclass(slots=True)
 class StubProbeService:
     fail_probe: bool = False
+    filters: list[str] = field(default_factory=lambda: ["<Primary>"])
+    probe_calls: int = 0
+
+    def list_service_filters(self, *, include_primary: bool = False):
+        if include_primary:
+            return list(self.filters)
+        return [name for name in self.filters if name != "<Primary>"]
 
     def run_raw(self, command: str):
+        self.probe_calls += 1
         if self.fail_probe and command == "lsmuxes":
             raise RuntimeError("probe failed")
         return object()
@@ -554,6 +562,60 @@ def test_run_service_daemon_idle_adapter_probe_removes_failed_slot(monkeypatch) 
     assert result == 0
     assert pool.removed == [0]
     assert [slot.adapter_index for slot in pool.slots] == [1]
+
+
+def test_run_service_daemon_idle_adapter_probe_skips_non_primary_filters(
+    monkeypatch,
+) -> None:
+    worker = StubWorker()
+    busy_service = StubProbeService(filters=["<Primary>", "sports-filter"])
+    pool = StubAdapterPool(
+        slots=[
+            StubIdleSlot(
+                adapter_index=0,
+                capture_controller=StubCaptureController(service=busy_service),
+            ),
+        ]
+    )
+    context = StubContext(logger=logging.getLogger("test.daemon.idle.adapters.busy"))
+    context.adapter_pool = pool
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            if command == "stats":
+                return SimpleNamespace(stdout="Packets=1\n")
+            assert command == "date"
+            return SimpleNamespace(stdout="2026-06-06T03:00:00Z\n")
+
+    context.dvbctrl = _StubDvbCtrl()
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    ticks = {"count": 0}
+
+    def _should_stop() -> bool:
+        return ticks["count"] >= 1
+
+    def _fake_sleep(_seconds: float) -> None:
+        ticks["count"] += 1
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time.sleep", _fake_sleep)
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=False,
+        should_stop=_should_stop,
+    )
+
+    assert result == 0
+    assert pool.removed == []
+    assert busy_service.probe_calls == 0
 
 
 def test_main_dispatch_command_json(monkeypatch, capsys) -> None:
