@@ -237,8 +237,12 @@
 
       function scheduleKey(channelName, startAtUtc) { return `${channelName}\u0000${startAtUtc}`; }
 
+      function jobProgrammeStartAtUtc(job) {
+        return job.programStartAtUtc || job.startAtUtc;
+      }
+
       function findScheduledJob(programme) {
-        return schedules.find((job) => scheduleKey(job.channelName, job.startAtUtc) === scheduleKey(programme.channelName, programme.startAtUtc));
+        return schedules.find((job) => scheduleKey(job.channelName, jobProgrammeStartAtUtc(job)) === scheduleKey(programme.channelName, programme.startAtUtc));
       }
 
       function toUtcNoMillis(date) {

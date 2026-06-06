@@ -154,6 +154,7 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "arrow keys" in body
     assert "Favourite channels only" in body
     assert "record-badge" in body
+    assert "job.programStartAtUtc || job.startAtUtc" in body
     assert "Channel Manager" in body
     assert 'href="/channel-manager"' in body
     assert "View Recordings" in body
