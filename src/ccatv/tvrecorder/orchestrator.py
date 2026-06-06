@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import shlex
+import hashlib
 import threading
 import time
 from collections.abc import Callable
@@ -87,6 +88,73 @@ class DvbCtrlCaptureController:
     ) -> None:
         del channel_name, output_path
         self.service.run_raw("setmrl null://")
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceFilterCaptureController:
+    service: TvRecorderService
+    avs_only_status: str = "on"
+
+    def start_capture(
+        self,
+        *,
+        channel_name: str,
+        output_path: str,
+    ) -> None:
+        resolved_service_name = self.service.resolve_service_name(channel_name)
+        filter_name = _build_service_filter_name(
+            channel_name=channel_name,
+            output_path=output_path,
+        )
+
+        self.service.add_service_filter(filter_name)
+        self.service.set_service_filter_service(filter_name, resolved_service_name)
+        self.service.set_service_filter_avs_only(
+            filter_name,
+            self.avs_only_status,
+        )
+        output_mrl = f"file://{output_path}"
+        self.service.set_service_filter_output(filter_name, output_mrl)
+
+    def stop_capture(
+        self,
+        *,
+        channel_name: str,
+        output_path: str,
+    ) -> None:
+        filter_name = _build_service_filter_name(
+            channel_name=channel_name,
+            output_path=output_path,
+        )
+
+        set_output_error: Exception | None = None
+        remove_error: Exception | None = None
+        try:
+            self.service.set_service_filter_output(filter_name, "null://")
+        except Exception as exc:
+            set_output_error = exc
+
+        try:
+            self.service.remove_service_filter(filter_name)
+        except Exception as exc:
+            if not _is_missing_service_filter_error(exc):
+                remove_error = exc
+
+        if set_output_error is not None:
+            if remove_error is not None:
+                raise RuntimeError(
+                    "failed to stop service filter capture: "
+                    f"set output failed: {set_output_error}; "
+                    f"remove failed: {remove_error}"
+                ) from set_output_error
+            raise RuntimeError(
+                f"failed to stop service filter capture: set output failed: {set_output_error}"
+            ) from set_output_error
+
+        if remove_error is not None:
+            raise RuntimeError(
+                f"failed to stop service filter capture: remove failed: {remove_error}"
+            ) from remove_error
 
 
 @dataclass(slots=True)
@@ -554,6 +622,23 @@ def _append_error(existing: str | None, label: str, detail: str) -> str:
     if existing:
         return f"{existing}; {message}"
     return message
+
+
+def _build_service_filter_name(*, channel_name: str, output_path: str) -> str:
+    channel_token = _sanitize_channel_name(channel_name)
+    suffix = hashlib.sha1(output_path.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
+    return f"{channel_token}-{suffix}"
+
+
+def _is_missing_service_filter_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = (
+        "no such service filter",
+        "service filter not found",
+        "unknown service filter",
+        "does not exist",
+    )
+    return any(marker in message for marker in markers)
 
 
 _MIN_RECORDING_SECONDS = 30

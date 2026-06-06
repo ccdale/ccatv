@@ -13,9 +13,9 @@ from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.tvrecorder.manager import DvbStreamerConfig, DvbStreamerManager
 from ccatv.tvrecorder.orchestrator import (
-    DvbCtrlCaptureController,
     PeriodicCheckPolicy,
     RecorderOrchestrator,
+    ServiceFilterCaptureController,
 )
 from ccatv.tvrecorder.postprocess import NfoSidecarPostProcessingRunner
 from ccatv.tvrecorder.preflight import WritePreflightChecker
@@ -32,7 +32,7 @@ class AdapterSlot:
 
     adapter_index: int
     dvbstreamer: DvbStreamerManager
-    capture_controller: DvbCtrlCaptureController
+    capture_controller: ServiceFilterCaptureController
 
 
 @dataclass(slots=True)
@@ -176,7 +176,7 @@ def bootstrap_app() -> AppContext:
     recorder_orchestrator = RecorderOrchestrator(
         service=tvrecorder,
         persistence=persistence,
-        capture_controller=DvbCtrlCaptureController(service=tvrecorder),
+        capture_controller=ServiceFilterCaptureController(service=tvrecorder),
         logger=logger,
         periodic_policy=PeriodicCheckPolicy(
             growth_min_bytes=settings.recording_growth_min_bytes,
@@ -203,7 +203,7 @@ def bootstrap_app() -> AppContext:
     adapter_slots: list[AdapterSlot] = []
     for adapter_idx in range(settings.dvb_adapter_count):
         if adapter_idx == settings.dvb_adapter_index:
-            slot_ctrl = DvbCtrlCaptureController(service=tvrecorder)
+            slot_ctrl = ServiceFilterCaptureController(service=tvrecorder)
             slot_mgr = dvbstreamer
         else:
             slot_dvbctrl = DvbCtrlClient(
@@ -228,7 +228,7 @@ def bootstrap_app() -> AppContext:
                 health_policy=health_policy,
                 padding_policy=padding_policy,
             )
-            slot_ctrl = DvbCtrlCaptureController(service=slot_svc)
+            slot_ctrl = ServiceFilterCaptureController(service=slot_svc)
         adapter_slots.append(
             AdapterSlot(
                 adapter_index=adapter_idx,

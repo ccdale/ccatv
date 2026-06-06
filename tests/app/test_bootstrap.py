@@ -11,8 +11,8 @@ from ccatv.settings import AppSettings
 from ccatv.storage import PersistenceStore
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 from ccatv.tvrecorder.orchestrator import (
-    DvbCtrlCaptureController,
     RecorderOrchestrator,
+    ServiceFilterCaptureController,
 )
 from ccatv.tvrecorder.service import TvRecorderService
 
@@ -85,7 +85,7 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     assert context.recorder_orchestrator.persistence is context.persistence
     assert isinstance(
         context.recorder_orchestrator.capture_controller,
-        DvbCtrlCaptureController,
+        ServiceFilterCaptureController,
     )
     assert (
         context.recorder_orchestrator.periodic_policy.interval_seconds

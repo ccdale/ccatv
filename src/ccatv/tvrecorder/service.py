@@ -8,9 +8,14 @@ from pathlib import Path
 
 from ccatv.storage import PersistenceStore, RecordingStateRecord, SchedulerJobRecord
 from ccatv.tvrecorder.commands import (
+    addsf_command,
     DvbCtrlCommand,
     current_command,
     festatus_command,
+    rmsf_command,
+    setsfavsonly_command,
+    setsf_command,
+    setsfmrl_command,
     lsservices_command,
     select_command,
     serviceinfo_command,
@@ -136,6 +141,37 @@ class TvRecorderService:
     def select_service(self, service_name: str) -> DvbCtrlResult:
         """Select a primary service by name."""
         return self.run(select_command(service_name))
+
+    def add_service_filter(self, filter_name: str, output_mrl: str = "null://") -> DvbCtrlResult:
+        """Create a service filter and set its initial output MRL."""
+        created = self.run(addsf_command(filter_name))
+        if output_mrl != "null://":
+            self.set_service_filter_output(filter_name, output_mrl)
+        return created
+
+    def remove_service_filter(self, filter_name: str) -> DvbCtrlResult:
+        """Remove a service filter by name."""
+        return self.run(rmsf_command(filter_name))
+
+    def set_service_filter_service(
+        self,
+        filter_name: str,
+        service_name: str,
+    ) -> DvbCtrlResult:
+        """Bind a service filter to a dvbstreamer service."""
+        return self.run(setsf_command(filter_name, service_name))
+
+    def set_service_filter_output(self, filter_name: str, output_mrl: str) -> DvbCtrlResult:
+        """Set the destination MRL for a service filter."""
+        return self.run(setsfmrl_command(filter_name, output_mrl))
+
+    def set_service_filter_avs_only(
+        self,
+        filter_name: str,
+        status: str = "on",
+    ) -> DvbCtrlResult:
+        """Enable or disable AVS-only mode for a service filter."""
+        return self.run(setsfavsonly_command(filter_name, status))
 
     def current(self) -> DvbCtrlResult:
         """Return currently selected service output."""

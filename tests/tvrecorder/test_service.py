@@ -147,6 +147,60 @@ def test_select_service_uses_typed_command_path() -> None:
     assert client.commands == ["select 'BBC ONE HD'"]
 
 
+def test_add_service_filter_uses_default_null_output() -> None:
+    client = StubDvbCtrlClient(
+        responses={
+            "addsf recording-filter null://": _result("addsf", "ok\n"),
+        }
+    )
+    service = TvRecorderService(client)
+
+    service.add_service_filter("recording-filter")
+
+    assert client.commands == ["addsf recording-filter null://"]
+
+
+def test_add_service_filter_sets_custom_output_when_requested() -> None:
+    client = StubDvbCtrlClient(
+        responses={
+            "addsf recording-filter null://": _result("addsf", "ok\n"),
+            "setsfmrl recording-filter file:///tmp/out.ts": _result("setsfmrl", "ok\n"),
+        }
+    )
+    service = TvRecorderService(client)
+
+    service.add_service_filter("recording-filter", "file:///tmp/out.ts")
+
+    assert client.commands == [
+        "addsf recording-filter null://",
+        "setsfmrl recording-filter file:///tmp/out.ts",
+    ]
+
+
+def test_service_filter_operations_use_typed_commands() -> None:
+    client = StubDvbCtrlClient(
+        responses={
+            "setsf recording-filter 'BBC ONE HD'": _result("setsf", "ok\n"),
+            "setsfavsonly recording-filter on": _result("setsfavsonly", "ok\n"),
+            "setsfmrl recording-filter null://": _result("setsfmrl", "ok\n"),
+            "rmsf recording-filter": _result("rmsf", "ok\n"),
+        }
+    )
+    service = TvRecorderService(client)
+
+    service.set_service_filter_service("recording-filter", "BBC ONE HD")
+    service.set_service_filter_avs_only("recording-filter")
+    service.set_service_filter_output("recording-filter", "null://")
+    service.remove_service_filter("recording-filter")
+
+    assert client.commands == [
+        "setsf recording-filter 'BBC ONE HD'",
+        "setsfavsonly recording-filter on",
+        "setsfmrl recording-filter null://",
+        "rmsf recording-filter",
+    ]
+
+
 def test_recording_lifecycle_includes_post_processing(tmp_path: Path) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     persistence = PersistenceStore(connection=connection)

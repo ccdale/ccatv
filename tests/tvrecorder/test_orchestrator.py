@@ -4,10 +4,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from ccatv.storage import PersistenceStore, initialize_database
 from ccatv.tvrecorder.orchestrator import (
     PeriodicCheckPolicy,
     RecorderOrchestrator,
+    ServiceFilterCaptureController,
 )
 from ccatv.tvrecorder.service import (
     RecordingHealthCheckPolicy,
@@ -38,6 +41,38 @@ class StubCaptureController:
         self.stop_calls.append((channel_name, output_path))
         if self.fail_stop:
             raise RuntimeError("stop failed")
+
+
+@dataclass(slots=True)
+class StubServiceFilterService:
+    calls: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    resolved_service_name: str = "BBC ONE HD"
+    fail_on_output_null: bool = False
+    fail_on_remove: bool = False
+    remove_error_message: str = "remove failed"
+
+    def resolve_service_name(self, channel_name: str) -> str:
+        self.calls.append(("resolve", (channel_name,)))
+        return self.resolved_service_name
+
+    def add_service_filter(self, filter_name: str, output_mrl: str = "null://") -> None:
+        self.calls.append(("add", (filter_name, output_mrl)))
+
+    def set_service_filter_service(self, filter_name: str, service_name: str) -> None:
+        self.calls.append(("setsf", (filter_name, service_name)))
+
+    def set_service_filter_avs_only(self, filter_name: str, status: str = "on") -> None:
+        self.calls.append(("avs", (filter_name, status)))
+
+    def set_service_filter_output(self, filter_name: str, output_mrl: str) -> None:
+        self.calls.append(("mrl", (filter_name, output_mrl)))
+        if self.fail_on_output_null and output_mrl == "null://":
+            raise RuntimeError("set output failed")
+
+    def remove_service_filter(self, filter_name: str) -> None:
+        self.calls.append(("remove", (filter_name,)))
+        if self.fail_on_remove:
+            raise RuntimeError(self.remove_error_message)
 
 
 @dataclass(slots=True)
@@ -652,3 +687,43 @@ def test_orchestrator_main_path_stop_capture_failure_marks_failed_once(
         assert capture.stop_calls == [("BBC TWO HD", "/tmp/bbc2.ts")]
     finally:
         connection.close()
+
+
+def test_service_filter_capture_controller_start_sequence() -> None:
+    service = StubServiceFilterService(resolved_service_name="BBC One HD")
+    controller = ServiceFilterCaptureController(service=service)  # type: ignore[arg-type]
+
+    controller.start_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
+
+    assert [name for name, _args in service.calls] == ["resolve", "add", "setsf", "avs", "mrl"]
+    add_filter = service.calls[1][1][0]
+    setsf_filter = service.calls[2][1][0]
+    avs_filter = service.calls[3][1][0]
+    output_filter = service.calls[4][1][0]
+    assert add_filter == setsf_filter == avs_filter == output_filter
+    assert service.calls[2][1][1] == "BBC One HD"
+    assert service.calls[3][1][1] == "on"
+    assert service.calls[4][1][1] == "file:///tmp/out.ts"
+
+
+def test_service_filter_capture_controller_stop_ignores_missing_filter() -> None:
+    service = StubServiceFilterService(
+        fail_on_remove=True,
+        remove_error_message="no such service filter",
+    )
+    controller = ServiceFilterCaptureController(service=service)  # type: ignore[arg-type]
+
+    controller.stop_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
+
+    assert [name for name, _args in service.calls] == ["mrl", "remove"]
+    assert service.calls[0][1][1] == "null://"
+
+
+def test_service_filter_capture_controller_stop_raises_on_output_failure() -> None:
+    service = StubServiceFilterService(fail_on_output_null=True)
+    controller = ServiceFilterCaptureController(service=service)  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match="set output failed"):
+        controller.stop_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
+
+    assert [name for name, _args in service.calls] == ["mrl", "remove"]
