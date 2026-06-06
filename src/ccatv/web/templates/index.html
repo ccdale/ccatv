@@ -32,14 +32,28 @@
           radial-gradient(circle at top right, rgba(180, 35, 24, 0.1), transparent 24%),
           linear-gradient(180deg, #f8f4ee 0%, var(--bg) 100%);
       }
-      main { width: min(1560px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
-      .hero { padding: 1.5rem 1.75rem; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); }
+      main { width: min(1560px, calc(100vw - 2rem)); margin: 0 auto; padding: 0.5rem 0 3rem; }
       h1, h2, h3, p { margin: 0; }
-      .hero h1 { font-size: clamp(2.1rem, 5vw, 4rem); line-height: 0.95; letter-spacing: -0.05em; text-transform: lowercase; }
-      .hero p { max-width: 62rem; margin-top: 0.75rem; color: var(--muted); font-size: 1.02rem; }
-      .hero-links { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+      /* ── collapsed header bar ── */
+      .header-bar { display: flex; align-items: center; gap: 0.75rem; padding: 0.45rem 0.9rem; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+      .header-bar-title { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; text-transform: lowercase; white-space: nowrap; }
+      .header-bar-links { display: flex; gap: 0.6rem; flex-shrink: 0; }
+      .header-bar-links a { color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
+      #header-status-inline { font-size: 0.82rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+      #header-status-inline.warning { color: var(--warning); }
+      #header-status-inline.error { color: var(--error); }
+      .header-expand-btn { flex-shrink: 0; background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); padding: 0.2rem 0.55rem; font-size: 0.8rem; cursor: pointer; transition: background 120ms ease; }
+      .header-expand-btn:hover { background: rgba(29,29,27,0.06); transform: none; }
+      /* ── expandable hero drawer ── */
+      .hero-drawer { overflow: hidden; max-height: 0; transition: max-height 260ms ease, opacity 200ms ease; opacity: 0; }
+      .hero-drawer.is-open { max-height: 22rem; opacity: 1; }
+      .hero-drawer-inner { padding: 0.9rem 1rem; border: 1px solid var(--line); border-top: none; border-radius: 0 0 14px 14px; background: var(--panel); }
+      .hero-links { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
       .hero-links a { color: var(--accent); text-decoration: none; font-weight: 700; }
-      .auth-bar { margin-top: 1.25rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.75rem; }
+      .auth-bar { margin-top: 0.9rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.75rem; }
+      .status { margin-top: 0.75rem; padding: 0.75rem 1rem; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.7); color: var(--muted); font-size: 0.9rem; }
+      .status.warning { background: var(--warning-soft); color: var(--warning); }
+      .status.error { background: var(--error-soft); color: var(--error); }
       input, button { font: inherit; }
       input { min-width: 0; padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.82); }
       button { padding: 0.85rem 1.2rem; border: 0; border-radius: 999px; background: var(--ink); color: white; cursor: pointer; transition: transform 120ms ease, opacity 120ms ease, background 120ms ease; }
@@ -47,10 +61,7 @@
       button.secondary { background: rgba(29, 29, 27, 0.08); color: var(--ink); }
       button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
       button:disabled { opacity: 0.55; cursor: default; transform: none; }
-      .status { margin-top: 1rem; padding: 0.9rem 1rem; border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.7); color: var(--muted); }
-      .status.warning { background: var(--warning-soft); color: var(--warning); }
-      .status.error { background: var(--error-soft); color: var(--error); }
-      .layout { margin-top: 1.5rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+      .layout { margin-top: 0.5rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
       .panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
       .panel-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.5); }
       .panel-header p { margin-top: 0.35rem; color: var(--muted); font-size: 0.95rem; }
@@ -111,25 +122,35 @@
       @media (max-width: 820px) {
         .auth-bar, .layout { grid-template-columns: 1fr; }
         .timeline-row { grid-template-columns: 1fr; }
+        .header-bar-links { display: none; }
       }
     </style>
   </head>
   <body>
     <main>
-      <section class="hero">
-        <h1>ccatv web</h1>
-        <p>Sign in with the web token, browse a 7-day favourites timeline, and queue recordings directly from programme details.</p>
-        <div class="hero-links">
-          <a href="/channel-manager">Open Channel Manager</a>
-          <a href="/recordings">View Recordings</a>
+      <div class="header-bar">
+        <span class="header-bar-title">ccatv</span>
+        <div class="header-bar-links">
+          <a href="/channel-manager">Channel Manager</a>
+          <a href="/recordings">Recordings</a>
         </div>
-        <div class="auth-bar">
-          <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
-          <button id="login-button" type="button">Sign in</button>
-          <button id="logout-button" class="secondary" type="button">Sign out</button>
+        <span id="header-status-inline">Checking session.</span>
+        <button id="header-expand-btn" class="header-expand-btn" type="button" aria-expanded="false" aria-controls="hero-drawer" title="Expand header">&#9660;</button>
+      </div>
+      <div id="hero-drawer" class="hero-drawer" aria-hidden="true">
+        <div class="hero-drawer-inner">
+          <div class="hero-links">
+            <a href="/channel-manager">Open Channel Manager</a>
+            <a href="/recordings">View Recordings</a>
+          </div>
+          <div class="auth-bar">
+            <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
+            <button id="login-button" type="button">Sign in</button>
+            <button id="logout-button" class="secondary" type="button">Sign out</button>
+          </div>
+          <div id="status" class="status">Checking session.</div>
         </div>
-        <div id="status" class="status">Checking session.</div>
-      </section>
+      </div>
 
       <section class="layout">
         <div class="panel">
@@ -167,6 +188,20 @@
       const timelineBoard = document.getElementById("timeline-board");
       const timelineHover = document.getElementById("timeline-hover");
       const statusNode = document.getElementById("status");
+      const headerStatusInline = document.getElementById("header-status-inline");
+      const headerExpandBtn = document.getElementById("header-expand-btn");
+      const heroDrawer = document.getElementById("hero-drawer");
+
+      let headerDrawerOpen = false;
+
+      function setHeaderDrawerOpen(open) {
+        headerDrawerOpen = open;
+        heroDrawer.classList.toggle("is-open", open);
+        heroDrawer.setAttribute("aria-hidden", String(!open));
+        headerExpandBtn.setAttribute("aria-expanded", String(open));
+        headerExpandBtn.innerHTML = open ? "&#9650;" : "&#9660;";
+        headerExpandBtn.title = open ? "Collapse header" : "Expand header";
+      }
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let channels = [];
@@ -198,6 +233,8 @@
       function setStatus(message, level = "info") {
         statusNode.textContent = message;
         statusNode.className = "status" + (level === "info" ? "" : " " + level);
+        headerStatusInline.textContent = message;
+        headerStatusInline.className = level === "info" ? "" : level;
       }
 
       function setAuthUiState() {
@@ -679,6 +716,7 @@
 
       loginButton.addEventListener("click", () => { void login(); });
       logoutButton.addEventListener("click", () => { void logout(); });
+      headerExpandBtn.addEventListener("click", () => { setHeaderDrawerOpen(!headerDrawerOpen); });
       window.addEventListener("resize", () => {
         if (isAuthenticated) {
           renderTimeline();
@@ -715,6 +753,10 @@
       });
 
       setAuthUiState();
+      // Expand header when auth is required and user is not yet signed in
+      if (bootstrap.authRequired && !bootstrap.authenticated) {
+        setHeaderDrawerOpen(true);
+      }
       void refreshSession().catch((error) => {
         resetViews();
         setStatus(error.message, "error");

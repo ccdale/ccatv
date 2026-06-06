@@ -158,8 +158,10 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "job.programStopAtUtc || job.startAtUtc" in body
     assert "Channel Manager" in body
     assert 'href="/channel-manager"' in body
-    assert "View Recordings" in body
+    assert "Recordings" in body
     assert 'href="/recordings"' in body
+    assert "header-expand-btn" in body
+    assert "hero-drawer" in body
     assert stub.calls == []
 
 
