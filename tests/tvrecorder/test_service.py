@@ -201,6 +201,55 @@ def test_service_filter_operations_use_typed_commands() -> None:
     ]
 
 
+def test_list_service_filters_excludes_primary_by_default() -> None:
+    client = StubDvbCtrlClient(
+        responses={
+            "lssfs": _result(
+                "lssfs",
+                "<Primary>\nrecording-filter\nservice filter: late-night\n",
+            ),
+        }
+    )
+    service = TvRecorderService(client)
+
+    filters = service.list_service_filters()
+
+    assert filters == ["recording-filter", "late-night"]
+
+
+def test_list_service_filters_can_include_primary() -> None:
+    client = StubDvbCtrlClient(
+        responses={
+            "lssfs": _result("lssfs", "<Primary>\nrecording-filter\n"),
+        }
+    )
+    service = TvRecorderService(client)
+
+    filters = service.list_service_filters(include_primary=True)
+
+    assert filters == ["<Primary>", "recording-filter"]
+
+
+@pytest.mark.parametrize("name", ["<Primary>", "primary", " <PRIMARY> "])
+def test_service_filter_mutating_operations_reject_primary_name(name: str) -> None:
+    service = TvRecorderService(StubDvbCtrlClient())
+
+    with pytest.raises(ValueError, match="must not target <Primary>"):
+        service.add_service_filter(name)
+
+    with pytest.raises(ValueError, match="must not target <Primary>"):
+        service.remove_service_filter(name)
+
+    with pytest.raises(ValueError, match="must not target <Primary>"):
+        service.set_service_filter_service(name, "BBC ONE HD")
+
+    with pytest.raises(ValueError, match="must not target <Primary>"):
+        service.set_service_filter_output(name, "null://")
+
+    with pytest.raises(ValueError, match="must not target <Primary>"):
+        service.set_service_filter_avs_only(name, "on")
+
+
 def test_recording_lifecycle_includes_post_processing(tmp_path: Path) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     persistence = PersistenceStore(connection=connection)

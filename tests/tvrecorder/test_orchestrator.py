@@ -46,6 +46,7 @@ class StubCaptureController:
 @dataclass(slots=True)
 class StubServiceFilterService:
     calls: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    existing_filters: list[str] = field(default_factory=list)
     resolved_service_name: str = "BBC ONE HD"
     fail_on_output_null: bool = False
     fail_on_remove: bool = False
@@ -54,6 +55,10 @@ class StubServiceFilterService:
     def resolve_service_name(self, channel_name: str) -> str:
         self.calls.append(("resolve", (channel_name,)))
         return self.resolved_service_name
+
+    def list_service_filters(self) -> list[str]:
+        self.calls.append(("lssfs", ()))
+        return list(self.existing_filters)
 
     def add_service_filter(self, filter_name: str, output_mrl: str = "null://") -> None:
         self.calls.append(("add", (filter_name, output_mrl)))
@@ -695,15 +700,35 @@ def test_service_filter_capture_controller_start_sequence() -> None:
 
     controller.start_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
 
-    assert [name for name, _args in service.calls] == ["resolve", "add", "setsf", "avs", "mrl"]
-    add_filter = service.calls[1][1][0]
-    setsf_filter = service.calls[2][1][0]
-    avs_filter = service.calls[3][1][0]
-    output_filter = service.calls[4][1][0]
+    assert [name for name, _args in service.calls] == ["resolve", "lssfs", "add", "setsf", "avs", "mrl"]
+    add_filter = service.calls[2][1][0]
+    setsf_filter = service.calls[3][1][0]
+    avs_filter = service.calls[4][1][0]
+    output_filter = service.calls[5][1][0]
     assert add_filter == setsf_filter == avs_filter == output_filter
-    assert service.calls[2][1][1] == "BBC One HD"
-    assert service.calls[3][1][1] == "on"
-    assert service.calls[4][1][1] == "file:///tmp/out.ts"
+    assert service.calls[3][1][1] == "BBC One HD"
+    assert service.calls[4][1][1] == "on"
+    assert service.calls[5][1][1] == "file:///tmp/out.ts"
+
+
+def test_service_filter_capture_controller_removes_stale_existing_filter() -> None:
+    seed_service = StubServiceFilterService()
+    seed_controller = ServiceFilterCaptureController(service=seed_service)  # type: ignore[arg-type]
+    seed_controller.start_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
+    generated_filter_name = next(
+        args[0] for name, args in seed_service.calls if name == "add"
+    )
+
+    service = StubServiceFilterService(existing_filters=[generated_filter_name])
+    controller = ServiceFilterCaptureController(service=service)  # type: ignore[arg-type]
+    controller.start_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
+
+    assert [name for name, _args in service.calls[:4]] == [
+        "resolve",
+        "lssfs",
+        "remove",
+        "add",
+    ]
 
 
 def test_service_filter_capture_controller_stop_ignores_missing_filter() -> None:

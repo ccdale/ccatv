@@ -107,6 +107,11 @@ class ServiceFilterCaptureController:
             output_path=output_path,
         )
 
+        existing_filters = set(self.service.list_service_filters())
+        if filter_name in existing_filters:
+            # Idempotent cleanup for stale leftovers from prior interrupted runs.
+            self.service.remove_service_filter(filter_name)
+
         self.service.add_service_filter(filter_name)
         self.service.set_service_filter_service(filter_name, resolved_service_name)
         self.service.set_service_filter_avs_only(

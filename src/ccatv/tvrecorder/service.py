@@ -12,6 +12,7 @@ from ccatv.tvrecorder.commands import (
     DvbCtrlCommand,
     current_command,
     festatus_command,
+    lssfs_command,
     rmsf_command,
     setsfavsonly_command,
     setsf_command,
@@ -142,8 +143,25 @@ class TvRecorderService:
         """Select a primary service by name."""
         return self.run(select_command(service_name))
 
+    def list_service_filters(self, *, include_primary: bool = False) -> list[str]:
+        """List service filter names reported by dvbstreamer.
+
+        By default this excludes the built-in ``<Primary>`` filter because
+        service-filter control flow must not manipulate it.
+        """
+        result = self.run(lssfs_command())
+        names = [
+            _parse_service_filter_name(line)
+            for line in result.stdout.splitlines()
+            if line.strip()
+        ]
+        if include_primary:
+            return names
+        return [name for name in names if not _is_primary_filter_name(name)]
+
     def add_service_filter(self, filter_name: str, output_mrl: str = "null://") -> DvbCtrlResult:
         """Create a service filter and set its initial output MRL."""
+        _ensure_non_primary_filter_name(filter_name)
         created = self.run(addsf_command(filter_name))
         if output_mrl != "null://":
             self.set_service_filter_output(filter_name, output_mrl)
@@ -151,6 +169,7 @@ class TvRecorderService:
 
     def remove_service_filter(self, filter_name: str) -> DvbCtrlResult:
         """Remove a service filter by name."""
+        _ensure_non_primary_filter_name(filter_name)
         return self.run(rmsf_command(filter_name))
 
     def set_service_filter_service(
@@ -159,10 +178,12 @@ class TvRecorderService:
         service_name: str,
     ) -> DvbCtrlResult:
         """Bind a service filter to a dvbstreamer service."""
+        _ensure_non_primary_filter_name(filter_name)
         return self.run(setsf_command(filter_name, service_name))
 
     def set_service_filter_output(self, filter_name: str, output_mrl: str) -> DvbCtrlResult:
         """Set the destination MRL for a service filter."""
+        _ensure_non_primary_filter_name(filter_name)
         return self.run(setsfmrl_command(filter_name, output_mrl))
 
     def set_service_filter_avs_only(
@@ -171,6 +192,7 @@ class TvRecorderService:
         status: str = "on",
     ) -> DvbCtrlResult:
         """Enable or disable AVS-only mode for a service filter."""
+        _ensure_non_primary_filter_name(filter_name)
         return self.run(setsfavsonly_command(filter_name, status))
 
     def current(self) -> DvbCtrlResult:
@@ -534,6 +556,25 @@ def _pick_value(fields: dict[str, str], *keys: str) -> str | None:
         if key in fields:
             return fields[key]
     return None
+
+
+def _parse_service_filter_name(line: str) -> str:
+    stripped = line.strip()
+    if ":" in stripped:
+        head, tail = stripped.split(":", 1)
+        if head.strip().casefold() in {"filter", "service filter", "name"}:
+            return tail.strip()
+    return stripped
+
+
+def _is_primary_filter_name(name: str) -> bool:
+    normalized = "".join(ch for ch in name.casefold() if ch not in {"<", ">", " ", "\t"})
+    return normalized == "primary"
+
+
+def _ensure_non_primary_filter_name(name: str) -> None:
+    if _is_primary_filter_name(name):
+        raise ValueError("service filter control flow must not target <Primary>")
 
 
 def _parse_serviceinfo_channel_source_id(output: str) -> str | None:
