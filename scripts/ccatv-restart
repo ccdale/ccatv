@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_DIR="${HOME}/src/ccatv"
+
+echo "--- stopping ccatv ---"
+ccatv-stop
+
+echo "--- pulling latest changes ---"
+cd "${REPO_DIR}"
+git pull
+
+echo "--- installing local scripts ---"
+"${REPO_DIR}/scripts/install-local-scripts.sh"
+
+echo "--- starting ccatv ---"
+ccatv-start "$@"
