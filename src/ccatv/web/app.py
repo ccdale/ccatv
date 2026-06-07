@@ -318,20 +318,11 @@ def create_app(
 
     @app.delete("/api/recordings/<int:recording_id>")
     def api_recording_delete(recording_id: int):
-        body = request.get_json(silent=True)
-        if body is None:
-            body = {}
-        if not isinstance(body, dict):
-            response, status_code = _json_error(
-                code="VALIDATION_ERROR",
-                message="request JSON body must be an object",
-                status_code=400,
-            )
-            return jsonify(response), status_code
-
         payload = {
             "id": recording_id,
-            "deleteFiles": body.get("deleteFiles", True),
+            # Recordings page delete is intentionally DB-only because
+            # post-processing may have moved files to NAS.
+            "deleteFiles": False,
         }
         response, status_code = _with_client(
             _client_factory,

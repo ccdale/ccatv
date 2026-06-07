@@ -393,7 +393,7 @@ def test_recordings_delete_route_forwards_command(monkeypatch) -> None:
     )
     client = app.test_client()
 
-    response = client.delete("/api/recordings/42", json={"deleteFiles": False})
+    response = client.delete("/api/recordings/42")
 
     assert response.status_code == 200
     assert response.get_json()["ok"] is True
@@ -404,7 +404,7 @@ def test_recordings_delete_route_forwards_command(monkeypatch) -> None:
     )]
 
 
-def test_recordings_delete_route_validates_json_object(monkeypatch) -> None:
+def test_recordings_delete_route_ignores_json_body(monkeypatch) -> None:
     stub = _StubServiceClient()
     monkeypatch.setattr(
         "ccatv.web.app.create_service_client",
@@ -420,10 +420,12 @@ def test_recordings_delete_route_validates_json_object(monkeypatch) -> None:
 
     response = client.delete("/api/recordings/7", json=["invalid"])
 
-    assert response.status_code == 400
-    assert response.get_json()["ok"] is False
-    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
-    assert stub.calls == []
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [(
+        "recording.delete",
+        {"id": 7, "deleteFiles": False},
+    )]
 
 
 def test_channel_mapping_route_forwards_payload(monkeypatch) -> None:

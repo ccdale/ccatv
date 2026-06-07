@@ -366,19 +366,17 @@
       }
 
       async function deleteRecording(recording, button) {
-        if (!window.confirm(`Delete recording ${recording.id}? This removes it from the list and deletes related files.`)) {
+        if (!window.confirm(`Delete recording ${recording.id}? This removes it from the list only.`)) {
           return;
         }
         button.disabled = true;
         try {
           await fetchJson(`/api/recordings/${recording.id}`, {
             method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deleteFiles: true }),
           });
           recordings = recordings.filter((item) => item.id !== recording.id);
           renderRecordings();
-          setStatus(`Deleted recording ${recording.id}.`);
+          setStatus(`Deleted recording ${recording.id} from the database.`);
         } catch (error) {
           setStatus(error.message, "error");
           button.disabled = false;
