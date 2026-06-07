@@ -8,6 +8,7 @@ import socket
 import threading
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -51,6 +52,7 @@ class StubContext:
     )
     dvbstreamer: object = field(default_factory=lambda: StubDvbStreamer())
     dvbctrl: object | None = None
+    tvrecorder: object | None = None
     adapter_pool: object | None = None
 
 
@@ -59,6 +61,19 @@ class StubIdleSlot:
     adapter_index: int
     capture_controller: object
     dvbstreamer: object = field(default_factory=object)
+
+
+class StubDvbStreamerState(str, Enum):
+    RUNNING = "running"
+    STOPPED = "stopped"
+
+
+@dataclass(slots=True)
+class StubManagedDvbStreamer:
+    state: StubDvbStreamerState
+
+    def status(self):
+        return SimpleNamespace(state=self.state)
 
 
 @dataclass(slots=True)
@@ -619,6 +634,68 @@ def test_run_service_daemon_idle_adapter_probe_skips_non_primary_filters(
     assert busy_service.probe_calls == 0
 
 
+def test_run_service_daemon_idle_adapter_probe_skips_stopped_slots(
+    monkeypatch,
+) -> None:
+    worker = StubWorker()
+    stopped_service = StubProbeService(fail_probe=True)
+    running_service = StubProbeService(fail_probe=False)
+    pool = StubAdapterPool(
+        slots=[
+            StubIdleSlot(
+                adapter_index=0,
+                capture_controller=StubCaptureController(service=stopped_service),
+                dvbstreamer=StubManagedDvbStreamer(state=StubDvbStreamerState.STOPPED),
+            ),
+            StubIdleSlot(
+                adapter_index=1,
+                capture_controller=StubCaptureController(service=running_service),
+                dvbstreamer=StubManagedDvbStreamer(state=StubDvbStreamerState.RUNNING),
+            ),
+        ]
+    )
+    context = StubContext(logger=logging.getLogger("test.daemon.idle.adapters.stopped"))
+    context.adapter_pool = pool
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            if command == "stats":
+                return SimpleNamespace(stdout="Packets=1\n")
+            assert command == "date"
+            return SimpleNamespace(stdout="2026-06-06T03:00:00Z\n")
+
+    context.dvbctrl = _StubDvbCtrl()
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    ticks = {"count": 0}
+
+    def _should_stop() -> bool:
+        return ticks["count"] >= 1
+
+    def _fake_sleep(_seconds: float) -> None:
+        ticks["count"] += 1
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time.sleep", _fake_sleep)
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=False,
+        should_stop=_should_stop,
+    )
+
+    assert result == 0
+    assert pool.removed == []
+    assert stopped_service.probe_calls == 0
+    assert running_service.probe_calls == 1
+
+
 def test_clock_healthcheck_treats_no_date_received_as_not_ready(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -629,7 +706,10 @@ def test_clock_healthcheck_treats_no_date_received_as_not_ready(
             assert command == "date"
             return SimpleNamespace(stdout="No date/time has been received!\n")
 
-    context = StubContext(logger=logger)
+    context = StubContext(
+        logger=logger,
+        settings=SimpleNamespace(ota_epg_channel_name="BBC ONE East"),
+    )
     context.dvbctrl = _StubDvbCtrl()
 
     with caplog.at_level(logging.INFO):
@@ -643,6 +723,48 @@ def test_clock_healthcheck_treats_no_date_received_as_not_ready(
     assert skew is None
     assert "not ready yet" in caplog.text
     assert "could not parse broadcast time" not in caplog.text
+
+
+def test_clock_healthcheck_retries_after_idle_retune(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    logger = logging.getLogger("test.daemon.clock.retry_retune")
+    calls: list[str] = []
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            calls.append(command)
+            assert command == "date"
+            if len(calls) == 1:
+                return SimpleNamespace(stdout="No date/time has been received!\n")
+            return SimpleNamespace(stdout="2026-06-06T03:00:30Z\n")
+
+    class _StubTvRecorder:
+        def resolve_service_name(self, name: str) -> str:
+            return name
+
+        def select_service(self, name: str):
+            assert name == "BBC ONE East"
+            return object()
+
+    context = StubContext(
+        logger=logger,
+        settings=SimpleNamespace(ota_epg_channel_name="BBC ONE East"),
+    )
+    context.dvbctrl = _StubDvbCtrl()
+    context.tvrecorder = _StubTvRecorder()
+
+    with caplog.at_level(logging.INFO):
+        skew = _run_broadcast_time_healthcheck(
+            context=context,
+            logger=logger,
+            now_timestamp=datetime(2026, 6, 6, 3, 0, 0, tzinfo=timezone.utc).timestamp(),
+            skew_threshold_seconds=60.0,
+        )
+
+    assert skew == 30.0
+    assert calls == ["date", "date"]
+    assert "requested retune" in caplog.text
 
 
 def test_main_dispatch_command_json(monkeypatch, capsys) -> None:

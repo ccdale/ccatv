@@ -110,6 +110,38 @@ def _run_broadcast_time_healthcheck(
 
     raw_output = getattr(result, "stdout", "")
     if _is_no_broadcast_time_received_output(raw_output):
+        retuned = _attempt_idle_clock_probe_retune(context=context, logger=logger)
+        if retuned:
+            try:
+                result = dvbctrl.run_command("date")
+            except Exception as exc:
+                logger.warning(
+                    "idle healthcheck clock probe retry failed after retune: %s",
+                    exc,
+                )
+                return None
+            raw_output = getattr(result, "stdout", "")
+            if not _is_no_broadcast_time_received_output(raw_output):
+                broadcast_utc = _extract_broadcast_utc(raw_output)
+                if broadcast_utc is not None:
+                    skew_seconds = broadcast_utc.timestamp() - now_timestamp
+                    if abs(skew_seconds) > skew_threshold_seconds:
+                        system_utc = datetime_module.datetime.fromtimestamp(
+                            now_timestamp,
+                            tz=timezone.utc,
+                        )
+                        logger.warning(
+                            "idle healthcheck clock skew exceeds threshold: system_utc=%s broadcast_utc=%s skew_seconds=%.1f",
+                            system_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            broadcast_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            skew_seconds,
+                        )
+                    else:
+                        logger.info(
+                            "idle healthcheck clock skew within threshold: skew_seconds=%.1f",
+                            skew_seconds,
+                        )
+                    return skew_seconds
         logger.info(
             "idle healthcheck clock probe not ready yet (no broadcast date/time received)"
         )
@@ -149,6 +181,13 @@ def _run_idle_adapter_healthcheck(*, context: AppContext, logger: logging.Logger
 
     idle_slots = adapter_pool.idle_slots_snapshot()
     for slot in idle_slots:
+        if not _adapter_slot_dvbstreamer_is_running(slot):
+            logger.debug(
+                "idle healthcheck skipped adapter with stopped dvbstreamer: adapter=%s",
+                slot.adapter_index,
+            )
+            continue
+
         probe_service = getattr(slot.capture_controller, "service", None)
         if probe_service is None:
             continue
@@ -197,6 +236,49 @@ def _run_idle_adapter_healthcheck(*, context: AppContext, logger: logging.Logger
                 slot.adapter_index,
                 exc,
             )
+
+
+def _adapter_slot_dvbstreamer_is_running(slot: object) -> bool:
+    dvbstreamer = getattr(slot, "dvbstreamer", None)
+    if dvbstreamer is None:
+        return True
+
+    status_fn = getattr(dvbstreamer, "status", None)
+    if not callable(status_fn):
+        return True
+
+    try:
+        state = getattr(status_fn(), "state", None)
+    except Exception:
+        return False
+
+    return str(state).casefold().endswith("running")
+
+
+def _attempt_idle_clock_probe_retune(*, context: AppContext, logger: logging.Logger) -> bool:
+    tvrecorder = getattr(context, "tvrecorder", None)
+    settings = getattr(context, "settings", None)
+    channel_name = getattr(settings, "ota_epg_channel_name", None)
+    if tvrecorder is None or not channel_name:
+        return False
+
+    try:
+        resolved = tvrecorder.resolve_service_name(channel_name)
+        tvrecorder.select_service(resolved)
+    except Exception as exc:
+        logger.warning(
+            "idle healthcheck clock probe retune failed: channel=%s error=%s",
+            channel_name,
+            exc,
+        )
+        return False
+
+    logger.info(
+        "idle healthcheck clock probe requested retune: channel=%s resolved=%s",
+        channel_name,
+        resolved,
+    )
+    return True
 
 
 def _service_filter_state_is_idle(filters: list[str]) -> bool:
