@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Protocol
+import re
+import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -35,6 +37,24 @@ class NoOpPostProcessingRunner:
         return PostProcessingResult(
             success=True, message="no post-processing configured"
         )
+
+
+@dataclass(slots=True)
+class ChainedPostProcessingRunner:
+    runners: tuple[PostProcessingRunner, ...]
+
+    def run(self, request: PostProcessingRequest) -> PostProcessingResult:
+        messages: list[str] = []
+        for runner in self.runners:
+            result = runner.run(request)
+            if result.message:
+                messages.append(result.message)
+            if not result.success:
+                return PostProcessingResult(
+                    success=False,
+                    message="; ".join(messages) or result.message,
+                )
+        return PostProcessingResult(success=True, message="; ".join(messages) or None)
 
 
 @dataclass(slots=True)
@@ -112,6 +132,40 @@ class NfoSidecarPostProcessingRunner:
         return part
 
 
+@dataclass(slots=True)
+class MoveToNasPostProcessingRunner:
+    destination_root: str = "/mnt/nas/ccatv"
+    title_fallback: str = "untitled"
+
+    def run(self, request: PostProcessingRequest) -> PostProcessingResult:
+        source_path = Path(request.output_path)
+        channel_dir = _sanitize_path_component(request.channel_name, fallback="channel")
+        title_value = request.program_title or source_path.stem or self.title_fallback
+        title_dir = _sanitize_path_component(title_value, fallback=self.title_fallback)
+        destination_dir = Path(self.destination_root) / channel_dir / title_dir
+        destination_dir.mkdir(parents=True, exist_ok=True)
+
+        files_to_move = _collect_related_output_files(source_path)
+        if not files_to_move:
+            return PostProcessingResult(
+                success=False,
+                message=f"no recording output files found to move for {source_path}",
+            )
+
+        moved_paths: list[Path] = []
+        for file_path in files_to_move:
+            target_path = _next_available_destination(destination_dir / file_path.name)
+            shutil.move(str(file_path), str(target_path))
+            moved_paths.append(target_path)
+
+        return PostProcessingResult(
+            success=True,
+            message=(
+                f"moved {len(moved_paths)} recording file(s) to {destination_dir}"
+            ),
+        )
+
+
 def _run_process(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -129,7 +183,44 @@ def _iso_date(value: str) -> str:
     return parsed.strftime("%Y-%m-%d")
 
 
+def _collect_related_output_files(source_path: Path) -> list[Path]:
+    if not source_path.parent.exists():
+        return []
+    related = [
+        candidate
+        for candidate in source_path.parent.iterdir()
+        if candidate.is_file() and candidate.stem == source_path.stem
+    ]
+    related.sort()
+    return related
+
+
+def _sanitize_path_component(value: str, *, fallback: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9._ -]+", " ", value).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.strip(" .")
+    if not normalized:
+        return fallback
+    return normalized
+
+
+def _next_available_destination(path: Path) -> Path:
+    if not path.exists():
+        return path
+
+    stem = path.stem
+    suffix = path.suffix
+    counter = 1
+    while True:
+        candidate = path.with_name(f"{stem}-{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 __all__ = [
+    "ChainedPostProcessingRunner",
+    "MoveToNasPostProcessingRunner",
     "NfoSidecarPostProcessingRunner",
     "NoOpPostProcessingRunner",
     "PostProcessingRequest",

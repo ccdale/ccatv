@@ -17,7 +17,11 @@ from ccatv.tvrecorder.orchestrator import (
     RecorderOrchestrator,
     ServiceFilterCaptureController,
 )
-from ccatv.tvrecorder.postprocess import NfoSidecarPostProcessingRunner
+from ccatv.tvrecorder.postprocess import (
+    ChainedPostProcessingRunner,
+    MoveToNasPostProcessingRunner,
+    NfoSidecarPostProcessingRunner,
+)
 from ccatv.tvrecorder.preflight import WritePreflightChecker
 from ccatv.tvrecorder.service import (
     RecordingHealthCheckPolicy,
@@ -188,12 +192,17 @@ def bootstrap_app() -> AppContext:
             post_finish_seconds=settings.recording_post_finish_seconds,
             pre_start_seconds=settings.recording_pre_start_seconds,
         ),
-        post_processor=NfoSidecarPostProcessingRunner(
-            run_comskip=True,
-            comskip_command=(
-                "/usr/bin/comskip",
-                f"--ini={Path.home()}/.config/comskip/comskip.ini",
-            ),
+        post_processor=ChainedPostProcessingRunner(
+            runners=(
+                NfoSidecarPostProcessingRunner(
+                    run_comskip=True,
+                    comskip_command=(
+                        "/usr/bin/comskip",
+                        f"--ini={Path.home()}/.config/comskip/comskip.ini",
+                    ),
+                ),
+                MoveToNasPostProcessingRunner(destination_root="/mnt/nas/ccatv"),
+            )
         ),
     )
     recorder_orchestrator = RecorderOrchestrator(

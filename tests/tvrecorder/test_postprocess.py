@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 
 from ccatv.tvrecorder.postprocess import (
+    ChainedPostProcessingRunner,
+    MoveToNasPostProcessingRunner,
     NfoSidecarPostProcessingRunner,
     PostProcessingRequest,
 )
@@ -131,3 +133,72 @@ def test_nfo_sidecar_postprocessor_handles_missing_comskip_executable(
     assert result.success is True
     assert result.message is not None
     assert "comskip executable not found" in result.message
+
+
+def test_move_to_nas_postprocessor_moves_related_files_with_sanitized_path(
+    tmp_path: Path,
+) -> None:
+    recordings_dir = tmp_path / "recordings"
+    output_path = recordings_dir / "my-show.ts"
+    nfo_path = output_path.with_suffix(".nfo")
+    edl_path = output_path.with_suffix(".edl")
+    recordings_dir.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("video", encoding="utf-8")
+    nfo_path.write_text("<episodedetails />", encoding="utf-8")
+    edl_path.write_text("0\t0\t0", encoding="utf-8")
+
+    request = PostProcessingRequest(
+        recording_id=7,
+        channel_name="BBC ONE / HD",
+        output_path=str(output_path),
+        program_title="Newsnight: Episode 1?",
+    )
+    destination_root = tmp_path / "nas" / "ccatv"
+
+    result = MoveToNasPostProcessingRunner(destination_root=str(destination_root)).run(
+        request
+    )
+
+    assert result.success is True
+    destination_dir = destination_root / "BBC ONE HD" / "Newsnight Episode 1"
+    assert (destination_dir / "my-show.ts").exists()
+    assert (destination_dir / "my-show.nfo").exists()
+    assert (destination_dir / "my-show.edl").exists()
+    assert not output_path.exists()
+    assert not nfo_path.exists()
+    assert not edl_path.exists()
+
+
+def test_chained_postprocessor_writes_nfo_then_moves_to_nas(tmp_path: Path) -> None:
+    output_path = tmp_path / "recordings" / "sample.ts"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("video", encoding="utf-8")
+
+    request = PostProcessingRequest(
+        recording_id=8,
+        channel_name="Talking Pictures TV",
+        output_path=str(output_path),
+        program_title="The Saint",
+        program_description="Simon Templar investigates a mystery.",
+        program_start_at_utc="2026-05-29T20:30:00Z",
+        program_stop_at_utc="2026-05-29T21:30:00Z",
+    )
+
+    destination_root = tmp_path / "nas" / "ccatv"
+    runner = ChainedPostProcessingRunner(
+        runners=(
+            NfoSidecarPostProcessingRunner(),
+            MoveToNasPostProcessingRunner(destination_root=str(destination_root)),
+        )
+    )
+
+    result = runner.run(request)
+
+    assert result.success is True
+    final_dir = destination_root / "Talking Pictures TV" / "The Saint"
+    assert (final_dir / "sample.ts").exists()
+    final_nfo = final_dir / "sample.nfo"
+    assert final_nfo.exists()
+    nfo_body = final_nfo.read_text(encoding="utf-8")
+    assert "<title>The Saint</title>" in nfo_body
+    assert "<showtitle>Talking Pictures TV</showtitle>" in nfo_body
