@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -176,3 +177,62 @@ def test_delete_recording_removes_row_and_returns_deleted_record(tmp_path: Path)
         assert store.get_recording(created.id) is None
     finally:
         connection.close()
+
+
+def test_store_serializes_shared_connection_access() -> None:
+    class _FakeCursor:
+        rowcount = 1
+        lastrowid = 1
+
+        def fetchone(self):
+            return None
+
+        def fetchall(self):
+            return []
+
+    class _FakeConnection:
+        def __init__(self) -> None:
+            self._gate = threading.Event()
+            self._entered = threading.Event()
+            self._lock = threading.Lock()
+            self.active_calls = 0
+            self.overlap_detected = False
+
+        def execute(self, _query: str, _params=()):
+            with self._lock:
+                if self.active_calls > 0:
+                    self.overlap_detected = True
+                self.active_calls += 1
+                self._entered.set()
+            try:
+                self._gate.wait(timeout=1.0)
+                return _FakeCursor()
+            finally:
+                with self._lock:
+                    self.active_calls -= 1
+
+        def commit(self) -> None:
+            return None
+
+    connection = _FakeConnection()
+    store = PersistenceStore(connection=connection)
+    errors: list[Exception] = []
+
+    def _worker() -> None:
+        try:
+            store.list_scheduler_jobs()
+        except Exception as exc:  # pragma: no cover - defensive capture for thread join
+            errors.append(exc)
+
+    first = threading.Thread(target=_worker)
+    second = threading.Thread(target=_worker)
+
+    first.start()
+    assert connection._entered.wait(timeout=1.0)
+    second.start()
+    connection._gate.set()
+    first.join(timeout=1.0)
+    second.join(timeout=1.0)
+
+    assert errors == []
+    assert connection.overlap_detected is False
