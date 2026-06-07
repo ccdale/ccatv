@@ -16,6 +16,7 @@ import pytest
 
 from ccatv.app.service_daemon import (
     IPC_MAX_REQUEST_BYTES,
+    _extract_broadcast_utc,
     _handle_ipc_request,
     _run_broadcast_time_healthcheck,
     main,
@@ -482,8 +483,8 @@ def test_run_service_daemon_idle_clock_skew_compensates_cycle_time(
             if command == "stats":
                 return SimpleNamespace(stdout="Packets=1\n")
             assert command == "date"
-            # 30 seconds ahead of local clock
-            return SimpleNamespace(stdout="Sat Jun  6 03:00:30 2026\n")
+            # 30 seconds ahead of local clock in explicit UTC format.
+            return SimpleNamespace(stdout="2026-06-06T03:00:30Z\n")
 
     context.dvbctrl = _StubDvbCtrl()
 
@@ -765,6 +766,20 @@ def test_clock_healthcheck_retries_after_idle_retune(
     assert skew == 30.0
     assert calls == ["date", "date"]
     assert "requested retune" in caplog.text
+
+
+def test_extract_broadcast_utc_interprets_ctime_as_local_time(monkeypatch) -> None:
+    class _FakeTime:
+        @staticmethod
+        def mktime(_tuple) -> float:
+            return datetime(2026, 6, 6, 2, 0, 0, tzinfo=timezone.utc).timestamp()
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time", _FakeTime)
+
+    parsed = _extract_broadcast_utc("Sat Jun  6 03:00:00 2026\n")
+
+    assert parsed is not None
+    assert parsed.strftime("%Y-%m-%dT%H:%M:%SZ") == "2026-06-06T02:00:00Z"
 
 
 def test_main_dispatch_command_json(monkeypatch, capsys) -> None:

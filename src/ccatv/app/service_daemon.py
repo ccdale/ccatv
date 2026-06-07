@@ -47,6 +47,9 @@ _DATE_PATTERNS = (
     "%Y-%m-%d %H:%M:%S %Z",
     "%a %b %d %H:%M:%S %Y",
 )
+_LOCAL_TIME_PATTERNS = {
+    "%a %b %d %H:%M:%S %Y",
+}
 
 
 def _extract_broadcast_utc(date_output: str) -> datetime | None:
@@ -70,6 +73,11 @@ def _extract_broadcast_utc(date_output: str) -> datetime | None:
                 parsed = datetime_module.datetime.strptime(stripped, pattern)
             except ValueError:
                 continue
+            if pattern in _LOCAL_TIME_PATTERNS:
+                return datetime_module.datetime.fromtimestamp(
+                    time.mktime(parsed.timetuple()),
+                    tz=timezone.utc,
+                )
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             return parsed.astimezone(timezone.utc)
