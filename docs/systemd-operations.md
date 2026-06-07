@@ -164,6 +164,27 @@ and add:
 Environment=CCATV_LOG_LEVEL=DEBUG
 ```
 
+### Service-filter capture diagnostics (local script workflow)
+
+When running via local scripts on hosts like `druidmedia` (instead of user units),
+restart with DEBUG to emit service-filter capture start/stop diagnostics:
+
+```bash
+ssh druidmedia 'bash -lc "set -euo pipefail; cd ~/src/ccatv; bash ./scripts/ccatv-stop; CCATV_LOG_LEVEL=DEBUG bash ./scripts/ccatv-start"'
+```
+
+Then watch the capture diagnostics live:
+
+```bash
+ssh druidmedia 'bash -lc "tail -F ~/.local/state/ccatv/logs/ccatv-service.log | grep -E \"service-filter capture start|service-filter capture stop|recording started|recording completed successfully\""'
+```
+
+To switch back to normal INFO-level operation:
+
+```bash
+ssh druidmedia 'bash -lc "set -euo pipefail; cd ~/src/ccatv; bash ./scripts/ccatv-stop; bash ./scripts/ccatv-start"'
+```
+
 ## Failure policy recommendations
 
 The supplied unit uses conservative hardening and restart defaults:
