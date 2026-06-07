@@ -101,6 +101,7 @@ class ServiceFilterCaptureController:
         channel_name: str,
         output_path: str,
     ) -> None:
+        logger = logging.getLogger("ccatv")
         resolved_service_name = self.service.resolve_service_name(channel_name)
         # Ensure the adapter is tuned on the target service before
         # service-filter capture starts, especially on newly started slots.
@@ -108,6 +109,14 @@ class ServiceFilterCaptureController:
         filter_name = _build_service_filter_name(
             channel_name=channel_name,
             output_path=output_path,
+        )
+        logger.debug(
+            "service-filter capture start: adapter=%s channel=%s resolved_service=%s filter=%s output=%s",
+            _service_adapter_index(self.service),
+            channel_name,
+            resolved_service_name,
+            filter_name,
+            output_path,
         )
 
         existing_filters = set(self.service.list_service_filters())
@@ -133,6 +142,13 @@ class ServiceFilterCaptureController:
         filter_name = _build_service_filter_name(
             channel_name=channel_name,
             output_path=output_path,
+        )
+        logging.getLogger("ccatv").debug(
+            "service-filter capture stop: adapter=%s channel=%s filter=%s output=%s",
+            _service_adapter_index(self.service),
+            channel_name,
+            filter_name,
+            output_path,
         )
 
         set_output_error: Exception | None = None
@@ -647,6 +663,14 @@ def _is_missing_service_filter_error(exc: Exception) -> bool:
         "does not exist",
     )
     return any(marker in message for marker in markers)
+
+
+def _service_adapter_index(service: object) -> int | None:
+    dvbctrl = getattr(service, "_dvbctrl", None)
+    adapter_index = getattr(dvbctrl, "adapter_index", None)
+    if isinstance(adapter_index, int):
+        return adapter_index
+    return None
 
 
 _MIN_RECORDING_SECONDS = 30
