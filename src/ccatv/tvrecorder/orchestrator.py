@@ -102,6 +102,9 @@ class ServiceFilterCaptureController:
         output_path: str,
     ) -> None:
         resolved_service_name = self.service.resolve_service_name(channel_name)
+        # Ensure the adapter is tuned on the target service before
+        # service-filter capture starts, especially on newly started slots.
+        self.service.select_service(resolved_service_name)
         filter_name = _build_service_filter_name(
             channel_name=channel_name,
             output_path=output_path,

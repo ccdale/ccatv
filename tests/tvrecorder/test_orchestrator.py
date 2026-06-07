@@ -56,6 +56,9 @@ class StubServiceFilterService:
         self.calls.append(("resolve", (channel_name,)))
         return self.resolved_service_name
 
+    def select_service(self, service_name: str) -> None:
+        self.calls.append(("select", (service_name,)))
+
     def list_service_filters(self) -> list[str]:
         self.calls.append(("lssfs", ()))
         return list(self.existing_filters)
@@ -700,15 +703,24 @@ def test_service_filter_capture_controller_start_sequence() -> None:
 
     controller.start_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
 
-    assert [name for name, _args in service.calls] == ["resolve", "lssfs", "add", "setsf", "avs", "mrl"]
-    add_filter = service.calls[2][1][0]
-    setsf_filter = service.calls[3][1][0]
-    avs_filter = service.calls[4][1][0]
-    output_filter = service.calls[5][1][0]
+    assert [name for name, _args in service.calls] == [
+        "resolve",
+        "select",
+        "lssfs",
+        "add",
+        "setsf",
+        "avs",
+        "mrl",
+    ]
+    assert service.calls[1][1][0] == "BBC One HD"
+    add_filter = service.calls[3][1][0]
+    setsf_filter = service.calls[4][1][0]
+    avs_filter = service.calls[5][1][0]
+    output_filter = service.calls[6][1][0]
     assert add_filter == setsf_filter == avs_filter == output_filter
-    assert service.calls[3][1][1] == "BBC One HD"
-    assert service.calls[4][1][1] == "on"
-    assert service.calls[5][1][1] == "file:///tmp/out.ts"
+    assert service.calls[4][1][1] == "BBC One HD"
+    assert service.calls[5][1][1] == "on"
+    assert service.calls[6][1][1] == "file:///tmp/out.ts"
 
 
 def test_service_filter_capture_controller_removes_stale_existing_filter() -> None:
@@ -723,8 +735,9 @@ def test_service_filter_capture_controller_removes_stale_existing_filter() -> No
     controller = ServiceFilterCaptureController(service=service)  # type: ignore[arg-type]
     controller.start_capture(channel_name="BBC ONE", output_path="/tmp/out.ts")
 
-    assert [name for name, _args in service.calls[:4]] == [
+    assert [name for name, _args in service.calls[:5]] == [
         "resolve",
+        "select",
         "lssfs",
         "remove",
         "add",
