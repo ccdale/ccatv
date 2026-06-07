@@ -114,7 +114,16 @@ def _run_broadcast_time_healthcheck(
         result = dvbctrl.run_command("date")
     except Exception as exc:
         logger.warning("idle healthcheck clock probe failed: %s", exc)
-        return None
+        if not _ensure_primary_dvbstreamer_running(context=context, logger=logger):
+            return None
+        try:
+            result = dvbctrl.run_command("date")
+        except Exception as retry_exc:
+            logger.warning(
+                "idle healthcheck clock probe retry failed after primary restart: %s",
+                retry_exc,
+            )
+            return None
 
     raw_output = getattr(result, "stdout", "")
     if _is_no_broadcast_time_received_output(raw_output):
@@ -251,16 +260,79 @@ def _adapter_slot_dvbstreamer_is_running(slot: object) -> bool:
     if dvbstreamer is None:
         return True
 
+    health_check_fn = getattr(dvbstreamer, "health_check", None)
+    if callable(health_check_fn):
+        try:
+            state = getattr(health_check_fn(), "state", None)
+        except Exception:
+            return False
+        return str(state).casefold().endswith("running")
+
     status_fn = getattr(dvbstreamer, "status", None)
-    if not callable(status_fn):
+    if callable(status_fn):
+        try:
+            state = getattr(status_fn(), "state", None)
+        except Exception:
+            return False
+        return str(state).casefold().endswith("running")
+
+    return True
+
+
+def _ensure_primary_dvbstreamer_running(*, context: AppContext, logger: logging.Logger) -> bool:
+    dvbstreamer = getattr(context, "dvbstreamer", None)
+    if dvbstreamer is None:
+        return True
+
+    status = None
+    health_check_fn = getattr(dvbstreamer, "health_check", None)
+    if callable(health_check_fn):
+        try:
+            status = health_check_fn()
+        except Exception as exc:
+            logger.warning("idle healthcheck primary adapter health check failed: %s", exc)
+
+    if status is None:
+        status_fn = getattr(dvbstreamer, "status", None)
+        if callable(status_fn):
+            try:
+                status = status_fn()
+            except Exception as exc:
+                logger.warning("idle healthcheck primary adapter status probe failed: %s", exc)
+
+    if status is not None and str(getattr(status, "state", "")).casefold().endswith("running"):
         return True
 
     try:
-        state = getattr(status_fn(), "state", None)
-    except Exception:
+        started = dvbstreamer.start()
+    except Exception as exc:
+        logger.warning("idle healthcheck failed to start primary dvbstreamer: %s", exc)
         return False
 
-    return str(state).casefold().endswith("running")
+    logger.warning(
+        "idle healthcheck restarted primary dvbstreamer: state=%s pid=%s",
+        getattr(started, "state", None),
+        getattr(started, "pid", None),
+    )
+
+    dvbctrl = getattr(context, "dvbctrl", None)
+    if dvbctrl is None:
+        return True
+
+    ready_deadline = time.time() + 5.0
+    while True:
+        try:
+            dvbctrl.run_command("stats")
+        except Exception as exc:
+            if time.time() >= ready_deadline:
+                logger.warning(
+                    "idle healthcheck primary adapter did not become ready after restart: %s",
+                    exc,
+                )
+                return False
+            time.sleep(0.25)
+            continue
+        return True
 
 
 def _attempt_idle_clock_probe_retune(*, context: AppContext, logger: logging.Logger) -> bool:

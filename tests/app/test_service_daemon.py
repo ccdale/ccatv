@@ -768,6 +768,56 @@ def test_clock_healthcheck_retries_after_idle_retune(
     assert "requested retune" in caplog.text
 
 
+def test_clock_healthcheck_restarts_primary_dvbstreamer_when_unreachable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    logger = logging.getLogger("test.daemon.clock.restart_primary")
+
+    class _StubManaged:
+        def __init__(self) -> None:
+            self.running = False
+            self.started = 0
+
+        def health_check(self):
+            state = "running" if self.running else "stopped"
+            return SimpleNamespace(state=state)
+
+        def start(self):
+            self.running = True
+            self.started += 1
+            return SimpleNamespace(state="running", pid=777)
+
+    managed = _StubManaged()
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            if not managed.running:
+                raise RuntimeError("Failed to connect to host localhost port 54197")
+            if command == "stats":
+                return SimpleNamespace(stdout="Packets=1\n")
+            assert command == "date"
+            return SimpleNamespace(stdout="2026-06-06T03:00:30Z\n")
+
+    context = StubContext(
+        logger=logger,
+        settings=SimpleNamespace(ota_epg_channel_name="BBC ONE East"),
+    )
+    context.dvbstreamer = managed
+    context.dvbctrl = _StubDvbCtrl()
+
+    with caplog.at_level(logging.WARNING):
+        skew = _run_broadcast_time_healthcheck(
+            context=context,
+            logger=logger,
+            now_timestamp=datetime(2026, 6, 6, 3, 0, 0, tzinfo=timezone.utc).timestamp(),
+            skew_threshold_seconds=60.0,
+        )
+
+    assert skew == 30.0
+    assert managed.started == 1
+    assert "restarted primary dvbstreamer" in caplog.text
+
+
 def test_extract_broadcast_utc_interprets_ctime_as_local_time(monkeypatch) -> None:
     class _FakeTime:
         @staticmethod
