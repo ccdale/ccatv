@@ -145,12 +145,12 @@ def _run_broadcast_time_healthcheck(
                             skew_seconds,
                         )
                     else:
-                        logger.info(
+                        logger.debug(
                             "idle healthcheck clock skew within threshold: skew_seconds=%.1f",
                             skew_seconds,
                         )
                     return skew_seconds
-        logger.info(
+        logger.debug(
             "idle healthcheck clock probe not ready yet (no broadcast date/time received)"
         )
         return None
@@ -175,7 +175,7 @@ def _run_broadcast_time_healthcheck(
             skew_seconds,
         )
     else:
-        logger.info(
+        logger.debug(
             "idle healthcheck clock skew within threshold: skew_seconds=%.1f",
             skew_seconds,
         )
@@ -281,7 +281,7 @@ def _attempt_idle_clock_probe_retune(*, context: AppContext, logger: logging.Log
         )
         return False
 
-    logger.info(
+    logger.debug(
         "idle healthcheck clock probe requested retune: channel=%s resolved=%s",
         channel_name,
         resolved,

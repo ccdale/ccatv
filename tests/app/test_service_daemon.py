@@ -713,7 +713,7 @@ def test_clock_healthcheck_treats_no_date_received_as_not_ready(
     )
     context.dvbctrl = _StubDvbCtrl()
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         skew = _run_broadcast_time_healthcheck(
             context=context,
             logger=logger,
@@ -755,7 +755,7 @@ def test_clock_healthcheck_retries_after_idle_retune(
     context.dvbctrl = _StubDvbCtrl()
     context.tvrecorder = _StubTvRecorder()
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         skew = _run_broadcast_time_healthcheck(
             context=context,
             logger=logger,

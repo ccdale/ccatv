@@ -43,6 +43,10 @@
       button:disabled { opacity: 0.55; cursor: default; }
       .status { margin-top: 1rem; padding: 0.9rem 1rem; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,0.72); color: var(--muted); }
       .status.error { color: #b91c1c; background: rgba(185, 28, 28, 0.08); }
+      .health-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 5.2rem; height: 1.55rem; padding: 0 0.65rem; border-radius: 999px; border: 1px solid transparent; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap; }
+      .health-pill.health-green { color: #166534; background: rgba(22, 101, 52, 0.14); border-color: rgba(22, 101, 52, 0.28); }
+      .health-pill.health-yellow { color: #92400e; background: rgba(146, 64, 14, 0.14); border-color: rgba(146, 64, 14, 0.28); }
+      .health-pill.health-red { color: #b42318; background: rgba(180, 35, 24, 0.12); border-color: rgba(180, 35, 24, 0.24); }
       .toolbar { margin-top: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
       .toolbar a { color: var(--ink); text-decoration: none; border-bottom: 1px dashed #94a3b8; }
       .upcoming-wrap { margin-top: 0.9rem; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); padding: 0.9rem; }
@@ -81,6 +85,7 @@
         <div class="hero-links">
           <a href="/">Back to Guide</a>
           <a href="/channel-manager">Open Channel Manager</a>
+          <span id="health-pill" class="health-pill health-yellow">Unknown</span>
         </div>
         <div class="auth-bar">
           <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
@@ -141,6 +146,7 @@
       const paginationMeta = document.getElementById("pagination-meta");
       const prevPageButton = document.getElementById("prev-page-button");
       const nextPageButton = document.getElementById("next-page-button");
+      const healthPill = document.getElementById("health-pill");
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let recordings = [];
@@ -158,6 +164,33 @@
       function setStatus(message, level = "info") {
         statusNode.textContent = message;
         statusNode.className = "status" + (level === "info" ? "" : " " + level);
+      }
+
+      function setHealthPill(level, label) {
+        healthPill.className = `health-pill health-${level}`;
+        healthPill.textContent = label;
+      }
+
+      async function refreshHealthStatus() {
+        if (!isAuthenticated) {
+          setHealthPill("yellow", "Auth");
+          return;
+        }
+        try {
+          const payload = await fetchJson("/api/health");
+          const status = String(payload.status || "").toLowerCase();
+          if (status === "ok" || status === "healthy") {
+            setHealthPill("green", "Healthy");
+            return;
+          }
+          if (status === "degraded" || status === "warning") {
+            setHealthPill("yellow", "Degraded");
+            return;
+          }
+          setHealthPill("red", "Unhealthy");
+        } catch (_error) {
+          setHealthPill("red", "Down");
+        }
       }
 
       function setAuthUiState() {
@@ -405,8 +438,10 @@
         if (isAuthenticated) {
           tokenInput.value = "";
           await Promise.all([loadRecordings(), loadSchedules()]);
+          await refreshHealthStatus();
           setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
         } else {
+          setHealthPill("yellow", "Auth");
           recordings = [];
           schedules = [];
           renderRecordings();
@@ -419,6 +454,7 @@
         if (!bootstrap.authRequired) {
           isAuthenticated = true;
           await Promise.all([loadRecordings(), loadSchedules()]);
+          await refreshHealthStatus();
           renderRecordings();
           setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
           return;
@@ -434,6 +470,7 @@
           isAuthenticated = true;
           setAuthUiState();
           await Promise.all([loadRecordings(), loadSchedules()]);
+          await refreshHealthStatus();
           setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
         } catch (error) {
           setStatus(error.message, "error");
@@ -450,6 +487,7 @@
         setAuthUiState();
         recordings = [];
         schedules = [];
+        setHealthPill("yellow", "Auth");
         renderRecordings();
         renderUpcomingSchedules();
         setStatus("Signed out.");
@@ -463,7 +501,10 @@
           return;
         }
         void Promise.all([loadRecordings(), loadSchedules()])
-          .then(() => setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`))
+          .then(async () => {
+            await refreshHealthStatus();
+            setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
+          })
           .catch((error) => setStatus(error.message, "error"));
       });
       prevPageButton.addEventListener("click", () => {

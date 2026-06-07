@@ -162,6 +162,7 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert 'href="/recordings"' in body
     assert "header-expand-btn" in body
     assert "hero-drawer" in body
+    assert "health-pill" in body
     assert stub.calls == []
 
 
@@ -211,6 +212,7 @@ def test_recordings_page_serves_browser_ui(monkeypatch) -> None:
     assert "Recordings" in body
     assert "Upcoming recordings" in body
     assert "Back to Guide" in body
+    assert "health-pill" in body
     assert stub.calls == []
 
 
