@@ -153,6 +153,10 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "7-day timeline guide" in body
     assert "arrow keys" in body
     assert "Favourite channels only" in body
+    assert "Search title, description, channel, or genre" in body
+    assert "guide-search-input" in body
+    assert "guide-search-clear" in body
+    assert "No guide search filter active." in body
     assert "record-badge" in body
     assert "job.programStartAtUtc || job.startAtUtc" in body
     assert "job.programStopAtUtc || job.startAtUtc" in body

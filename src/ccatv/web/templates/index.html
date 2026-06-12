@@ -69,6 +69,9 @@
       .panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
       .panel-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.5); }
       .panel-header p { margin-top: 0.35rem; color: var(--muted); font-size: 0.95rem; }
+      .guide-search-row { margin-top: 0.75rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.55rem; align-items: center; }
+      .guide-search-input { width: 100%; }
+      .guide-search-meta { margin-top: 0.45rem; color: var(--muted); font-size: 0.85rem; }
       .panel-body { padding: 1rem; }
       .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.92rem; }
@@ -162,6 +165,11 @@
           <div class="panel-header">
             <h2 id="guide-title">7-day timeline guide</h2>
             <p id="guide-subtitle">Favourite channels only. Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.</p>
+            <div class="guide-search-row">
+              <input id="guide-search-input" class="guide-search-input" type="search" placeholder="Search title, description, channel, or genre">
+              <button id="guide-search-clear" class="secondary" type="button">Clear</button>
+            </div>
+            <div id="guide-search-meta" class="guide-search-meta">No guide search filter active.</div>
           </div>
           <div class="panel-body">
             <div class="timeline-shell">
@@ -192,6 +200,9 @@
       const timelineRuler = document.getElementById("timeline-ruler");
       const timelineBoard = document.getElementById("timeline-board");
       const timelineHover = document.getElementById("timeline-hover");
+      const guideSearchInput = document.getElementById("guide-search-input");
+      const guideSearchClearButton = document.getElementById("guide-search-clear");
+      const guideSearchMeta = document.getElementById("guide-search-meta");
       const statusNode = document.getElementById("status");
       const headerStatusInline = document.getElementById("header-status-inline");
       const headerExpandBtn = document.getElementById("header-expand-btn");
@@ -217,6 +228,7 @@
       let timelineOriginMs = 0;
       let timelineStartMs = 0;
       let selectedProgrammeKey = null;
+      let guideSearchTerm = "";
 
       const GENRE_STYLES = {
         movie: { border: "rgba(124, 58, 237, 0.52)", top: "rgba(124, 58, 237, 0.20)", bottom: "rgba(124, 58, 237, 0.30)" },
@@ -275,6 +287,8 @@
         loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
         logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
         tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
+        guideSearchInput.disabled = !isAuthenticated;
+        guideSearchClearButton.disabled = !isAuthenticated;
       }
 
       function resetViews() {
@@ -285,6 +299,9 @@
         timelineOriginMs = 0;
         timelineStartMs = 0;
         selectedProgrammeKey = null;
+        guideSearchTerm = "";
+        guideSearchInput.value = "";
+        guideSearchMeta.textContent = "No guide search filter active.";
         renderTimeline();
         renderTimelineHover(null, null);
         guideTitle.textContent = "7-day timeline guide";
@@ -399,6 +416,57 @@
           }
         }
         return DEFAULT_GENRE_STYLE;
+      }
+
+      function normalizedSearchTerm(raw) {
+        return String(raw || "").trim().toLowerCase();
+      }
+
+      function programmeMatchesSearch(programme) {
+        if (!guideSearchTerm) return true;
+        const haystack = [
+          programme.title || "",
+          programme.description || "",
+          programme.channelName || "",
+          programme.genre || "",
+        ]
+          .join("\n")
+          .toLowerCase();
+        return haystack.includes(guideSearchTerm);
+      }
+
+      function countVisibleProgrammes() {
+        let count = 0;
+        for (const programmes of timelineData.values()) {
+          for (const programme of programmes) {
+            if (programmeMatchesSearch(programme)) {
+              count += 1;
+            }
+          }
+        }
+        return count;
+      }
+
+      function refreshGuideSearchMeta() {
+        if (!guideSearchTerm) {
+          guideSearchMeta.textContent = "No guide search filter active.";
+          return;
+        }
+        const count = countVisibleProgrammes();
+        guideSearchMeta.textContent = `Search filter: \"${guideSearchTerm}\" (${count} match${count === 1 ? "" : "es"})`;
+      }
+
+      function applyGuideSearchFromInput() {
+        guideSearchTerm = normalizedSearchTerm(guideSearchInput.value);
+        refreshGuideSearchMeta();
+        renderTimeline();
+      }
+
+      function clearGuideSearch() {
+        guideSearchInput.value = "";
+        guideSearchTerm = "";
+        refreshGuideSearchMeta();
+        renderTimeline();
       }
 
       function renderTimelineHover(programme, matchingJob) {
@@ -522,6 +590,7 @@
           const programmes = timelineData.get(channel.name) || [];
           let renderedAny = false;
           for (const programme of programmes) {
+            if (!programmeMatchesSearch(programme)) continue;
             const clipStart = Math.max(programme.startMs, windowStartMs);
             const clipEnd = Math.min(programme.stopMs, windowEndMs);
             if (clipEnd <= clipStart) continue;
@@ -573,7 +642,9 @@
           if (!renderedAny) {
             const empty = document.createElement("div");
             empty.className = "timeline-empty";
-            empty.textContent = "No programmes in this window.";
+            empty.textContent = guideSearchTerm
+              ? "No programmes in this window match the search."
+              : "No programmes in this window.";
             track.append(empty);
           }
 
@@ -582,7 +653,10 @@
         }
 
         guideTitle.textContent = "7-day timeline guide";
-        guideSubtitle.textContent = `Window ${formatLongDateTime(new Date(windowStartMs).toISOString())} to ${formatLongDateTime(new Date(windowEndMs).toISOString())}. Left/Right: page, Up/Down: day.`;
+        const windowText = `Window ${formatLongDateTime(new Date(windowStartMs).toISOString())} to ${formatLongDateTime(new Date(windowEndMs).toISOString())}. Left/Right: page, Up/Down: day.`;
+        guideSubtitle.textContent = guideSearchTerm
+          ? `${windowText} Filtered by \"${guideSearchTerm}\".`
+          : windowText;
       }
 
       async function loadChannels() {
@@ -697,6 +771,7 @@
         await loadTimeline();
         await refreshHealthStatus();
         renderTimelineHover(null, null);
+        refreshGuideSearchMeta();
         setStatus(`Loaded timeline for ${favouriteChannels.length} favourite channel(s) and ${schedules.length} scheduled job(s).`);
       }
 
@@ -752,6 +827,18 @@
 
       loginButton.addEventListener("click", () => { void login(); });
       logoutButton.addEventListener("click", () => { void logout(); });
+      guideSearchInput.addEventListener("input", () => {
+        applyGuideSearchFromInput();
+      });
+      guideSearchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          clearGuideSearch();
+        }
+      });
+      guideSearchClearButton.addEventListener("click", () => {
+        clearGuideSearch();
+      });
       headerExpandBtn.addEventListener("click", () => { setHeaderDrawerOpen(!headerDrawerOpen); });
       window.addEventListener("resize", () => {
         if (isAuthenticated) {
