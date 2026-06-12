@@ -213,27 +213,40 @@ def test_chained_postprocessor_writes_nfo_then_moves_to_nas(tmp_path: Path) -> N
 # ---------------------------------------------------------------------------
 
 
+def _ffprobe_ok_runner(
+    captured: list[list[str]] | None = None,
+    duration: str = "3600.000000",
+) -> subprocess.CompletedProcess[str]:
+    """Build a process_runner stub: ffmpeg succeeds; ffprobe returns *duration* for both probes."""
+
+    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if captured is not None:
+            captured.append(command)
+        stdout = duration if command[0] in ("ffprobe", "ffprobe_custom") else ""
+        return subprocess.CompletedProcess(command, returncode=0, stdout=stdout, stderr="")
+
+    return _runner
+
+
 def test_ffmpeg_transcode_passes_correct_command(tmp_path: Path) -> None:
     output_path = tmp_path / "recordings" / "sample.ts"
     captured: list[list[str]] = []
 
-    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
-        captured.append(command)
-        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
-
-    request = PostProcessingRequest(
-        recording_id=1,
-        channel_name="Film4",
-        output_path=str(output_path),
+    result = FfmpegTranscodePostProcessingRunner(
+        process_runner=_ffprobe_ok_runner(captured)
+    ).run(
+        PostProcessingRequest(
+            recording_id=1,
+            channel_name="Film4",
+            output_path=str(output_path),
+        )
     )
-
-    result = FfmpegTranscodePostProcessingRunner(process_runner=_runner).run(request)
 
     assert result.success is True
     assert "transcoded to mkv" in (result.message or "")
-    assert len(captured) == 1
-    cmd = captured[0]
-    assert cmd[0] == "ffmpeg"
+    ffmpeg_calls = [c for c in captured if c[0] == "ffmpeg"]
+    assert len(ffmpeg_calls) == 1
+    cmd = ffmpeg_calls[0]
     assert "-y" in cmd
     assert "-i" in cmd
     assert str(output_path) in cmd
@@ -287,18 +300,16 @@ def test_ffmpeg_transcode_deletes_source_when_configured(tmp_path: Path) -> None
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("video", encoding="utf-8")
 
-    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
-
-    request = PostProcessingRequest(
-        recording_id=1,
-        channel_name="Film4",
-        output_path=str(output_path),
-    )
-
     result = FfmpegTranscodePostProcessingRunner(
-        delete_source=True, process_runner=_runner
-    ).run(request)
+        delete_source=True,
+        process_runner=_ffprobe_ok_runner(),
+    ).run(
+        PostProcessingRequest(
+            recording_id=1,
+            channel_name="Film4",
+            output_path=str(output_path),
+        )
+    )
 
     assert result.success is True
     assert not output_path.exists()
@@ -309,19 +320,110 @@ def test_ffmpeg_transcode_keeps_source_by_default(tmp_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("video", encoding="utf-8")
 
-    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
-
-    request = PostProcessingRequest(
-        recording_id=1,
-        channel_name="Film4",
-        output_path=str(output_path),
+    result = FfmpegTranscodePostProcessingRunner(
+        process_runner=_ffprobe_ok_runner()
+    ).run(
+        PostProcessingRequest(
+            recording_id=1,
+            channel_name="Film4",
+            output_path=str(output_path),
+        )
     )
-
-    result = FfmpegTranscodePostProcessingRunner(process_runner=_runner).run(request)
 
     assert result.success is True
     assert output_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Duration check tests
+# ---------------------------------------------------------------------------
+
+
+def test_ffmpeg_transcode_probes_both_files_for_duration(tmp_path: Path) -> None:
+    output_path = tmp_path / "recordings" / "sample.ts"
+    probed_paths: list[str] = []
+
+    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if "ffprobe" in command[0]:
+            probed_paths.append(command[-1])
+            return subprocess.CompletedProcess(command, returncode=0, stdout="3600.000000", stderr="")
+        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+
+    FfmpegTranscodePostProcessingRunner(process_runner=_runner).run(
+        PostProcessingRequest(recording_id=1, channel_name="Film4", output_path=str(output_path))
+    )
+
+    assert str(output_path) in probed_paths
+    assert str(output_path.with_suffix(".mkv")) in probed_paths
+
+
+def test_ffmpeg_transcode_fails_when_durations_diverge_beyond_tolerance(tmp_path: Path) -> None:
+    output_path = tmp_path / "recordings" / "sample.ts"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("video", encoding="utf-8")
+    call_count = 0
+
+    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        nonlocal call_count
+        call_count += 1
+        if "ffprobe" in command[0]:
+            # source = 3600s, output = 3550s  — delta 50s > tolerance
+            duration = "3600.0" if str(output_path) == command[-1] else "3550.0"
+            return subprocess.CompletedProcess(command, returncode=0, stdout=duration, stderr="")
+        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+
+    result = FfmpegTranscodePostProcessingRunner(
+        delete_source=True, process_runner=_runner
+    ).run(
+        PostProcessingRequest(recording_id=1, channel_name="Film4", output_path=str(output_path))
+    )
+
+    assert result.success is False
+    assert "duration mismatch" in (result.message or "")
+    assert output_path.exists()  # source must NOT be deleted on mismatch
+
+
+def test_ffmpeg_transcode_succeeds_when_durations_within_tolerance(tmp_path: Path) -> None:
+    output_path = tmp_path / "recordings" / "sample.ts"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("video", encoding="utf-8")
+
+    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if "ffprobe" in command[0]:
+            # delta = 0.5s, well within default 2s tolerance
+            duration = "3600.0" if str(output_path) == command[-1] else "3600.5"
+            return subprocess.CompletedProcess(command, returncode=0, stdout=duration, stderr="")
+        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+
+    result = FfmpegTranscodePostProcessingRunner(
+        delete_source=True, process_runner=_runner
+    ).run(
+        PostProcessingRequest(recording_id=1, channel_name="Film4", output_path=str(output_path))
+    )
+
+    assert result.success is True
+    assert not output_path.exists()  # deleted after passing check
+
+
+def test_ffmpeg_transcode_fails_when_ffprobe_unavailable(tmp_path: Path) -> None:
+    output_path = tmp_path / "recordings" / "sample.ts"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("video", encoding="utf-8")
+
+    def _runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if "ffprobe" in command[0]:
+            raise FileNotFoundError()
+        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+
+    result = FfmpegTranscodePostProcessingRunner(
+        delete_source=True, process_runner=_runner
+    ).run(
+        PostProcessingRequest(recording_id=1, channel_name="Film4", output_path=str(output_path))
+    )
+
+    assert result.success is False
+    assert "duration probe failed" in (result.message or "")
+    assert output_path.exists()  # source preserved when probe unavailable
 
 
 # ---------------------------------------------------------------------------

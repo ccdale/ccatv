@@ -181,10 +181,17 @@ class MoveToNasPostProcessingRunner:
 
 @dataclass(slots=True)
 class FfmpegTranscodePostProcessingRunner:
-    """Remux a .ts recording into a .mkv container using stream copy."""
+    """Remux a .ts recording into a .mkv container using stream copy.
+
+    After a successful transcode, the durations of the source and output are
+    compared via ffprobe.  If they differ by more than *duration_tolerance_seconds*
+    the result is a failure and the source is preserved.
+    """
 
     ffmpeg_command: tuple[str, ...] = ("ffmpeg",)
+    ffprobe_command: tuple[str, ...] = ("ffprobe",)
     delete_source: bool = False
+    duration_tolerance_seconds: float = 2.0
     process_runner: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None
 
     def run(self, request: PostProcessingRequest) -> PostProcessingResult:
@@ -213,12 +220,71 @@ class FfmpegTranscodePostProcessingRunner:
             if stderr:
                 msg = f"{msg}: {stderr[-500:]}"
             return PostProcessingResult(success=False, message=msg)
+
+        duration_check = self._check_durations(source_path, output_path, runner)
+        if duration_check is not None:
+            return duration_check
+
         if self.delete_source and source_path.exists():
             source_path.unlink()
         return PostProcessingResult(
             success=True,
             message=f"transcoded to mkv: {output_path}",
         )
+
+    def _probe_duration(
+        self,
+        path: Path,
+        runner: Callable[[list[str]], subprocess.CompletedProcess[str]],
+    ) -> float | None:
+        """Return duration in seconds from ffprobe, or None on any failure."""
+        command = [
+            *self.ffprobe_command,
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ]
+        try:
+            result = runner(command)
+        except FileNotFoundError:
+            return None
+        if result.returncode != 0:
+            return None
+        try:
+            return float((result.stdout or "").strip())
+        except ValueError:
+            return None
+
+    def _check_durations(
+        self,
+        source_path: Path,
+        output_path: Path,
+        runner: Callable[[list[str]], subprocess.CompletedProcess[str]],
+    ) -> PostProcessingResult | None:
+        """Return a failure result if duration mismatch detected, else None."""
+        source_duration = self._probe_duration(source_path, runner)
+        output_duration = self._probe_duration(output_path, runner)
+
+        if source_duration is None or output_duration is None:
+            return PostProcessingResult(
+                success=False,
+                message=(
+                    f"duration probe failed: source={source_duration} output={output_duration}"
+                ),
+            )
+
+        delta = abs(source_duration - output_duration)
+        if delta > self.duration_tolerance_seconds:
+            return PostProcessingResult(
+                success=False,
+                message=(
+                    f"duration mismatch: source={source_duration:.3f}s "
+                    f"output={output_duration:.3f}s delta={delta:.3f}s "
+                    f"(tolerance={self.duration_tolerance_seconds}s)"
+                ),
+            )
+        return None
 
 
 def _run_process(command: list[str]) -> subprocess.CompletedProcess[str]:
