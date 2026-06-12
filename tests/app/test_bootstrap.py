@@ -14,6 +14,7 @@ from ccatv.tvrecorder.orchestrator import (
     RecorderOrchestrator,
     ServiceFilterCaptureController,
 )
+from ccatv.tvrecorder.postprocess import NoOpPostProcessingRunner, SerializedPostProcessingRunner
 from ccatv.tvrecorder.service import TvRecorderService
 
 
@@ -103,6 +104,11 @@ def test_bootstrap_uses_dvbctrl_without_inline_credentials(monkeypatch) -> None:
     )
     jobs = context.persistence.list_scheduler_jobs()
     assert jobs == [scheduled]
+
+    # Verify post-processor is wired as a serialized chain, then swap to NoOp
+    # so the pipeline smoke test does not depend on NAS/ffmpeg availability.
+    assert isinstance(context.tvrecorder._post_processor, SerializedPostProcessingRunner)
+    context.tvrecorder._post_processor = NoOpPostProcessingRunner()
 
     recording = context.tvrecorder.begin_recording(
         channel_name="BBC TWO HD",

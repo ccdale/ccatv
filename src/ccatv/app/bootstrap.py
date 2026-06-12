@@ -19,8 +19,10 @@ from ccatv.tvrecorder.orchestrator import (
 )
 from ccatv.tvrecorder.postprocess import (
     ChainedPostProcessingRunner,
+    FfmpegTranscodePostProcessingRunner,
     MoveToNasPostProcessingRunner,
     NfoSidecarPostProcessingRunner,
+    SerializedPostProcessingRunner,
 )
 from ccatv.tvrecorder.preflight import WritePreflightChecker
 from ccatv.tvrecorder.service import (
@@ -192,16 +194,19 @@ def bootstrap_app() -> AppContext:
             post_finish_seconds=settings.recording_post_finish_seconds,
             pre_start_seconds=settings.recording_pre_start_seconds,
         ),
-        post_processor=ChainedPostProcessingRunner(
-            runners=(
-                NfoSidecarPostProcessingRunner(
-                    run_comskip=True,
-                    comskip_command=(
-                        "/usr/bin/comskip",
-                        f"--ini={Path.home()}/.config/comskip/comskip.ini",
+        post_processor=SerializedPostProcessingRunner(
+            runner=ChainedPostProcessingRunner(
+                runners=(
+                    NfoSidecarPostProcessingRunner(
+                        run_comskip=True,
+                        comskip_command=(
+                            "/usr/bin/comskip",
+                            f"--ini={Path.home()}/.config/comskip/comskip.ini",
+                        ),
                     ),
-                ),
-                MoveToNasPostProcessingRunner(destination_root="/mnt/nas/ccatv"),
+                    FfmpegTranscodePostProcessingRunner(),
+                    MoveToNasPostProcessingRunner(destination_root="/mnt/nas/ccatv"),
+                )
             )
         ),
     )

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 import re
 import shutil
 import subprocess
+import threading
 import xml.etree.ElementTree as ET
 
 
@@ -37,6 +38,18 @@ class NoOpPostProcessingRunner:
         return PostProcessingResult(
             success=True, message="no post-processing configured"
         )
+
+
+@dataclass(slots=True)
+class SerializedPostProcessingRunner:
+    """Wraps another runner so that only one post-processing job runs at a time."""
+
+    runner: PostProcessingRunner
+    _lock: Any = field(default_factory=threading.Lock, init=False, repr=False)
+
+    def run(self, request: PostProcessingRequest) -> PostProcessingResult:
+        with self._lock:
+            return self.runner.run(request)
 
 
 @dataclass(slots=True)
@@ -166,6 +179,48 @@ class MoveToNasPostProcessingRunner:
         )
 
 
+@dataclass(slots=True)
+class FfmpegTranscodePostProcessingRunner:
+    """Remux a .ts recording into a .mkv container using stream copy."""
+
+    ffmpeg_command: tuple[str, ...] = ("ffmpeg",)
+    delete_source: bool = False
+    process_runner: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None
+
+    def run(self, request: PostProcessingRequest) -> PostProcessingResult:
+        source_path = Path(request.output_path)
+        output_path = source_path.with_suffix(".mkv")
+        command = [
+            *self.ffmpeg_command,
+            "-y",
+            "-i", str(source_path),
+            "-c:v", "copy",
+            "-c:a", "copy",
+            "-c:s", "copy",
+            str(output_path),
+        ]
+        runner = self.process_runner or _run_process
+        try:
+            result = runner(command)
+        except FileNotFoundError:
+            return PostProcessingResult(
+                success=False,
+                message=f"ffmpeg executable not found: {command[0]}",
+            )
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            msg = f"ffmpeg failed ({result.returncode})"
+            if stderr:
+                msg = f"{msg}: {stderr[-500:]}"
+            return PostProcessingResult(success=False, message=msg)
+        if self.delete_source and source_path.exists():
+            source_path.unlink()
+        return PostProcessingResult(
+            success=True,
+            message=f"transcoded to mkv: {output_path}",
+        )
+
+
 def _run_process(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -220,10 +275,12 @@ def _next_available_destination(path: Path) -> Path:
 
 __all__ = [
     "ChainedPostProcessingRunner",
+    "FfmpegTranscodePostProcessingRunner",
     "MoveToNasPostProcessingRunner",
     "NfoSidecarPostProcessingRunner",
     "NoOpPostProcessingRunner",
     "PostProcessingRequest",
     "PostProcessingResult",
     "PostProcessingRunner",
+    "SerializedPostProcessingRunner",
 ]
