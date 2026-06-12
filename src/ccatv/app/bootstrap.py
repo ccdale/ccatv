@@ -204,7 +204,7 @@ def bootstrap_app() -> AppContext:
                             f"--ini={Path.home()}/.config/comskip/comskip.ini",
                         ),
                     ),
-                    FfmpegTranscodePostProcessingRunner(),
+                    FfmpegTranscodePostProcessingRunner(delete_source=True),
                     MoveToNasPostProcessingRunner(destination_root="/mnt/nas/ccatv"),
                 )
             )
