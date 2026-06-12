@@ -69,9 +69,18 @@
       .panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
       .panel-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.5); }
       .panel-header p { margin-top: 0.35rem; color: var(--muted); font-size: 0.95rem; }
-      .guide-search-row { margin-top: 0.75rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.55rem; align-items: center; }
+      .guide-search-row { margin-top: 0.75rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 0.55rem; align-items: center; }
       .guide-search-input { width: 100%; }
+      .guide-scope-select { min-width: 170px; padding: 0.8rem 0.9rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.82); }
       .guide-search-meta { margin-top: 0.45rem; color: var(--muted); font-size: 0.85rem; }
+      .guide-search-results { margin-top: 0.85rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.7); max-height: 21rem; overflow: auto; }
+      .guide-search-results-empty { padding: 0.8rem 0.9rem; color: var(--muted); font-size: 0.9rem; }
+      .guide-search-result { padding: 0.8rem 0.9rem; border-bottom: 1px solid var(--line); display: grid; gap: 0.45rem; }
+      .guide-search-result:last-child { border-bottom: none; }
+      .guide-search-result-top { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; }
+      .guide-search-result-title { font-weight: 700; }
+      .guide-search-result-meta { color: var(--muted); font-size: 0.86rem; }
+      .guide-search-result-description { font-size: 0.9rem; }
       .panel-body { padding: 1rem; }
       .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.92rem; }
@@ -167,9 +176,14 @@
             <p id="guide-subtitle">Favourite channels only. Starts now. Use arrow keys: Left/Right = page width, Up/Down = day jump.</p>
             <div class="guide-search-row">
               <input id="guide-search-input" class="guide-search-input" type="search" placeholder="Search title, description, channel, or genre">
+              <select id="guide-search-scope" class="guide-scope-select" aria-label="Guide search channel scope">
+                <option value="favourites" selected>Favourite channels</option>
+                <option value="all">All channels</option>
+              </select>
+              <button id="guide-search-button" type="button">Search</button>
               <button id="guide-search-clear" class="secondary" type="button">Clear</button>
             </div>
-            <div id="guide-search-meta" class="guide-search-meta">No guide search filter active.</div>
+            <div id="guide-search-meta" class="guide-search-meta">Searches the full 7-day guide database.</div>
           </div>
           <div class="panel-body">
             <div class="timeline-shell">
@@ -181,6 +195,9 @@
             <div id="timeline-hover" class="timeline-hover-card">
               <strong>Programme details</strong>
               <div class="timeline-hover-meta">Click a programme tile to view details. Use the record switch below to schedule or cancel.</div>
+            </div>
+            <div id="guide-search-results" class="guide-search-results">
+              <div class="guide-search-results-empty">No search results yet. Enter a query and run a search.</div>
             </div>
           </div>
         </div>
@@ -201,8 +218,11 @@
       const timelineBoard = document.getElementById("timeline-board");
       const timelineHover = document.getElementById("timeline-hover");
       const guideSearchInput = document.getElementById("guide-search-input");
+      const guideSearchScope = document.getElementById("guide-search-scope");
+      const guideSearchButton = document.getElementById("guide-search-button");
       const guideSearchClearButton = document.getElementById("guide-search-clear");
       const guideSearchMeta = document.getElementById("guide-search-meta");
+      const guideSearchResults = document.getElementById("guide-search-results");
       const statusNode = document.getElementById("status");
       const headerStatusInline = document.getElementById("header-status-inline");
       const headerExpandBtn = document.getElementById("header-expand-btn");
@@ -228,7 +248,8 @@
       let timelineOriginMs = 0;
       let timelineStartMs = 0;
       let selectedProgrammeKey = null;
-      let guideSearchTerm = "";
+      let guideSearchResultsData = [];
+      let guideSearchLastQuery = "";
 
       const GENRE_STYLES = {
         movie: { border: "rgba(124, 58, 237, 0.52)", top: "rgba(124, 58, 237, 0.20)", bottom: "rgba(124, 58, 237, 0.30)" },
@@ -288,6 +309,8 @@
         logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
         tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
         guideSearchInput.disabled = !isAuthenticated;
+        guideSearchScope.disabled = !isAuthenticated;
+        guideSearchButton.disabled = !isAuthenticated;
         guideSearchClearButton.disabled = !isAuthenticated;
       }
 
@@ -299,9 +322,12 @@
         timelineOriginMs = 0;
         timelineStartMs = 0;
         selectedProgrammeKey = null;
-        guideSearchTerm = "";
+        guideSearchResultsData = [];
+        guideSearchLastQuery = "";
         guideSearchInput.value = "";
-        guideSearchMeta.textContent = "No guide search filter active.";
+        guideSearchScope.value = "favourites";
+        guideSearchMeta.textContent = "Searches the full 7-day guide database.";
+        renderGuideSearchResults();
         renderTimeline();
         renderTimelineHover(null, null);
         guideTitle.textContent = "7-day timeline guide";
@@ -418,55 +444,116 @@
         return DEFAULT_GENRE_STYLE;
       }
 
-      function normalizedSearchTerm(raw) {
-        return String(raw || "").trim().toLowerCase();
-      }
+      function renderGuideSearchResults() {
+        guideSearchResults.replaceChildren();
 
-      function programmeMatchesSearch(programme) {
-        if (!guideSearchTerm) return true;
-        const haystack = [
-          programme.title || "",
-          programme.description || "",
-          programme.channelName || "",
-          programme.genre || "",
-        ]
-          .join("\n")
-          .toLowerCase();
-        return haystack.includes(guideSearchTerm);
-      }
-
-      function countVisibleProgrammes() {
-        let count = 0;
-        for (const programmes of timelineData.values()) {
-          for (const programme of programmes) {
-            if (programmeMatchesSearch(programme)) {
-              count += 1;
-            }
-          }
-        }
-        return count;
-      }
-
-      function refreshGuideSearchMeta() {
-        if (!guideSearchTerm) {
-          guideSearchMeta.textContent = "No guide search filter active.";
+        if (!isAuthenticated) {
+          const empty = document.createElement("div");
+          empty.className = "guide-search-results-empty";
+          empty.textContent = "Sign in to search the guide database.";
+          guideSearchResults.append(empty);
           return;
         }
-        const count = countVisibleProgrammes();
-        guideSearchMeta.textContent = `Search filter: \"${guideSearchTerm}\" (${count} match${count === 1 ? "" : "es"})`;
+
+        if (!guideSearchLastQuery) {
+          const empty = document.createElement("div");
+          empty.className = "guide-search-results-empty";
+          empty.textContent = "No search results yet. Enter a query and run a search.";
+          guideSearchResults.append(empty);
+          return;
+        }
+
+        if (!guideSearchResultsData.length) {
+          const empty = document.createElement("div");
+          empty.className = "guide-search-results-empty";
+          empty.textContent = "No matching programmes found.";
+          guideSearchResults.append(empty);
+          return;
+        }
+
+        for (const programme of guideSearchResultsData) {
+          const row = document.createElement("div");
+          row.className = "guide-search-result";
+
+          const top = document.createElement("div");
+          top.className = "guide-search-result-top";
+
+          const heading = document.createElement("div");
+          heading.className = "guide-search-result-title";
+          heading.textContent = programme.title || programme.channelName;
+
+          const matchingJob = findScheduledJob(programme);
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "record-switch" + (matchingJob ? " is-on" : "");
+          toggle.setAttribute("role", "switch");
+          toggle.setAttribute("aria-checked", matchingJob ? "true" : "false");
+          toggle.setAttribute("aria-label", matchingJob ? "Cancel scheduled recording" : "Schedule recording");
+          const knob = document.createElement("span");
+          knob.className = "record-switch-knob";
+          toggle.append(knob);
+          toggle.addEventListener("click", () => {
+            void toggleProgrammeSchedule(programme).then(() => {
+              renderGuideSearchResults();
+            });
+          });
+
+          top.append(heading, toggle);
+
+          const meta = document.createElement("div");
+          meta.className = "guide-search-result-meta";
+          meta.textContent = `${programme.channelName} | ${formatLongDateTime(programme.startAtUtc)} to ${formatTime(programme.stopAtUtc)} | ${formatDuration(programme.durationSeconds)}${programme.genre ? ` | ${programme.genre}` : ""}`;
+
+          const description = document.createElement("div");
+          description.className = "guide-search-result-description";
+          description.textContent = programme.description || "No description available.";
+
+          row.append(top, meta, description);
+          guideSearchResults.append(row);
+        }
       }
 
-      function applyGuideSearchFromInput() {
-        guideSearchTerm = normalizedSearchTerm(guideSearchInput.value);
-        refreshGuideSearchMeta();
-        renderTimeline();
+      async function runGuideSearch() {
+        const query = String(guideSearchInput.value || "").trim();
+        if (!query) {
+          guideSearchLastQuery = "";
+          guideSearchResultsData = [];
+          guideSearchMeta.textContent = "Enter a search term to query the full 7-day guide database.";
+          renderGuideSearchResults();
+          return;
+        }
+
+        const scope = String(guideSearchScope.value || "favourites");
+        const queryParams = new URLSearchParams({
+          q: query,
+          channelScope: scope,
+          windowHours: String(TIMELINE_RANGE_DAYS * 24),
+          startAtUtc: toUtcNoMillis(new Date()),
+        });
+
+        guideSearchButton.disabled = true;
+        try {
+          const payload = await fetchJson(`/api/guide/search?${queryParams.toString()}`);
+          guideSearchLastQuery = query;
+          guideSearchResultsData = payload.programs || [];
+          const scopeLabel = payload.channelScope === "all" ? "all channels" : "favourite channels";
+          guideSearchMeta.textContent = `Found ${guideSearchResultsData.length} programme match${guideSearchResultsData.length === 1 ? "" : "es"} for \"${query}\" in ${scopeLabel} (${payload.channelsSearched} channels searched).`;
+          renderGuideSearchResults();
+        } catch (error) {
+          guideSearchMeta.textContent = `Guide search failed: ${error.message}`;
+          guideSearchResultsData = [];
+          renderGuideSearchResults();
+        } finally {
+          guideSearchButton.disabled = !isAuthenticated;
+        }
       }
 
       function clearGuideSearch() {
         guideSearchInput.value = "";
-        guideSearchTerm = "";
-        refreshGuideSearchMeta();
-        renderTimeline();
+        guideSearchLastQuery = "";
+        guideSearchResultsData = [];
+        guideSearchMeta.textContent = "Searches the full 7-day guide database.";
+        renderGuideSearchResults();
       }
 
       function renderTimelineHover(programme, matchingJob) {
@@ -590,7 +677,6 @@
           const programmes = timelineData.get(channel.name) || [];
           let renderedAny = false;
           for (const programme of programmes) {
-            if (!programmeMatchesSearch(programme)) continue;
             const clipStart = Math.max(programme.startMs, windowStartMs);
             const clipEnd = Math.min(programme.stopMs, windowEndMs);
             if (clipEnd <= clipStart) continue;
@@ -642,9 +728,7 @@
           if (!renderedAny) {
             const empty = document.createElement("div");
             empty.className = "timeline-empty";
-            empty.textContent = guideSearchTerm
-              ? "No programmes in this window match the search."
-              : "No programmes in this window.";
+            empty.textContent = "No programmes in this window.";
             track.append(empty);
           }
 
@@ -654,9 +738,7 @@
 
         guideTitle.textContent = "7-day timeline guide";
         const windowText = `Window ${formatLongDateTime(new Date(windowStartMs).toISOString())} to ${formatLongDateTime(new Date(windowEndMs).toISOString())}. Left/Right: page, Up/Down: day.`;
-        guideSubtitle.textContent = guideSearchTerm
-          ? `${windowText} Filtered by \"${guideSearchTerm}\".`
-          : windowText;
+        guideSubtitle.textContent = windowText;
       }
 
       async function loadChannels() {
@@ -732,6 +814,7 @@
           await loadSchedules();
           renderTimeline();
           renderTimelineHover(programme, findScheduledJob(programme) || null);
+          renderGuideSearchResults();
           setStatus(`Scheduled ${programme.title} on ${programme.channelName} as job ${payload.job.id}.`);
         } catch (error) {
           renderTimelineHover(programme, null);
@@ -746,6 +829,7 @@
         await loadSchedules();
         renderTimeline();
         renderTimelineHover(programme, null);
+        renderGuideSearchResults();
         setStatus(`Cancelled scheduled recording for ${programme.title}.`);
       }
 
@@ -771,7 +855,7 @@
         await loadTimeline();
         await refreshHealthStatus();
         renderTimelineHover(null, null);
-        refreshGuideSearchMeta();
+        renderGuideSearchResults();
         setStatus(`Loaded timeline for ${favouriteChannels.length} favourite channel(s) and ${schedules.length} scheduled job(s).`);
       }
 
@@ -827,14 +911,19 @@
 
       loginButton.addEventListener("click", () => { void login(); });
       logoutButton.addEventListener("click", () => { void logout(); });
-      guideSearchInput.addEventListener("input", () => {
-        applyGuideSearchFromInput();
-      });
       guideSearchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void runGuideSearch();
+          return;
+        }
         if (event.key === "Escape") {
           event.preventDefault();
           clearGuideSearch();
         }
+      });
+      guideSearchButton.addEventListener("click", () => {
+        void runGuideSearch();
       });
       guideSearchClearButton.addEventListener("click", () => {
         clearGuideSearch();

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from flask import Flask, jsonify, render_template, request, session
 
@@ -373,6 +374,142 @@ def create_app(
             payload,
         )
         return jsonify(response), status_code
+
+    @app.get("/api/guide/search")
+    def api_guide_search():
+        query = request.args.get("q", default=None, type=str)
+        if query is None or not query.strip():
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="query parameter 'q' is required",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        channel_scope = request.args.get("channelScope", default="favourites", type=str)
+        if channel_scope is None:
+            channel_scope = "favourites"
+        channel_scope_value = channel_scope.strip().lower()
+        if channel_scope_value not in {"all", "favourites"}:
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="query parameter 'channelScope' must be 'all' or 'favourites'",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        start_at_utc = request.args.get("startAtUtc", default=None, type=str)
+        if start_at_utc is not None and not start_at_utc.strip():
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="query parameter 'startAtUtc' cannot be empty",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        window_hours_raw = request.args.get("windowHours", default=None, type=str)
+        if window_hours_raw is None:
+            window_hours = 24 * 7
+        else:
+            try:
+                window_hours = float(window_hours_raw)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'windowHours' must be numeric",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+
+        channels_response, channels_status = _with_client(
+            _client_factory,
+            "metadata.channels.list",
+            {},
+        )
+        if channels_status != 200:
+            return jsonify(channels_response), channels_status
+
+        channels_payload = channels_response.get("payload", {})
+        channels = channels_payload.get("channels", [])
+        if not isinstance(channels, list):
+            channels = []
+
+        selected_channels: list[str] = []
+        for item in channels:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            if channel_scope_value == "favourites" and not bool(item.get("favoriteChannel")):
+                continue
+            selected_channels.append(name.strip())
+
+        selected_channels = list(dict.fromkeys(selected_channels))
+
+        start_value = (
+            start_at_utc.strip()
+            if isinstance(start_at_utc, str) and start_at_utc.strip()
+            else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
+        query_value = query.strip().lower()
+
+        matches: list[dict[str, object]] = []
+        for channel_name in selected_channels:
+            guide_payload: dict[str, object] = {
+                "channel": channel_name,
+                "startAtUtc": start_value,
+                "windowHours": window_hours,
+            }
+            guide_response, guide_status = _with_client(
+                _client_factory,
+                "metadata.guide.list",
+                guide_payload,
+            )
+            if guide_status != 200:
+                return jsonify(guide_response), guide_status
+
+            payload = guide_response.get("payload", {})
+            programs = payload.get("programs", [])
+            if not isinstance(programs, list):
+                continue
+            for program in programs:
+                if not isinstance(program, dict):
+                    continue
+                haystack = "\n".join(
+                    [
+                        str(program.get("title") or ""),
+                        str(program.get("description") or ""),
+                        str(program.get("channelName") or ""),
+                        str(program.get("genre") or ""),
+                    ]
+                ).lower()
+                if query_value in haystack:
+                    matches.append(program)
+
+        matches.sort(
+            key=lambda program: (
+                str(program.get("startAtUtc") or ""),
+                str(program.get("channelName") or ""),
+                str(program.get("title") or ""),
+            )
+        )
+
+        return jsonify(
+            {
+                "ok": True,
+                "payload": {
+                    "query": query.strip(),
+                    "channelScope": channel_scope_value,
+                    "channelsSearched": len(selected_channels),
+                    "window": {
+                        "startAtUtc": start_value,
+                        "windowHours": window_hours,
+                    },
+                    "programs": matches,
+                },
+            }
+        )
 
     @app.post("/api/schedules")
     def api_schedule_create():

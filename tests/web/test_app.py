@@ -155,8 +155,11 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert "Favourite channels only" in body
     assert "Search title, description, channel, or genre" in body
     assert "guide-search-input" in body
+    assert "guide-search-scope" in body
+    assert "guide-search-button" in body
     assert "guide-search-clear" in body
-    assert "No guide search filter active." in body
+    assert "Searches the full 7-day guide database." in body
+    assert "guide-search-results" in body
     assert "record-badge" in body
     assert "job.programStartAtUtc || job.startAtUtc" in body
     assert "job.programStopAtUtc || job.startAtUtc" in body
@@ -697,6 +700,147 @@ def test_guide_list_rejects_non_numeric_window_hours(monkeypatch) -> None:
     assert response.get_json()["ok"] is False
     assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
     assert stub.calls == []
+
+
+def test_guide_search_queries_all_channels_and_filters_matches(monkeypatch) -> None:
+    @dataclass(slots=True)
+    class _SearchStub:
+        calls: list[tuple[str, dict[str, object]]] = field(default_factory=list)
+
+        def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append((command, payload))
+            if command == "metadata.channels.list":
+                return {
+                    "channels": [
+                        {"name": "BBC TWO HD", "favoriteChannel": True},
+                        {"name": "Film4", "favoriteChannel": False},
+                    ]
+                }
+            if command == "metadata.guide.list":
+                channel_name = str(payload.get("channel"))
+                if channel_name == "BBC TWO HD":
+                    return {
+                        "programs": [
+                            {
+                                "channelName": "BBC TWO HD",
+                                "startAtUtc": "2026-05-25T20:00:00Z",
+                                "stopAtUtc": "2026-05-25T21:00:00Z",
+                                "durationSeconds": 3600,
+                                "title": "Example Match",
+                                "description": "Contains keyword",
+                                "genre": "Drama",
+                            }
+                        ]
+                    }
+                return {
+                    "programs": [
+                        {
+                            "channelName": "Film4",
+                            "startAtUtc": "2026-05-25T20:00:00Z",
+                            "stopAtUtc": "2026-05-25T22:00:00Z",
+                            "durationSeconds": 7200,
+                            "title": "No Hit",
+                            "description": "Nothing relevant",
+                            "genre": "Movie",
+                        }
+                    ]
+                }
+            return {}
+
+        def close(self) -> None:
+            return None
+
+    stub = _SearchStub()
+    monkeypatch.setattr("ccatv.web.app.create_service_client", lambda **_kwargs: stub)
+
+    app = create_app(service_host="127.0.0.1", service_port=8787, service_auth_token="token")
+    client = app.test_client()
+
+    response = client.get(
+        "/api/guide/search?q=keyword&channelScope=all&startAtUtc=2026-05-25T19:00:00Z&windowHours=24"
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["ok"] is True
+    payload = body["payload"]
+    assert payload["channelScope"] == "all"
+    assert payload["channelsSearched"] == 2
+    assert len(payload["programs"]) == 1
+    assert payload["programs"][0]["channelName"] == "BBC TWO HD"
+
+
+def test_guide_search_favourites_scope_only_queries_favourite_channels(monkeypatch) -> None:
+    @dataclass(slots=True)
+    class _SearchStub:
+        calls: list[tuple[str, dict[str, object]]] = field(default_factory=list)
+
+        def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append((command, payload))
+            if command == "metadata.channels.list":
+                return {
+                    "channels": [
+                        {"name": "BBC TWO HD", "favoriteChannel": True},
+                        {"name": "Film4", "favoriteChannel": False},
+                    ]
+                }
+            if command == "metadata.guide.list":
+                return {
+                    "programs": [
+                        {
+                            "channelName": "BBC TWO HD",
+                            "startAtUtc": "2026-05-25T20:00:00Z",
+                            "stopAtUtc": "2026-05-25T21:00:00Z",
+                            "durationSeconds": 3600,
+                            "title": "Keyword Hit",
+                            "description": "keyword",
+                            "genre": "Drama",
+                        }
+                    ]
+                }
+            return {}
+
+        def close(self) -> None:
+            return None
+
+    stub = _SearchStub()
+    monkeypatch.setattr("ccatv.web.app.create_service_client", lambda **_kwargs: stub)
+
+    app = create_app(service_host="127.0.0.1", service_port=8787, service_auth_token="token")
+    client = app.test_client()
+
+    response = client.get("/api/guide/search?q=keyword&channelScope=favourites")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["ok"] is True
+    assert body["payload"]["channelsSearched"] == 1
+    guide_calls = [call for call in stub.calls if call[0] == "metadata.guide.list"]
+    assert len(guide_calls) == 1
+    assert guide_calls[0][1]["channel"] == "BBC TWO HD"
+
+
+def test_guide_search_validates_query_and_scope(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    missing_q = client.get("/api/guide/search")
+    assert missing_q.status_code == 400
+    assert missing_q.get_json()["error"]["code"] == "VALIDATION_ERROR"
+
+    bad_scope = client.get("/api/guide/search?q=test&channelScope=weird")
+    assert bad_scope.status_code == 400
+    assert bad_scope.get_json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 @pytest.mark.parametrize(
