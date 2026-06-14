@@ -76,7 +76,7 @@ class NfoSidecarPostProcessingRunner:
     run_comskip: bool = False
     comskip_command: tuple[str, ...] = (
         "/usr/bin/comskip",
-        "--ini=~/.config/comskip/comskip.ini",
+        "--ini=/home/chris/.config/comskip/comskip.ini",
     )
     process_runner: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None
 

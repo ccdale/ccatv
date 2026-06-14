@@ -99,7 +99,7 @@ def test_nfo_sidecar_postprocessor_runs_comskip_with_requested_command(
         run_comskip=True,
         comskip_command=(
             "/usr/bin/comskip",
-            "--ini=~/.config/comskip/comskip.ini",
+            "--ini=/home/chris/.config/comskip/comskip.ini",
         ),
         process_runner=_runner,
     ).run(request)
@@ -108,7 +108,7 @@ def test_nfo_sidecar_postprocessor_runs_comskip_with_requested_command(
     assert captured == [
         [
             "/usr/bin/comskip",
-            f"--ini={Path.home()}/.config/comskip/comskip.ini",
+            "--ini=/home/chris/.config/comskip/comskip.ini",
             str(output_path),
         ]
     ]

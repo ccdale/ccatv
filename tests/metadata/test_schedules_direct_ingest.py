@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from ccatv.metadata.schedules_direct_contract import (
+    GuideDataSource,
     GuideSyncWindow,
     SDProgram,
     SDScheduleEntry,
@@ -421,4 +422,172 @@ def test_list_preferred_broadcasts_keeps_disagreeing_slots_separate(tmp_path) ->
     assert sorted(result.title for result in results) == [
         "Evening News",
         "Evening Weather",
+    ]
+
+
+def test_upsert_schedules_replaces_only_overlapping_slots(tmp_path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    repository = SqliteGuideRepository(connection=connection)
+
+    connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "101", "BBC One"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "OLD-1", "Old Show"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "OLD-2", "Later Show"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "NEW-1", "Updated Show"),
+    )
+    connection.commit()
+
+    first_start = datetime(2026, 5, 24, 20, 0, tzinfo=timezone.utc)
+    second_start = datetime(2026, 5, 24, 21, 0, tzinfo=timezone.utc)
+
+    asyncio.run(
+        repository.upsert_schedules(
+            GuideDataSource.SCHEDULES_DIRECT,
+            "UK-TEST",
+            [
+                SDScheduleEntry(
+                    station_id="101",
+                    program_id="OLD-1",
+                    start_utc=first_start,
+                    end_utc=first_start + timedelta(minutes=60),
+                    duration_seconds=3600,
+                ),
+                SDScheduleEntry(
+                    station_id="101",
+                    program_id="OLD-2",
+                    start_utc=second_start,
+                    end_utc=second_start + timedelta(minutes=60),
+                    duration_seconds=3600,
+                ),
+            ],
+        )
+    )
+
+    asyncio.run(
+        repository.upsert_schedules(
+            GuideDataSource.SCHEDULES_DIRECT,
+            "UK-TEST",
+            [
+                SDScheduleEntry(
+                    station_id="101",
+                    program_id="NEW-1",
+                    start_utc=first_start + timedelta(minutes=5),
+                    end_utc=first_start + timedelta(minutes=65),
+                    duration_seconds=3600,
+                )
+            ],
+        )
+    )
+
+    rows = connection.execute(
+        """
+        SELECT b.start_utc, b.stop_utc, p.source_program_id
+        FROM epg_broadcasts AS b
+        JOIN epg_programs AS p ON p.id = b.program_id
+        ORDER BY b.start_utc
+        """
+    ).fetchall()
+
+    assert rows == [
+        ("2026-05-24T20:05:00Z", "2026-05-24T21:05:00Z", "NEW-1"),
+    ]
+
+
+def test_upsert_schedules_keeps_adjacent_slots(tmp_path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    repository = SqliteGuideRepository(connection=connection)
+
+    connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "101", "BBC One"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "OLD", "Current Show"),
+    )
+    connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title)
+        VALUES(?, ?, ?)
+        """,
+        ("schedules_direct", "NEXT", "Next Show"),
+    )
+    connection.commit()
+
+    start_utc = datetime(2026, 5, 24, 20, 0, tzinfo=timezone.utc)
+
+    asyncio.run(
+        repository.upsert_schedules(
+            GuideDataSource.SCHEDULES_DIRECT,
+            "UK-TEST",
+            [
+                SDScheduleEntry(
+                    station_id="101",
+                    program_id="OLD",
+                    start_utc=start_utc,
+                    end_utc=start_utc + timedelta(minutes=60),
+                    duration_seconds=3600,
+                )
+            ],
+        )
+    )
+
+    asyncio.run(
+        repository.upsert_schedules(
+            GuideDataSource.SCHEDULES_DIRECT,
+            "UK-TEST",
+            [
+                SDScheduleEntry(
+                    station_id="101",
+                    program_id="NEXT",
+                    start_utc=start_utc + timedelta(minutes=60),
+                    end_utc=start_utc + timedelta(minutes=120),
+                    duration_seconds=3600,
+                )
+            ],
+        )
+    )
+
+    rows = connection.execute(
+        """
+        SELECT b.start_utc, b.stop_utc, p.source_program_id
+        FROM epg_broadcasts AS b
+        JOIN epg_programs AS p ON p.id = b.program_id
+        ORDER BY b.start_utc
+        """
+    ).fetchall()
+
+    assert rows == [
+        ("2026-05-24T20:00:00Z", "2026-05-24T21:00:00Z", "OLD"),
+        ("2026-05-24T21:00:00Z", "2026-05-24T22:00:00Z", "NEXT"),
     ]

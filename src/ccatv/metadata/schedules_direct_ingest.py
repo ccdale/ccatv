@@ -278,12 +278,40 @@ class SqliteGuideRepository(GuideRepository):
             ).fetchall()
         }
 
-        upserted = 0
+        entries_to_upsert: list[tuple[int, int, SDScheduleEntry]] = []
         for entry in schedules:
             channel_id = channel_map.get(entry.station_id)
             program_id = program_map.get(entry.program_id)
             if channel_id is None or program_id is None:
                 continue
+
+            entries_to_upsert.append((channel_id, program_id, entry))
+
+        if not entries_to_upsert:
+            return 0
+
+        # Replace only the existing broadcasts that overlap each incoming slot.
+        # This allows shifted guide updates to supersede stale rows without
+        # clearing unrelated slots in the sync window.
+        for channel_id, _, entry in entries_to_upsert:
+            self.connection.execute(
+                """
+                DELETE FROM epg_broadcasts
+                WHERE channel_id = ?
+                  AND json_extract(metadata_json, '$.lineup_id') = ?
+                  AND start_utc < ?
+                  AND COALESCE(stop_utc, start_utc) > ?
+                """,
+                (
+                    channel_id,
+                    lineup_id,
+                    _to_utc_iso(entry.end_utc),
+                    _to_utc_iso(entry.start_utc),
+                ),
+            )
+
+        upserted = 0
+        for channel_id, program_id, entry in entries_to_upsert:
 
             metadata_json = json.dumps({"lineup_id": lineup_id}, sort_keys=True)
             self.connection.execute(
