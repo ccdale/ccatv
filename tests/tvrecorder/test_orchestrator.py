@@ -69,7 +69,7 @@ class StubServiceFilterService:
     def set_service_filter_service(self, filter_name: str, service_name: str) -> None:
         self.calls.append(("setsf", (filter_name, service_name)))
 
-    def set_service_filter_avs_only(self, filter_name: str, status: str = "on") -> None:
+    def set_service_filter_avs_only(self, filter_name: str, status: str = "off") -> None:
         self.calls.append(("avs", (filter_name, status)))
 
     def set_service_filter_output(self, filter_name: str, output_mrl: str) -> None:
@@ -719,7 +719,7 @@ def test_service_filter_capture_controller_start_sequence() -> None:
     output_filter = service.calls[6][1][0]
     assert add_filter == setsf_filter == avs_filter == output_filter
     assert service.calls[4][1][1] == "BBC One HD"
-    assert service.calls[5][1][1] == "on"
+    assert service.calls[5][1][1] == "off"
     assert service.calls[6][1][1] == "file:///tmp/out.ts"
 
 

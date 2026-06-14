@@ -62,8 +62,8 @@ def test_getsfmrl_command_quotes_filter_name() -> None:
     assert getsfmrl_command("sports filter").render() == "getsfmrl 'sports filter'"
 
 
-def test_setsfavsonly_command_defaults_to_on_status() -> None:
-    assert setsfavsonly_command("sports filter").render() == "setsfavsonly 'sports filter' on"
+def test_setsfavsonly_command_defaults_to_off_status() -> None:
+    assert setsfavsonly_command("sports filter").render() == "setsfavsonly 'sports filter' off"
 
 
 def test_setsfavsonly_command_supports_explicit_status() -> None:

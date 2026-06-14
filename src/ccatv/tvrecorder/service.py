@@ -189,7 +189,7 @@ class TvRecorderService:
     def set_service_filter_avs_only(
         self,
         filter_name: str,
-        status: str = "on",
+        status: str = "off",
     ) -> DvbCtrlResult:
         """Enable or disable AVS-only mode for a service filter."""
         _ensure_non_primary_filter_name(filter_name)

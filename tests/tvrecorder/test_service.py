@@ -181,7 +181,7 @@ def test_service_filter_operations_use_typed_commands() -> None:
     client = StubDvbCtrlClient(
         responses={
             "setsf recording-filter 'BBC ONE HD'": _result("setsf", "ok\n"),
-            "setsfavsonly recording-filter on": _result("setsfavsonly", "ok\n"),
+            "setsfavsonly recording-filter off": _result("setsfavsonly", "ok\n"),
             "setsfmrl recording-filter null://": _result("setsfmrl", "ok\n"),
             "rmsf recording-filter": _result("rmsf", "ok\n"),
         }
@@ -195,7 +195,7 @@ def test_service_filter_operations_use_typed_commands() -> None:
 
     assert client.commands == [
         "setsf recording-filter 'BBC ONE HD'",
-        "setsfavsonly recording-filter on",
+        "setsfavsonly recording-filter off",
         "setsfmrl recording-filter null://",
         "rmsf recording-filter",
     ]
@@ -247,7 +247,7 @@ def test_service_filter_mutating_operations_reject_primary_name(name: str) -> No
         service.set_service_filter_output(name, "null://")
 
     with pytest.raises(ValueError, match="must not target <Primary>"):
-        service.set_service_filter_avs_only(name, "on")
+        service.set_service_filter_avs_only(name, "off")
 
 
 def test_recording_lifecycle_includes_post_processing(tmp_path: Path) -> None:

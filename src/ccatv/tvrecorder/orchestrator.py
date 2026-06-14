@@ -93,7 +93,7 @@ class DvbCtrlCaptureController:
 @dataclass(frozen=True, slots=True)
 class ServiceFilterCaptureController:
     service: TvRecorderService
-    avs_only_status: str = "on"
+    avs_only_status: str = "off"
 
     def start_capture(
         self,
