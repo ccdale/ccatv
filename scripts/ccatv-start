@@ -66,7 +66,7 @@ ensure_web_env() {
   local web_listen_port="5000"
   local web_service_host="127.0.0.1"
   local web_service_port="8787"
-  local comskip_ini_path="${HOME}/.config/comskip/comskip.ini"
+  local comskip_ini_path="/home/chris/.config/comskip/comskip.ini"
   local sd_lineup_id=""
 
   if [[ -f "${WEB_ENV}" ]]; then

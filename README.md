@@ -190,7 +190,7 @@ uv run ccatv-web \
 If you use the helper scripts (`ccatv-start`/`ccatv-stop`), the shared env file
 `~/.config/ccatv/web.env` now includes:
 
-- `CCATV_COMSKIP_INI_PATH` (default: `~/.config/comskip/comskip.ini`)
+- `CCATV_COMSKIP_INI_PATH` (default: `/home/chris/.config/comskip/comskip.ini`)
 
 Set this per host when comskip uses a non-standard config location.
 
