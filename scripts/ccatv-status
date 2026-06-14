@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_DIR="${HOME}/src/ccatv"
+
+cd "${REPO_DIR}"
+exec uv run ccatv status "$@"
