@@ -1,136 +1,27 @@
 # ccatv
 
-ccatv is a Linux television application.
+ccatv is a Linux TV recording and guide service with a Flask control web app.
+
+Playback/library browsing is expected to be handled externally (for example, Kodi).
 
 > [!NOTE]
-> If you are in the UK you will need a TV Licence to use this software
+> If you are in the UK you will need a TV Licence to use this software.
 
-Current project direction:
+## What Exists Today
 
-- Python GTK4 user interface designed for across-the-room TV use
-- Playback backend abstraction with:
-	- libmpv as the first implementation
-	- GStreamer as an optional/alternate backend
-- TV recorder and tuner control via external dvbstreamer + dvbctrl
-	- reference repository: https://github.com/ccdale/dvbstreamer
-- TV guide and schedule metadata from Schedules Direct
-- Remote control support via a Windows Media Center remote and inputlirc
-- Jellyfin integration for media library access on the local network
-- Licensed under GNU GPLv3 (or later)
+Current implemented components:
 
-## Secrets Handling
+- Recorder and scheduler service daemon (`ccatv-service`)
+- Flask web control app (`ccatv-web`) for guide, scheduling, channels, and recordings
+- CLI tools (`ccatv`, `ccatv-setup`, `ccatv-status`) for setup and operations
+- EPG ingestion from OTA and Schedules Direct
+- Recording post-processing pipeline
 
-Schedules Direct credentials and authentication state are sensitive.
+No end-user GTK4 frontend is currently shipped.
 
-- Schedules Direct `username`, `password`, and API `token` must never be committed.
-- These values should only be read from local runtime config under `$XDG_CONFIG_HOME` and/or local runtime caches.
-- Do not add secrets to repository files, tests, fixtures, docs examples, or CI configuration.
+## Quick Start
 
-## TvRecorder Configuration
-
-TvRecorder persists local dvbctrl credentials under
-`$XDG_CONFIG_HOME/dvbstreamer/userconfig.json`.
-
-If `XDG_CONFIG_HOME` is unset, this resolves to
-`$HOME/.config/dvbstreamer/userconfig.json`.
-
-Current file shape:
-
-```json
-{
-	"password": "your-password",
-	"username": "your-username"
-}
-```
-
-Both `dvbstreamer` and `dvbctrl` read auth directly from this file.
-
-To create or update the local file interactively, run `uv run ccatv-setup`.
-
-You can also use the shared CLI entrypoint with `uv run ccatv setup`.
-
-ccatv runtime connection settings are stored separately in:
-`$XDG_CONFIG_HOME/ccatv/runtime.json` (fallback `$HOME/.config/ccatv/runtime.json`).
-
-Current runtime file shape:
-
-```json
-{
-	"dvb_adapter_count": 1,
-	"dvbstreamer_host": "localhost",
-	"sd_lineup_id": "YOUR_LINEUP_ID"
-}
-```
-
-`sd_lineup_id` is optional. When present, `epg-sync-sd`, `epg-sync-sd-daily`,
-and `epg-sync-sd-full` can omit `--lineup-id`.
-
-You can override these with CLI setup flags:
-- `uv run ccatv setup --host druidmedia --adapter-count 4 --username your-user`
-- `uv run ccatv setup --sd-lineup-id YOUR_LINEUP_ID`
-
-Runtime precedence for host and adapter count is:
-1. Environment variables (`CCATV_DVBSTREAMER_HOST`, `CCATV_DVB_ADAPTER_COUNT`)
-2. Local runtime config (`runtime.json`)
-3. Built-in defaults (`localhost`, `1`)
-
-## Integration Testing
-
-The integration smoke test is opt-in and supports local or SSH-managed
-dvbstreamer lifecycle.
-
-Configuration lives in:
-- `$CCATV_INTEGRATION_CONFIG` (if set), otherwise
-- `$XDG_CONFIG_HOME/ccatv/integration.json` (fallback `~/.config/ccatv/integration.json`)
-
-Run only integration tests with:
-- `uv run pytest -m integration`
-
-See `tests/integration/README.md` for config details and an SSH example for
-`druidmedia`/`chris`.
-
-See docs/architecture-proposal.md for the proposed architecture and phased implementation plan.
-
-## Service-First Pivot (In Progress)
-
-ccatv is pivoting toward a service-first design:
-- one long-running service process (`ccatv-service`) for recorder/metadata workflows
-- multiple front ends (CLI, GTK4, Flask/FastAPI) as clients of a stable service API
-
-M1 contract draft:
-- `docs/service-api-contract.md`
-
-Current daemon skeleton command:
-- `uv run ccatv-service --run-once`
-
-Remote HTTP transport for desktop clients:
-- `uv run ccatv-service --http-bind-host 0.0.0.0 --http-port 8787 --http-auth-token YOUR_TOKEN`
-
-Flask desktop frontend (first M6 integration):
-- `CCATV_SERVICE_AUTH_TOKEN=YOUR_TOKEN uv run ccatv-web --service-host recorder-host --service-port 8787 --listen-host 127.0.0.1 --listen-port 5000`
-- For LAN access from other machines, set `--listen-host 0.0.0.0`.
-- Optional inbound web auth (recommended when LAN-exposed): set `CCATV_WEB_AUTH_TOKEN` (or `--web-auth-token`) and send `Authorization: Bearer ...` to Flask `/api/*` routes.
-- API routes currently exposed by the web app:
-	- `GET /api/health`
-	- `GET /api/service/info`
-	- `GET /api/schedules?state=...`
-	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
-	- `POST /api/schedules`
-
-Packaging docs:
-- [docs/packaging.md](/home/chris/src/ccatv/docs/packaging.md)
-
-## Installation and Runbook
-
-This section is the current end-to-end setup path for:
-
-- `ccatv-service` (recorder/scheduler daemon)
-- Flask backend (`ccatv-web`) for remote scheduling/recording dashboard APIs
-- GTK4 app status and developer setup notes
-
-### 1. Install ccatv
-
-From source in a development checkout:
+Install dependencies in a local checkout:
 
 ```bash
 cd /home/chris/src/ccatv
@@ -144,7 +35,7 @@ uv run pytest -q
 uv run ruff check .
 ```
 
-### 2. Configure runtime and dvbctrl credentials
+## Configuration
 
 Run setup once on the recorder host:
 
@@ -157,125 +48,146 @@ This writes:
 - `~/.config/dvbstreamer/userconfig.json`
 - `~/.config/ccatv/runtime.json`
 
-### 3. Run ccatv-service HTTP transport manually
+Runtime file shape:
 
-If you want a remote desktop Flask UI to talk to the recorder host, run service HTTP transport:
-
-```bash
-uv run ccatv-service --http-bind-host 0.0.0.0 --http-port 8787 --http-auth-token YOUR_SERVICE_TOKEN
+```json
+{
+  "dvb_adapter_count": 1,
+  "dvbstreamer_host": "localhost",
+  "sd_lineup_id": "YOUR_LINEUP_ID"
+}
 ```
 
-Security guidance:
+`sd_lineup_id` is optional. When present, SD sync commands can omit `--lineup-id`.
 
-- Use a strong random token for `--http-auth-token`.
-- Prefer LAN-only exposure plus firewall rules.
-- If possible, terminate TLS at a reverse proxy on the recorder host.
+Runtime precedence for host/adapter count:
 
-### 4. Install and run Flask backend (remote desktop)
+1. Environment (`CCATV_DVBSTREAMER_HOST`, `CCATV_DVB_ADAPTER_COUNT`)
+2. Runtime config (`runtime.json`)
+3. Defaults (`localhost`, `1`)
 
-On your desktop machine:
+## Secrets Handling
+
+Do not commit Schedules Direct secrets (`username`, `password`, `token`).
+Keep credentials/auth only in local runtime/config files.
+
+## Running the Service and Web App
+
+Run service HTTP transport on the recorder host:
 
 ```bash
-cd /home/chris/src/ccatv
-uv sync
+uv run ccatv-service \
+  --http-bind-host 0.0.0.0 \
+  --http-port 8787 \
+  --http-auth-token YOUR_SERVICE_TOKEN
 ```
 
-Run Flask backend pointing to the recorder host:
+Run web app (same host or remote desktop):
 
 ```bash
 CCATV_SERVICE_AUTH_TOKEN=YOUR_SERVICE_TOKEN \
 CCATV_WEB_AUTH_TOKEN=YOUR_WEB_TOKEN \
 uv run ccatv-web \
-	--service-host recorder-host-or-ip \
-	--service-port 8787 \
-	--listen-host 127.0.0.1 \
-	--listen-port 5000
+  --service-host recorder-host-or-ip \
+  --service-port 8787 \
+  --listen-host 127.0.0.1 \
+  --listen-port 5000
 ```
-
-If you use the helper scripts (`ccatv-start`/`ccatv-stop`), the shared env file
-`~/.config/ccatv/web.env` now includes:
-
-- `CCATV_COMSKIP_INI_PATH` (default: `/home/chris/.config/comskip/comskip.ini`)
-
-Set this per host when comskip uses a non-standard config location.
 
 Notes:
 
-- `CCATV_SERVICE_AUTH_TOKEN` is required (matches service `--http-auth-token`).
-- `CCATV_WEB_AUTH_TOKEN` is optional but recommended, especially if you use `--listen-host 0.0.0.0`.
-- Recorder stream-selection note: ccatv no longer requires dvbstreamer `setsfavsonly` because post-processing remuxes recordings to Matroska with ffmpeg, keeping only audio/video/subtitle streams and discarding other stream types.
-- `setsfavsonly` currently behaves correctly on DVB-T1 channels but not DVB-T2 channels. Keep it off for now; this is expected to be addressed later in dvbstreamer.
-- Current API routes:
-	- `GET /api/health`
-	- `GET /api/service/info`
-	- `GET /api/schedules?state=...`
-	- `GET /api/guide?channel=...&startAtUtc=...&windowHours=...`
-	- `POST /api/schedules`
+- `CCATV_SERVICE_AUTH_TOKEN` is required by `ccatv-web`
+- `CCATV_WEB_AUTH_TOKEN` is optional, recommended if LAN exposed
+- For LAN access to web UI, use `--listen-host 0.0.0.0`
 
-### 4.1 EPG refresh commands
+## Daily Metadata Sync
 
-OTA grab + ingest (manual):
-
-```bash
-uv run ccatv epg-sync-ota
-```
-
-Schedules Direct daily rolling update (14-day window):
-
-```bash
-uv run ccatv epg-sync-sd-daily --lineup-id YOUR_LINEUP_ID
-```
-
-If `CCATV_SD_LINEUP_ID` is set or `sd_lineup_id` is saved in runtime config,
-`--lineup-id` is optional.
-
-Schedules Direct manual full refresh (14-day window, clears existing SD window rows first):
-
-```bash
-uv run ccatv epg-sync-sd-full --lineup-id YOUR_LINEUP_ID
-```
-
-Daily sequential runner (OTA first, then SD daily update), with success/failure lines in log:
-
-```bash
-~/.local/bin/ccatv-epg-daily YOUR_LINEUP_ID
-```
-
-Built-in service scheduler option (recommended):
+Recommended: let the service run daily metadata updates:
 
 ```bash
 uv run ccatv-service \
-	--enable-daily-metadata-sync \
-	--daily-metadata-sync-time 03:00
+  --enable-daily-metadata-sync \
+  --daily-metadata-sync-time 03:00
 ```
 
-This runs daily metadata updates in the daemon scheduler loop at local 03:00,
-sequentially as OTA first then Schedules Direct daily update. The `sd_lineup_id`
-from runtime config will be used automatically.
+This runs OTA sync then Schedules Direct daily sync in sequence.
+`sd_lineup_id` is resolved from:
 
-Runner log file:
+1. `--sd-lineup-id`
+2. `CCATV_SD_LINEUP_ID`
+3. runtime config `sd_lineup_id`
 
-- `~/.local/state/ccatv/logs/ccatv-epg-sync.log`
-
-Install local helper scripts (including `ccatv-epg-daily`):
+Manual commands:
 
 ```bash
-./scripts/install-local-scripts.sh
+uv run ccatv epg-sync-ota
+uv run ccatv epg-sync-sd-daily --lineup-id YOUR_LINEUP_ID
+uv run ccatv epg-sync-sd-full --lineup-id YOUR_LINEUP_ID
 ```
 
-Optional `cron` fallback for daily sequential execution around 03:00:
+## CLI Commands
 
-```cron
-0 3 * * * CCATV_SD_LINEUP_ID=YOUR_LINEUP_ID ~/.local/bin/ccatv-epg-daily
+Primary commands:
+
+- `uv run ccatv setup`
+- `uv run ccatv status`
+- `uv run ccatv epg-sync-ota`
+- `uv run ccatv epg-sync-sd`
+- `uv run ccatv epg-sync-sd-daily`
+- `uv run ccatv epg-sync-sd-full`
+- `uv run ccatv channel-map`
+- `uv run ccatv recordings-backfill-metadata`
+
+Dedicated entrypoints:
+
+- `uv run ccatv-setup`
+- `uv run ccatv-status`
+- `uv run ccatv-service`
+- `uv run ccatv-web`
+
+## Web Routes
+
+Pages:
+
+- `/` guide/timeline
+- `/channel-manager`
+- `/recordings`
+
+Auth routes:
+
+- `GET /auth/session`
+- `POST /auth/session`
+- `DELETE /auth/session`
+
+API routes:
+
+- `GET /api/health`
+- `GET /api/service/info`
+- `GET /api/channels`
+- `GET /api/dvbservices`
+- `POST /api/channels/mapping`
+- `POST /api/channels/favorite`
+- `GET /api/guide`
+- `GET /api/guide/search`
+- `GET /api/schedules`
+- `POST /api/schedules`
+- `DELETE /api/schedules/<job_id>`
+- `GET /api/recordings`
+- `DELETE /api/recordings/<recording_id>`
+- `POST /api/recordings/<recording_id>/stop`
+
+## Integration Testing
+
+Integration tests are opt-in:
+
+```bash
+uv run pytest -m integration
 ```
 
-### 5. GTK4 app installation status
+See `tests/integration/README.md` for environment setup.
 
-GTK4 live UI shell is not fully implemented yet, so there is currently no end-user `ccatv-gtk` entrypoint to install/run.
+## Legacy / Discarded Scope
 
-Current completed groundwork:
+Historical or currently out-of-scope topics are documented separately in:
 
-- playback abstraction and mpv IPC backend under `src/ccatv/playback/`
-- GTK-facing service gateway under `src/ccatv/ui/service_gateway.py`
-
-When the GTK4 executable entrypoint lands, this section should be updated with full package/dependency and launch instructions.
+- `docs/discarded-and-legacy-scope.md`
