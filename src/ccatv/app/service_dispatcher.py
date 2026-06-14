@@ -1131,8 +1131,8 @@ class ServiceCommandDispatcher:
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
-            WHERE b.start_utc >= ?
-              AND b.start_utc < ?
+            WHERE b.start_utc <= ?
+              AND b.stop_utc > ?
               AND (
                 lower(c.display_name) = lower(?)
                 OR lower(COALESCE(c.callsign, '')) = lower(?)
@@ -1140,7 +1140,7 @@ class ServiceCommandDispatcher:
               )
             ORDER BY b.start_utc ASC
             """,
-            (start_utc, end_utc, channel_value, channel_value, channel_value),
+            (end_utc, start_utc, channel_value, channel_value, channel_value),
         ).fetchall()
 
         return {
