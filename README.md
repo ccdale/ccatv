@@ -198,6 +198,8 @@ Notes:
 
 - `CCATV_SERVICE_AUTH_TOKEN` is required (matches service `--http-auth-token`).
 - `CCATV_WEB_AUTH_TOKEN` is optional but recommended, especially if you use `--listen-host 0.0.0.0`.
+- Recorder stream-selection note: ccatv no longer requires dvbstreamer `setsfavsonly` because post-processing remuxes recordings to Matroska with ffmpeg, keeping only audio/video/subtitle streams and discarding other stream types.
+- `setsfavsonly` currently behaves correctly on DVB-T1 channels but not DVB-T2 channels. Keep it off for now; this is expected to be addressed later in dvbstreamer.
 - Current API routes:
 	- `GET /api/health`
 	- `GET /api/service/info`
