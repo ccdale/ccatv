@@ -515,9 +515,30 @@ class RecorderOrchestrator:
             if stable.state == "failed":
                 raise RuntimeError("final stability check failed")
 
-            final = self.service.run_recording_post_processing(recording.id)
-            if final.state != "ready":
-                raise RuntimeError("post-processing did not produce ready state")
+            self.logger.info(
+                "post-processing started: job_id=%s recording_id=%s output_path=%s",
+                job.id,
+                recording.id,
+                recording.output_path,
+            )
+            try:
+                final = self.service.run_recording_post_processing(recording.id)
+                if final.state != "ready":
+                    raise RuntimeError("post-processing did not produce ready state")
+                self.logger.info(
+                    "post-processing completed: job_id=%s recording_id=%s state=%s",
+                    job.id,
+                    final.id,
+                    final.state,
+                )
+            except Exception as pp_exc:
+                self.logger.error(
+                    "post-processing failed: job_id=%s recording_id=%s error=%s",
+                    job.id,
+                    recording.id,
+                    str(pp_exc),
+                )
+                raise
 
             scheduler = self.service.mark_scheduler_job_completed(job.id)
             self.logger.info(
