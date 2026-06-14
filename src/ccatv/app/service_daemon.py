@@ -21,8 +21,20 @@ from ccatv import __version__
 from ccatv.app.bootstrap import AppContext, bootstrap_app, close_app_context
 from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.app.service_dispatcher import ServiceCommandDispatcher
+from ccatv.runtime_config import RuntimeConfigError, RuntimeConfigStore
 
 IPC_MAX_REQUEST_BYTES = 1024 * 1024
+
+
+def _resolve_sd_lineup_id(explicit: str | None) -> str | None:
+    """Return explicit value if set, otherwise fall back to saved runtime config."""
+    if explicit:
+        return explicit
+    try:
+        config = RuntimeConfigStore().load()
+        return config.sd_lineup_id
+    except RuntimeConfigError:
+        return None
 
 
 def _parse_hhmm(value: str) -> tuple[int, int] | None:
@@ -1023,7 +1035,7 @@ def run_service_daemon(
 
     if enable_daily_metadata_sync and not sd_lineup_id:
         logger.error(
-            "--enable-daily-metadata-sync requires --sd-lineup-id or CCATV_SD_LINEUP_ID"
+            "--enable-daily-metadata-sync requires --sd-lineup-id, CCATV_SD_LINEUP_ID, or sd_lineup_id in runtime config"
         )
         return 1
 
@@ -1304,7 +1316,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_once=args.run_once,
             enable_daily_metadata_sync=args.enable_daily_metadata_sync,
             daily_metadata_sync_time=args.daily_metadata_sync_time,
-            sd_lineup_id=args.sd_lineup_id,
+            sd_lineup_id=_resolve_sd_lineup_id(args.sd_lineup_id),
             should_stop=stop_requested.is_set,
         )
     finally:
