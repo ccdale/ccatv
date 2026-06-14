@@ -41,6 +41,8 @@ class _SetupStubServiceClient:
         adapter_count = int(payload["adapterCount"])
         host = str(payload["host"])
         ota_epg_channel_name = str(payload["otaEpgChannelName"])
+        sd_lineup_id_raw = payload.get("sdLineupId")
+        sd_lineup_id = None if sd_lineup_id_raw is None else str(sd_lineup_id_raw)
         username = str(payload["username"])
         password = str(payload["password"])
 
@@ -57,6 +59,7 @@ class _SetupStubServiceClient:
                 dvb_adapter_count=adapter_count,
                 dvbstreamer_host=host,
                 ota_epg_channel_name=ota_epg_channel_name,
+                sd_lineup_id=sd_lineup_id,
             )
         )
         return {
@@ -261,6 +264,39 @@ def test_run_setup_persists_ota_epg_channel_override(tmp_path: Path) -> None:
     assert exit_code == 0
     runtime = RuntimeConfigStore(config_dir=tmp_path).load()
     assert runtime.ota_epg_channel_name == "BBC ONE East"
+
+
+def test_run_setup_persists_sd_lineup_id_override(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    prompts = iter(["secret", "secret"])
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    store = TvRecorderConfigStore(config_dir=tmp_path)
+    stub_client = _SetupStubServiceClient(runtime_store=runtime_store, store=store)
+    deps = CliDependencies(
+        input_fn=lambda prompt: "alice",
+        password_fn=lambda prompt: next(prompts),
+        runtime_store=runtime_store,
+        stderr=stderr,
+        stdout=stdout,
+        store=store,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = run_setup(
+        Namespace(
+            adapter_count=1,
+            host="localhost",
+            ota_epg_channel_name="BBC ONE East",
+            sd_lineup_id="UK-TEST",
+            username="alice",
+        ),
+        deps=deps,
+    )
+
+    assert exit_code == 0
+    runtime = RuntimeConfigStore(config_dir=tmp_path).load()
+    assert runtime.sd_lineup_id == "UK-TEST"
 
 
 def test_run_setup_surfaces_service_error(tmp_path: Path) -> None:
@@ -685,6 +721,115 @@ def test_epg_sync_sd_daily_uses_14_day_window() -> None:
     ]
 
 
+def test_epg_sync_sd_daily_uses_runtime_config_lineup_id(tmp_path: Path) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "channelsUpserted": 1,
+                    "programsUpserted": 1,
+                    "schedulesUpserted": 1,
+                    "staleSchedulesPruned": 0,
+                    "ingestRunId": 8,
+                }
+            }
+
+        def close(self) -> None:
+            return None
+
+    runtime_store = RuntimeConfigStore(config_dir=tmp_path)
+    runtime_store.save(
+        RuntimeConfig(
+            dvb_adapter_count=1,
+            dvbstreamer_host="localhost",
+            ota_epg_channel_name="BBC TWO HD",
+            sd_lineup_id="UK-RUNTIME",
+        )
+    )
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        runtime_store=runtime_store,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["epg-sync-sd-daily"], deps=deps)
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert stub_client.executed == [
+        (
+            "metadata.sd.sync.run",
+            {
+                "lineupId": "UK-RUNTIME",
+                "seed": False,
+                "windowHours": 336,
+                "clearExisting": False,
+            },
+        )
+    ]
+
+
+def test_epg_sync_sd_daily_uses_env_lineup_id(monkeypatch) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "channelsUpserted": 1,
+                    "programsUpserted": 1,
+                    "schedulesUpserted": 1,
+                    "staleSchedulesPruned": 0,
+                    "ingestRunId": 8,
+                }
+            }
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setenv("CCATV_SD_LINEUP_ID", "UK-ENV")
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["epg-sync-sd-daily"], deps=deps)
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert stub_client.executed == [
+        (
+            "metadata.sd.sync.run",
+            {
+                "lineupId": "UK-ENV",
+                "seed": False,
+                "windowHours": 336,
+                "clearExisting": False,
+            },
+        )
+    ]
+
+
 def test_epg_sync_sd_full_uses_14_day_clear_existing() -> None:
     class _StubServiceClient:
         def __init__(self) -> None:
@@ -732,6 +877,50 @@ def test_epg_sync_sd_full_uses_14_day_clear_existing() -> None:
             },
         )
     ]
+
+
+def test_epg_sync_sd_rejects_missing_lineup_id_when_not_configured() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    calls = {"factory": 0}
+
+    def _factory():
+        calls["factory"] += 1
+        raise AssertionError("service client should not be created")
+
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=_factory,
+    )
+
+    exit_code = main(["epg-sync-sd", "--window-hours", "24"], deps=deps)
+
+    assert exit_code == 2
+    assert "Schedules Direct lineup id is required" in stderr.getvalue()
+    assert calls["factory"] == 0
+
+
+def test_epg_sync_sd_full_rejects_missing_lineup_id_when_not_configured() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    calls = {"factory": 0}
+
+    def _factory():
+        calls["factory"] += 1
+        raise AssertionError("service client should not be created")
+
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=_factory,
+    )
+
+    exit_code = main(["epg-sync-sd-full"], deps=deps)
+
+    assert exit_code == 2
+    assert "Schedules Direct lineup id is required" in stderr.getvalue()
+    assert calls["factory"] == 0
 
 
 def test_recordings_backfill_metadata_command_runs() -> None:

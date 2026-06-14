@@ -56,6 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--ota-epg-channel-name",
         help="default OTA EPG channel name for sync operations",
     )
+    setup_parser.add_argument(
+        "--sd-lineup-id",
+        help="default Schedules Direct lineup id for CLI sync commands",
+    )
     setup_parser.add_argument("--username", help="dvbctrl username")
     setup_parser.set_defaults(handler=run_setup)
 
@@ -65,8 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync_parser.add_argument(
         "--lineup-id",
-        required=True,
-        help="Schedules Direct lineup identifier",
+        required=False,
+        help=(
+            "Schedules Direct lineup identifier "
+            "(default: CCATV_SD_LINEUP_ID or runtime config sd_lineup_id)"
+        ),
     )
     sync_parser.add_argument(
         "--window-hours",
@@ -149,8 +156,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sd_daily_parser.add_argument(
         "--lineup-id",
-        required=True,
-        help="Schedules Direct lineup identifier",
+        required=False,
+        help=(
+            "Schedules Direct lineup identifier "
+            "(default: CCATV_SD_LINEUP_ID or runtime config sd_lineup_id)"
+        ),
     )
     sd_daily_parser.add_argument(
         "--database-path",
@@ -170,8 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sd_full_parser.add_argument(
         "--lineup-id",
-        required=True,
-        help="Schedules Direct lineup identifier",
+        required=False,
+        help=(
+            "Schedules Direct lineup identifier "
+            "(default: CCATV_SD_LINEUP_ID or runtime config sd_lineup_id)"
+        ),
     )
     sd_full_parser.add_argument(
         "--database-path",
@@ -290,6 +303,15 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
             print("OTA EPG channel name cannot be empty.", file=deps.stderr)
             return 2
 
+    sd_lineup_id_arg = getattr(args, "sd_lineup_id", None)
+    if sd_lineup_id_arg is None:
+        sd_lineup_id = runtime_defaults.sd_lineup_id
+    else:
+        sd_lineup_id = str(sd_lineup_id_arg).strip()
+        if not sd_lineup_id:
+            print("Schedules Direct lineup id cannot be empty.", file=deps.stderr)
+            return 2
+
     client = deps.service_client_factory()
     try:
         response_payload = client.execute(
@@ -299,6 +321,7 @@ def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
                 "host": host,
                 "otaEpgChannelName": ota_epg_channel_name,
                 "password": password,
+                "sdLineupId": sd_lineup_id,
                 "username": username,
             },
         )
@@ -361,6 +384,18 @@ def _run_epg_sync_sd_once(args: argparse.Namespace, deps: CliDependencies) -> in
 
 
 def run_epg_sync_sd(args: argparse.Namespace, deps: CliDependencies) -> int:
+    lineup_id = _resolve_sd_lineup_id(args.lineup_id, deps.runtime_store)
+    if lineup_id is None:
+        print(
+            (
+                "Schedules Direct lineup id is required; pass --lineup-id, "
+                "set CCATV_SD_LINEUP_ID, or configure setup --sd-lineup-id."
+            ),
+            file=deps.stderr,
+        )
+        return 2
+    args.lineup_id = lineup_id
+
     if args.run_forever and args.poll_interval_seconds <= 0:
         print("--poll-interval-seconds must be greater than 0", file=deps.stderr)
         return 2
@@ -542,6 +577,23 @@ def _resolve_ota_epg_channel_name(
         return RuntimeConfig().ota_epg_channel_name
 
 
+def _resolve_sd_lineup_id(
+    explicit_lineup_id: str | None,
+    runtime_store: RuntimeConfigStore,
+) -> str | None:
+    if explicit_lineup_id is not None and explicit_lineup_id.strip():
+        return explicit_lineup_id.strip()
+
+    env_lineup_id = os.getenv("CCATV_SD_LINEUP_ID")
+    if env_lineup_id is not None and env_lineup_id.strip():
+        return env_lineup_id.strip()
+
+    try:
+        return runtime_store.load().sd_lineup_id
+    except RuntimeConfigError:
+        return RuntimeConfig().sd_lineup_id
+
+
 def _run_epg_sync_sd_window(
     *,
     lineup_id: str,
@@ -595,8 +647,19 @@ def _run_epg_sync_sd_window(
 
 
 def run_epg_sync_sd_daily(args: argparse.Namespace, deps: CliDependencies) -> int:
+    lineup_id = _resolve_sd_lineup_id(args.lineup_id, deps.runtime_store)
+    if lineup_id is None:
+        print(
+            (
+                "Schedules Direct lineup id is required; pass --lineup-id, "
+                "set CCATV_SD_LINEUP_ID, or configure setup --sd-lineup-id."
+            ),
+            file=deps.stderr,
+        )
+        return 2
+
     return _run_epg_sync_sd_window(
-        lineup_id=args.lineup_id,
+        lineup_id=lineup_id,
         window_hours=14 * 24,
         clear_existing=False,
         credentials_path=args.credentials_path,
@@ -606,8 +669,19 @@ def run_epg_sync_sd_daily(args: argparse.Namespace, deps: CliDependencies) -> in
 
 
 def run_epg_sync_sd_full(args: argparse.Namespace, deps: CliDependencies) -> int:
+    lineup_id = _resolve_sd_lineup_id(args.lineup_id, deps.runtime_store)
+    if lineup_id is None:
+        print(
+            (
+                "Schedules Direct lineup id is required; pass --lineup-id, "
+                "set CCATV_SD_LINEUP_ID, or configure setup --sd-lineup-id."
+            ),
+            file=deps.stderr,
+        )
+        return 2
+
     return _run_epg_sync_sd_window(
-        lineup_id=args.lineup_id,
+        lineup_id=lineup_id,
         window_hours=14 * 24,
         clear_existing=True,
         credentials_path=args.credentials_path,

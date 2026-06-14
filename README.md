@@ -57,12 +57,17 @@ Current runtime file shape:
 ```json
 {
 	"dvb_adapter_count": 1,
-	"dvbstreamer_host": "localhost"
+	"dvbstreamer_host": "localhost",
+	"sd_lineup_id": "YOUR_LINEUP_ID"
 }
 ```
 
+`sd_lineup_id` is optional. When present, `epg-sync-sd`, `epg-sync-sd-daily`,
+and `epg-sync-sd-full` can omit `--lineup-id`.
+
 You can override these with CLI setup flags:
 - `uv run ccatv setup --host druidmedia --adapter-count 4 --username your-user`
+- `uv run ccatv setup --sd-lineup-id YOUR_LINEUP_ID`
 
 Runtime precedence for host and adapter count is:
 1. Environment variables (`CCATV_DVBSTREAMER_HOST`, `CCATV_DVB_ADAPTER_COUNT`)
@@ -220,6 +225,9 @@ Schedules Direct daily rolling update (14-day window):
 ```bash
 uv run ccatv epg-sync-sd-daily --lineup-id YOUR_LINEUP_ID
 ```
+
+If `CCATV_SD_LINEUP_ID` is set or `sd_lineup_id` is saved in runtime config,
+`--lineup-id` is optional.
 
 Schedules Direct manual full refresh (14-day window, clears existing SD window rows first):
 

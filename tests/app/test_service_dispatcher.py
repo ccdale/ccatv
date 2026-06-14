@@ -1153,6 +1153,7 @@ def test_dispatch_runtime_setup_save_persists_config(
             "host": "druidmedia",
             "otaEpgChannelName": "BBC ONE East",
             "password": "secret",
+            "sdLineupId": "UK-TEST",
             "username": "alice",
         },
     })
@@ -1166,6 +1167,7 @@ def test_dispatch_runtime_setup_save_persists_config(
     assert runtime.dvb_adapter_count == 4
     assert runtime.dvbstreamer_host == "druidmedia"
     assert runtime.ota_epg_channel_name == "BBC ONE East"
+    assert runtime.sd_lineup_id == "UK-TEST"
 
     recorder = recorder_store.load()
     assert recorder.dvbctrl_credentials is not None
@@ -1185,6 +1187,7 @@ def test_dispatch_runtime_setup_save_rejects_invalid_payload() -> None:
             "host": " ",
             "otaEpgChannelName": " ",
             "password": "",
+            "sdLineupId": " ",
             "username": " ",
         },
     })
@@ -1578,6 +1581,7 @@ def test_service_commands_are_dispatchable(
                 "host": "druidmedia",
                 "otaEpgChannelName": "BBC ONE East",
                 "password": "secret",
+                "sdLineupId": "UK-TEST",
                 "username": "alice",
             },
         ),

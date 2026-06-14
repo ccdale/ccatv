@@ -249,6 +249,17 @@ class ServiceCommandDispatcher:
                 message="otaEpgChannelName must be a non-empty string",
             )
 
+        raw_sd_lineup_id = payload.get("sdLineupId")
+        if raw_sd_lineup_id is None:
+            sd_lineup_id: str | None = None
+        elif isinstance(raw_sd_lineup_id, str) and raw_sd_lineup_id.strip():
+            sd_lineup_id = raw_sd_lineup_id.strip()
+        else:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="sdLineupId must be a non-empty string when provided",
+            )
+
         credentials_path = TvRecorderConfigStore().save(
             TvRecorderConfig(
                 dvbctrl_credentials=DvbCtrlCredentials(
@@ -262,6 +273,7 @@ class ServiceCommandDispatcher:
                 dvb_adapter_count=adapter_count,
                 dvbstreamer_host=host.strip(),
                 ota_epg_channel_name=ota_epg_channel_name.strip(),
+                sd_lineup_id=sd_lineup_id,
             )
         )
 

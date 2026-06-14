@@ -19,6 +19,7 @@ class RuntimeConfig:
     dvb_adapter_count: int = 1
     dvbstreamer_host: str = "localhost"
     ota_epg_channel_name: str = "BBC TWO HD"
+    sd_lineup_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,10 +72,19 @@ class RuntimeConfigStore:
                 f"invalid ota_epg_channel_name value: {self.path}"
             )
 
+        raw_sd_lineup_id = raw_data.get("sd_lineup_id")
+        if raw_sd_lineup_id is None:
+            sd_lineup_id: str | None = None
+        elif isinstance(raw_sd_lineup_id, str) and raw_sd_lineup_id.strip():
+            sd_lineup_id = raw_sd_lineup_id.strip()
+        else:
+            raise RuntimeConfigError(f"invalid sd_lineup_id value: {self.path}")
+
         return RuntimeConfig(
             dvb_adapter_count=adapter_count,
             dvbstreamer_host=host.strip(),
             ota_epg_channel_name=ota_epg_channel_name.strip(),
+            sd_lineup_id=sd_lineup_id,
         )
 
     def save(self, config: RuntimeConfig) -> Path:
@@ -86,6 +96,7 @@ class RuntimeConfigStore:
             "dvb_adapter_count": config.dvb_adapter_count,
             "dvbstreamer_host": config.dvbstreamer_host,
             "ota_epg_channel_name": config.ota_epg_channel_name,
+            "sd_lineup_id": config.sd_lineup_id,
         }
         self.path.write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",

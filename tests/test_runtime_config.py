@@ -21,6 +21,7 @@ def test_runtime_store_round_trip(tmp_path: Path) -> None:
         dvb_adapter_count=4,
         dvbstreamer_host="druidmedia",
         ota_epg_channel_name="BBC ONE East",
+        sd_lineup_id="UK-TEST",
     )
 
     path = store.save(expected)
@@ -62,6 +63,20 @@ def test_runtime_store_rejects_blank_ota_epg_channel_name(tmp_path: Path) -> Non
     )
 
     with pytest.raises(RuntimeConfigError, match="invalid ota_epg_channel_name"):
+        store.load()
+
+
+def test_runtime_store_rejects_blank_sd_lineup_id(tmp_path: Path) -> None:
+    store = RuntimeConfigStore(config_dir=tmp_path)
+    store.path.write_text(
+        (
+            '{"dvb_adapter_count": 1, "dvbstreamer_host": "druidmedia", '
+            '"ota_epg_channel_name": "BBC ONE East", "sd_lineup_id": "   "}\n'
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeConfigError, match="invalid sd_lineup_id"):
         store.load()
 
 
