@@ -786,6 +786,7 @@ def run_status(args: argparse.Namespace, deps: CliDependencies) -> int:
         active_count = result.get("activeCount", 0)
         active_recordings = result.get("activeRecordings", [])
         next_scheduled = result.get("nextScheduled")
+        adapters = result.get("adapters", [])
 
         if not is_recording:
             print("No recordings in progress.", file=deps.stdout)
@@ -800,6 +801,7 @@ def run_status(args: argparse.Namespace, deps: CliDependencies) -> int:
                 )
             else:
                 print("No upcoming scheduled recordings.", file=deps.stdout)
+            _print_adapter_statuses(adapters, deps=deps)
             return 0
 
         print(f"Recording in progress ({active_count} active):", file=deps.stdout)
@@ -814,10 +816,47 @@ def run_status(args: argparse.Namespace, deps: CliDependencies) -> int:
                 f"  [job={job_id}] {channel}: {program} ({minutes}m{seconds}s)",
                 file=deps.stdout,
             )
+        _print_adapter_statuses(adapters, deps=deps)
         return 0
     except ServiceClientError as exc:
         print(f"Error: {exc}", file=deps.stderr)
         return 1
+
+
+def _print_adapter_statuses(adapters: object, *, deps: CliDependencies) -> None:
+    if not isinstance(adapters, list) or not adapters:
+        return
+
+    print("Adapter status:", file=deps.stdout)
+    for adapter in adapters:
+        if not isinstance(adapter, dict):
+            continue
+        adapter_index = adapter.get("adapterIndex")
+        allocation = adapter.get("allocation") or (
+            "in-use" if adapter.get("inUse") else "free"
+        )
+        dvb_state = adapter.get("dvbStreamerState") or "unknown"
+        tuned_service = adapter.get("tunedService") or "none"
+        frontend = adapter.get("frontend") if isinstance(adapter.get("frontend"), dict) else {}
+        locked = frontend.get("locked")
+        signal = frontend.get("signal")
+        snr = frontend.get("snr")
+        ber = frontend.get("ber")
+
+        signal_text = f", signal={signal}" if signal is not None else ""
+        snr_text = f", snr={snr}" if snr is not None else ""
+        ber_text = f", ber={ber}" if ber is not None else ""
+        print(
+            (
+                f"  adapter={adapter_index} allocation={allocation} dvbstreamer={dvb_state} "
+                f"tuned={tuned_service} lock={locked}{signal_text}{snr_text}{ber_text}"
+            ),
+            file=deps.stdout,
+        )
+
+        error = adapter.get("error")
+        if isinstance(error, str) and error:
+            print(f"    probe_error={error}", file=deps.stdout)
 
 
 def _run_async_blocking(coroutine: object) -> object:

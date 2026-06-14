@@ -1308,6 +1308,57 @@ def test_main_status_shows_next_scheduled_when_idle() -> None:
     assert stderr.getvalue() == ""
 
 
+def test_main_status_shows_adapter_statuses() -> None:
+    class _StubClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+            del command, payload
+            return {
+                "isRecording": False,
+                "activeCount": 0,
+                "activeRecordings": [],
+                "nextScheduled": None,
+                "adapters": [
+                    {
+                        "adapterIndex": 0,
+                        "allocation": "free",
+                        "dvbStreamerState": "running",
+                        "tunedService": "BBC ONE HD",
+                        "frontend": {
+                            "locked": True,
+                            "signal": 80,
+                            "snr": 35,
+                            "ber": 0,
+                        },
+                        "error": None,
+                    }
+                ],
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["status"], deps=deps)
+
+    assert exit_code == 0
+    out = stdout.getvalue()
+    assert "Adapter status:" in out
+    assert "adapter=0 allocation=free dvbstreamer=running tuned=BBC ONE HD" in out
+    assert "lock=True, signal=80, snr=35, ber=0" in out
+    assert stderr.getvalue() == ""
+
+
 def test_main_status_shows_active_recordings() -> None:
     class _StubClient:
         def __init__(self) -> None:

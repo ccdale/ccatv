@@ -661,6 +661,56 @@ def test_dispatch_recording_status_get_no_active_recordings() -> None:
     assert response["payload"]["activeCount"] == 0
     assert response["payload"]["activeRecordings"] == []
     assert response["payload"]["nextScheduled"] is None
+    assert response["payload"]["adapters"] == []
+
+
+def test_dispatch_recording_status_get_includes_adapter_statuses() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    slot = SimpleNamespace(
+        adapter_index=1,
+        dvbstreamer=SimpleNamespace(
+            health_check=lambda: SimpleNamespace(
+                state=DvbStreamerState.RUNNING,
+                pid=4321,
+            )
+        ),
+        capture_controller=SimpleNamespace(
+            service=SimpleNamespace(
+                current_status=lambda: SimpleNamespace(service_name="BBC TWO HD"),
+                frontend_status=lambda: SimpleNamespace(
+                    locked=True,
+                    signal=82,
+                    snr=35,
+                    ber=0,
+                ),
+                stats_snapshot=lambda: SimpleNamespace(
+                    metrics={"packets": 1000}
+                ),
+            )
+        ),
+    )
+    context.adapter_pool = SimpleNamespace(
+        slots=[slot],
+        idle_slots_snapshot=lambda: (slot,),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.status.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    adapters = response["payload"]["adapters"]
+    assert len(adapters) == 1
+    assert adapters[0]["adapterIndex"] == 1
+    assert adapters[0]["allocation"] == "free"
+    assert adapters[0]["dvbStreamerState"] == DvbStreamerState.RUNNING.value
+    assert adapters[0]["tunedService"] == "BBC TWO HD"
+    assert adapters[0]["frontend"]["locked"] is True
+    assert adapters[0]["stats"]["packets"] == 1000
 
 
 def test_dispatch_recording_status_get_includes_next_scheduled_job() -> None:

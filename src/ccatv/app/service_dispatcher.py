@@ -922,6 +922,7 @@ class ServiceCommandDispatcher:
         payload: dict[str, object],
     ) -> dict[str, object]:
         """Get current recording status (in-progress recordings)."""
+        del payload
         connection = self._context.persistence.connection
         rows = connection.execute(
             """
@@ -977,12 +978,99 @@ class ServiceCommandDispatcher:
                 "startAtUtc": str(next_scheduled_row[3]),
             }
 
+        adapter_statuses = self._adapter_status_list()
+
         return {
             "isRecording": len(active_recordings) > 0,
             "activeCount": len(active_recordings),
             "activeRecordings": active_recordings,
             "nextScheduled": next_scheduled,
+            "adapters": adapter_statuses,
         }
+
+    def _adapter_status_list(self) -> list[dict[str, object]]:
+        adapter_pool = getattr(self._context, "adapter_pool", None)
+        if adapter_pool is None:
+            return []
+
+        idle_indexes = {
+            int(slot.adapter_index) for slot in adapter_pool.idle_slots_snapshot()
+        }
+        statuses: list[dict[str, object]] = []
+        for slot in sorted(adapter_pool.slots, key=lambda candidate: candidate.adapter_index):
+            adapter_index = int(slot.adapter_index)
+            in_use = adapter_index not in idle_indexes
+
+            state_value = DvbStreamerState.STOPPED.value
+            pid_value = None
+            try:
+                dvb_status = slot.dvbstreamer.health_check()
+                raw_state = getattr(dvb_status, "state", DvbStreamerState.STOPPED)
+                if isinstance(raw_state, DvbStreamerState):
+                    state_value = raw_state.value
+                else:
+                    state_value = str(raw_state)
+                pid_value = getattr(dvb_status, "pid", None)
+            except Exception as exc:
+                status = {
+                    "adapterIndex": adapter_index,
+                    "inUse": in_use,
+                    "allocation": "in-use" if in_use else "free",
+                    "dvbStreamerState": DvbStreamerState.FAILED.value,
+                    "dvbStreamerPid": None,
+                    "tunedService": None,
+                    "frontend": {
+                        "locked": None,
+                        "signal": None,
+                        "snr": None,
+                        "ber": None,
+                    },
+                    "stats": None,
+                    "error": str(exc),
+                }
+                statuses.append(status)
+                continue
+
+            status: dict[str, object] = {
+                "adapterIndex": adapter_index,
+                "inUse": in_use,
+                "allocation": "in-use" if in_use else "free",
+                "dvbStreamerState": state_value,
+                "dvbStreamerPid": int(pid_value) if isinstance(pid_value, int) else None,
+                "tunedService": None,
+                "frontend": {
+                    "locked": None,
+                    "signal": None,
+                    "snr": None,
+                    "ber": None,
+                },
+                "stats": None,
+                "error": None,
+            }
+
+            service = getattr(slot.capture_controller, "service", None)
+            if service is None:
+                statuses.append(status)
+                continue
+
+            try:
+                current = service.current_status()
+                frontend = service.frontend_status()
+                stats_snapshot = service.stats_snapshot()
+                status["tunedService"] = current.service_name
+                status["frontend"] = {
+                    "locked": frontend.locked,
+                    "signal": frontend.signal,
+                    "snr": frontend.snr,
+                    "ber": frontend.ber,
+                }
+                status["stats"] = stats_snapshot.metrics
+            except Exception as exc:
+                status["error"] = str(exc)
+
+            statuses.append(status)
+
+        return statuses
 
     def _match_recording_to_epg(self, recording) -> dict[str, str | None] | None:
         start_utc = recording.started_at_utc or recording.program_start_at_utc

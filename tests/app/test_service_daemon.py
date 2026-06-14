@@ -112,6 +112,9 @@ class StubProbeService:
             raise RuntimeError("probe failed")
         return object()
 
+    def stats(self):
+        return object()
+
 
 @dataclass(slots=True)
 class StubCaptureController:
@@ -229,6 +232,48 @@ def test_run_service_daemon_starts_dvbstreamer_before_cycle(monkeypatch) -> None
 
     assert result == 0
     assert dvbstreamer.started == 1
+    assert worker.cycle_count == 1
+
+
+def test_run_service_daemon_starts_all_adapter_slots_before_cycle(monkeypatch) -> None:
+    worker = StubWorker()
+    primary = StubDvbStreamer()
+    secondary = StubDvbStreamer()
+    context = StubContext(
+        logger=logging.getLogger("test.daemon.start_all_adapters"),
+        dvbstreamer=primary,
+        adapter_pool=SimpleNamespace(
+            slots=[
+                SimpleNamespace(
+                    adapter_index=0,
+                    dvbstreamer=primary,
+                    capture_controller=SimpleNamespace(service=StubProbeService()),
+                ),
+                SimpleNamespace(
+                    adapter_index=1,
+                    dvbstreamer=secondary,
+                    capture_controller=SimpleNamespace(service=StubProbeService()),
+                ),
+            ]
+        ),
+    )
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=True,
+    )
+
+    assert result == 0
+    assert primary.started == 1
+    assert secondary.started == 1
     assert worker.cycle_count == 1
 
 

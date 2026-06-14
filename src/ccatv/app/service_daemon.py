@@ -373,6 +373,73 @@ def _attempt_idle_clock_probe_retune(*, context: AppContext, logger: logging.Log
     return True
 
 
+def _wait_for_adapter_control_ready(*, service: object, timeout_seconds: float) -> str | None:
+    deadline = time.time() + timeout_seconds
+    ready_error: str | None = None
+    while True:
+        try:
+            service.stats()
+            return None
+        except Exception as exc:
+            ready_error = str(exc)
+            if time.time() >= deadline:
+                return ready_error
+            time.sleep(0.25)
+
+
+def _start_all_adapter_dvbs(
+    *,
+    context: AppContext,
+    logger: logging.Logger,
+    timeout_seconds: float = 5.0,
+) -> bool:
+    adapter_pool = getattr(context, "adapter_pool", None)
+    if adapter_pool is None:
+        return True
+
+    primary_manager = getattr(context, "dvbstreamer", None)
+    for slot in adapter_pool.slots:
+        manager = slot.dvbstreamer
+        start_fn = getattr(manager, "start", None)
+        if manager is not primary_manager and callable(start_fn):
+            try:
+                status = start_fn()
+            except Exception:
+                logger.exception(
+                    "service daemon failed to start adapter dvbstreamer (adapter=%s)",
+                    slot.adapter_index,
+                )
+                return False
+            logger.info(
+                "adapter dvbstreamer started (adapter=%s, state=%s, pid=%s)",
+                slot.adapter_index,
+                getattr(status, "state", None),
+                getattr(status, "pid", None),
+            )
+
+        service = getattr(slot.capture_controller, "service", None)
+        if service is None or not callable(getattr(service, "stats", None)):
+            continue
+        ready_error = _wait_for_adapter_control_ready(
+            service=service,
+            timeout_seconds=timeout_seconds,
+        )
+        if ready_error is not None:
+            logger.error(
+                "service daemon adapter readiness probe failed (adapter=%s): %s",
+                slot.adapter_index,
+                ready_error,
+            )
+            return False
+        dvbctrl_client = getattr(service, "_dvbctrl", None)
+        logger.info(
+            "adapter control endpoint ready (host=%s, adapter=%s)",
+            getattr(dvbctrl_client, "host", None),
+            getattr(dvbctrl_client, "adapter_index", None),
+        )
+    return True
+
+
 def _service_filter_state_is_idle(filters: list[str]) -> bool:
     if not filters:
         return True
@@ -1092,6 +1159,9 @@ def run_service_daemon(
                 getattr(dvbctrl, "adapter_index", None),
             )
             break
+
+    if not _start_all_adapter_dvbs(context=context, logger=logger):
+        return 1
 
     if run_once:
         try:
