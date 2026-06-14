@@ -145,6 +145,19 @@ Dedicated entrypoints:
 - `uv run ccatv-service`
 - `uv run ccatv-web`
 
+Status command example:
+
+```bash
+$ ccatv-status
+No recordings in progress.
+Next recording: [job=102] Channel 4 HD: Formula 1 at 2026-06-14T17:28:00Z
+Adapter status:
+  adapter=0 allocation=free dvbstreamer=stopped tuned=233a.1047.1047 : "BBC ONE East" lock=True, signal=100, snr=100, ber=-1
+  adapter=1 allocation=free dvbstreamer=stopped tuned=none lock=None, signal=100, snr=100, ber=-1
+  adapter=2 allocation=free dvbstreamer=stopped tuned=none lock=None, signal=100, snr=100, ber=-1
+  adapter=3 allocation=free dvbstreamer=stopped tuned=none lock=None, signal=100, snr=100, ber=-1
+```
+
 ## Web Routes
 
 Pages:
