@@ -164,7 +164,7 @@ def test_move_to_nas_postprocessor_moves_related_files_with_sanitized_path(
     )
 
     assert result.success is True
-    destination_dir = destination_root / "BBC ONE HD" / "Newsnight Episode 1"
+    destination_dir = destination_root / "Newsnight Episode 1" / "BBC ONE HD"
     assert (destination_dir / "my-show.ts").exists()
     assert (destination_dir / "my-show.nfo").exists()
     assert (destination_dir / "my-show.edl").exists()
@@ -199,7 +199,7 @@ def test_chained_postprocessor_writes_nfo_then_moves_to_nas(tmp_path: Path) -> N
     result = runner.run(request)
 
     assert result.success is True
-    final_dir = destination_root / "Talking Pictures TV" / "The Saint"
+    final_dir = destination_root / "The Saint" / "Talking Pictures TV"
     assert (final_dir / "sample.ts").exists()
     final_nfo = final_dir / "sample.nfo"
     assert final_nfo.exists()

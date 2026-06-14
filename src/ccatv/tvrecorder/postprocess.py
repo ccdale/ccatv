@@ -155,7 +155,7 @@ class MoveToNasPostProcessingRunner:
         channel_dir = _sanitize_path_component(request.channel_name, fallback="channel")
         title_value = request.program_title or source_path.stem or self.title_fallback
         title_dir = _sanitize_path_component(title_value, fallback=self.title_fallback)
-        destination_dir = Path(self.destination_root) / channel_dir / title_dir
+        destination_dir = Path(self.destination_root) / title_dir / channel_dir
         destination_dir.mkdir(parents=True, exist_ok=True)
 
         files_to_move = _collect_related_output_files(source_path)
