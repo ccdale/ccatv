@@ -45,6 +45,7 @@ from ccatv.tvrecorder.manager import DvbStreamerState
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
 
 API_VERSION = "v1alpha1"
+MIN_RECORDING_SECONDS = 30
 
 SERVICE_CAPABILITIES = [
     "service.health",
@@ -719,6 +720,30 @@ class ServiceCommandDispatcher:
                 code="VALIDATION_ERROR",
                 message="programStopAtUtc must be a non-empty string when provided",
             )
+
+        # For in-progress guide programmes, reject requests that are effectively
+        # over rather than creating a job that will fail immediately.
+        if isinstance(program_stop_at_utc, str):
+            try:
+                stop_dt = datetime.strptime(
+                    program_stop_at_utc.strip(), "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+            except ValueError as exc:
+                raise ServiceCommandError(
+                    code="VALIDATION_ERROR",
+                    message="programStopAtUtc must be an ISO-8601 UTC timestamp string",
+                ) from exc
+
+            now_dt = datetime.now(timezone.utc)
+            remaining_seconds = int((stop_dt - now_dt).total_seconds())
+            if remaining_seconds < MIN_RECORDING_SECONDS:
+                raise ServiceCommandError(
+                    code="VALIDATION_ERROR",
+                    message=(
+                        "programme has already ended or has less than "
+                        f"{MIN_RECORDING_SECONDS} seconds remaining"
+                    ),
+                )
 
         try:
             job = self._context.tvrecorder.schedule_recording(

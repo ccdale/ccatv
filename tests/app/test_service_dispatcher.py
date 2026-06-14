@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import signal
 import sqlite3
 import threading
@@ -181,6 +182,59 @@ def test_dispatch_recording_schedule_create_rejects_invalid_timestamp() -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_dispatch_recording_schedule_create_rejects_invalid_program_stop_at_utc() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.schedule.create",
+            "payload": {
+                "channelName": "BBC TWO HD",
+                "startAtUtc": "2026-05-25T21:00:00Z",
+                "durationSeconds": 3600,
+                "programStopAtUtc": "2026/05/25 22:00:00",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_recording_schedule_create_rejects_program_with_too_little_remaining(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    class _FakeDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return cls(2026, 5, 25, 21, 59, 40, tzinfo=timezone.utc)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.datetime", _FakeDatetime)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.schedule.create",
+            "payload": {
+                "channelName": "BBC TWO HD",
+                "startAtUtc": "2026-05-25T21:00:00Z",
+                "durationSeconds": 3600,
+                "programStopAtUtc": "2026-05-25T22:00:00Z",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+    assert "less than 30 seconds remaining" in response["error"]["message"]
+
+
 def test_dispatch_recording_schedule_list_filters_state() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -352,12 +406,12 @@ def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
         "command": "recording.schedule.create",
         "payload": {
             "channelName": "C4 HD",
-            "startAtUtc": "2026-05-25T21:00:00Z",
+            "startAtUtc": "2099-05-25T21:00:00Z",
             "durationSeconds": 1800,
             "programTitle": "Film4 Premiere",
             "programDescription": "A premiere event.",
-            "programStartAtUtc": "2026-05-25T21:00:00Z",
-            "programStopAtUtc": "2026-05-25T21:30:00Z",
+            "programStartAtUtc": "2099-05-25T21:00:00Z",
+            "programStopAtUtc": "2099-05-25T21:30:00Z",
         },
     })
 
@@ -383,8 +437,8 @@ def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
     assert job["state"] == "scheduled"
     assert job["programTitle"] == "Film4 Premiere"
     assert job["programDescription"] == "A premiere event."
-    assert job["programStartAtUtc"] == "2026-05-25T21:00:00Z"
-    assert job["programStopAtUtc"] == "2026-05-25T21:30:00Z"
+    assert job["programStartAtUtc"] == "2099-05-25T21:00:00Z"
+    assert job["programStopAtUtc"] == "2099-05-25T21:30:00Z"
 
 
 def test_dispatch_recording_list_prefers_persisted_programme_snapshot() -> None:

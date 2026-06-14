@@ -30,6 +30,7 @@ fi
 stop_component() {
   local name="$1"
   local pid_file="$2"
+  local wait_seconds="${3:-15}"
 
   if [[ ! -f "${pid_file}" ]]; then
     echo "${name} not running"
@@ -51,8 +52,9 @@ stop_component() {
   fi
 
   kill "${pid}"
-  # Wait up to 15 seconds for graceful shutdown (5s worker cycle + 5s dvbstreamer terminate + 5s safety margin)
-  for _ in {1..60}; do
+  local loops=$((wait_seconds * 4))
+  # Wait for graceful shutdown in 250ms increments.
+  for ((i = 0; i < loops; i++)); do
     if ! kill -0 "${pid}" 2>/dev/null; then
       rm -f "${pid_file}"
       echo "Stopped ${name}"
@@ -66,6 +68,35 @@ stop_component() {
   echo "Force-stopped ${name}"
 }
 
+cleanup_dvbstreamer_processes() {
+  local pids
+  pids=$(pgrep -x dvbstreamer || true)
+  if [[ -z "${pids}" ]]; then
+    return 0
+  fi
+
+  echo "Stopping stray dvbstreamer processes: ${pids}"
+  pkill -TERM -x dvbstreamer || true
+
+  for _ in {1..40}; do
+    if ! pgrep -x dvbstreamer >/dev/null 2>&1; then
+      echo "Stopped stray dvbstreamer processes"
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  local remaining
+  remaining=$(pgrep -x dvbstreamer || true)
+  if [[ -n "${remaining}" ]]; then
+    echo "Force-stopping remaining dvbstreamer processes: ${remaining}"
+    pkill -KILL -x dvbstreamer || true
+  fi
+}
+
 stop_component "ccatv-web" "${RUN_DIR}/ccatv-web.pid"
 stop_component "ccatv-api" "${RUN_DIR}/ccatv-api.pid"
-stop_component "ccatv-service" "${RUN_DIR}/ccatv-service.pid"
+# Service shutdown can involve active recording stop + post-processing cleanup,
+# so give it a larger grace window before force-kill.
+stop_component "ccatv-service" "${RUN_DIR}/ccatv-service.pid" 120
+cleanup_dvbstreamer_processes
