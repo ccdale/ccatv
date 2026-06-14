@@ -245,14 +245,13 @@ Built-in service scheduler option (recommended):
 
 ```bash
 uv run ccatv-service \
-	--output-directory ~/.local/share/ccatv/recordings \
 	--enable-daily-metadata-sync \
-	--daily-metadata-sync-time 03:00 \
-	--sd-lineup-id YOUR_LINEUP_ID
+	--daily-metadata-sync-time 03:00
 ```
 
 This runs daily metadata updates in the daemon scheduler loop at local 03:00,
-sequentially as OTA first then Schedules Direct daily update.
+sequentially as OTA first then Schedules Direct daily update. The `sd_lineup_id`
+from runtime config will be used automatically.
 
 Runner log file:
 

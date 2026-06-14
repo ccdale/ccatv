@@ -179,14 +179,7 @@ print_active_script_paths
 echo "dvbstreamer debug output: ${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}"
 echo "dvbstreamer bind address: ${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}"
 
-SERVICE_ARGS=(--output-directory "${RECORDINGS_DIR}" --poll-interval-seconds 5)
-if [[ -n "${CCATV_SD_LINEUP_ID:-}" ]]; then
-  SERVICE_ARGS+=(
-    --enable-daily-metadata-sync
-    --daily-metadata-sync-time 03:00
-    --sd-lineup-id "${CCATV_SD_LINEUP_ID}"
-  )
-fi
+SERVICE_ARGS=(--poll-interval-seconds 5 --enable-daily-metadata-sync --daily-metadata-sync-time 03:00)
 
 cd "${REPO_DIR}"
 uv sync
