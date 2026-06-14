@@ -66,6 +66,7 @@ ensure_web_env() {
   local web_listen_port="5000"
   local web_service_host="127.0.0.1"
   local web_service_port="8787"
+  local comskip_ini_path="${HOME}/.config/comskip/comskip.ini"
   local sd_lineup_id=""
 
   if [[ -f "${WEB_ENV}" ]]; then
@@ -80,6 +81,7 @@ ensure_web_env() {
     web_listen_port="${CCATV_WEB_LISTEN_PORT:-${web_listen_port}}"
     web_service_host="${CCATV_WEB_SERVICE_HOST:-${web_service_host}}"
     web_service_port="${CCATV_WEB_SERVICE_PORT:-${web_service_port}}"
+    comskip_ini_path="${CCATV_COMSKIP_INI_PATH:-${comskip_ini_path}}"
     sd_lineup_id="${CCATV_SD_LINEUP_ID:-}"
   fi
 
@@ -103,6 +105,7 @@ CCATV_WEB_LISTEN_HOST=${web_listen_host}
 CCATV_WEB_LISTEN_PORT=${web_listen_port}
 CCATV_WEB_SERVICE_HOST=${web_service_host}
 CCATV_WEB_SERVICE_PORT=${web_service_port}
+CCATV_COMSKIP_INI_PATH=${comskip_ini_path}
 CCATV_SD_LINEUP_ID=${sd_lineup_id}
 EOF
   chmod 600 "${WEB_ENV}"
