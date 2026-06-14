@@ -11,6 +11,29 @@ WEB_ENV="${CONFIG_DIR}/web.env"
 WEB_PID_FILE="${RUN_DIR}/ccatv-web.pid"
 WEB_LOG_FILE="${LOG_DIR}/ccatv-web.log"
 
+usage() {
+  cat <<'EOF'
+Usage: ccatv-bounce-flask
+
+Restart only the ccatv-web Flask process using values from:
+  ~/.config/ccatv/web.env
+EOF
+}
+
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Use --help for usage." >&2
+      exit 2
+      ;;
+  esac
+fi
+
 mkdir -p "${LOG_DIR}" "${RUN_DIR}"
 
 if [[ ! -d "${REPO_DIR}" ]]; then

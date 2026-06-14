@@ -7,6 +7,36 @@ STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/ccatv"
 LOG_DIR="${STATE_DIR}/logs"
 LOG_FILE="${LOG_DIR}/ccatv-epg-sync.log"
 
+usage() {
+  cat <<'EOF'
+Usage: ccatv-epg-daily [LINEUP_ID]
+
+Run daily metadata workflow in sequence:
+  1) OTA EPG sync
+  2) Schedules Direct daily sync
+
+Arguments:
+  LINEUP_ID    Optional Schedules Direct lineup id.
+
+Environment:
+  CCATV_SD_LINEUP_ID  Used when LINEUP_ID is not provided.
+EOF
+}
+
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --*)
+      echo "Unknown option: $1" >&2
+      echo "Use --help for usage." >&2
+      exit 2
+      ;;
+  esac
+fi
+
 SD_LINEUP_ID="${CCATV_SD_LINEUP_ID:-${1:-}}"
 
 mkdir -p "${LOG_DIR}"

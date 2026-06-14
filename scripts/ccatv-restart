@@ -4,6 +4,26 @@ set -euo pipefail
 
 REPO_DIR="${HOME}/src/ccatv"
 
+usage() {
+	cat <<'EOF'
+Usage: ccatv-restart [ccatv-start options]
+
+Stop ccatv services, pull latest repo changes, reinstall helper scripts,
+then start ccatv again.
+
+Any options are forwarded to ccatv-start.
+EOF
+}
+
+if [[ $# -gt 0 ]]; then
+	case "$1" in
+		--help|-h)
+			usage
+			exit 0
+			;;
+	esac
+fi
+
 echo "--- stopping ccatv ---"
 ccatv-stop
 
