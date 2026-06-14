@@ -1241,7 +1241,12 @@ def test_main_status_no_recordings_in_progress() -> None:
             self.closed = False
 
         def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
-            return {"isRecording": False, "activeCount": 0, "activeRecordings": []}
+            return {
+                "isRecording": False,
+                "activeCount": 0,
+                "activeRecordings": [],
+                "nextScheduled": None,
+            }
 
         def close(self) -> None:
             self.closed = True
@@ -1258,7 +1263,48 @@ def test_main_status_no_recordings_in_progress() -> None:
     exit_code = main(["status"], deps=deps)
 
     assert exit_code == 0
-    assert "No recordings in progress." in stdout.getvalue()
+    out = stdout.getvalue()
+    assert "No recordings in progress." in out
+    assert "No upcoming scheduled recordings." in out
+    assert stderr.getvalue() == ""
+
+
+def test_main_status_shows_next_scheduled_when_idle() -> None:
+    class _StubClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+            return {
+                "isRecording": False,
+                "activeCount": 0,
+                "activeRecordings": [],
+                "nextScheduled": {
+                    "jobId": 145,
+                    "channel": "BBC TWO HD",
+                    "program": "Gardeners' World",
+                    "startAtUtc": "2026-06-14T14:30:00Z",
+                },
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["status"], deps=deps)
+
+    assert exit_code == 0
+    out = stdout.getvalue()
+    assert "No recordings in progress." in out
+    assert "Next recording: [job=145] BBC TWO HD: Gardeners' World at 2026-06-14T14:30:00Z" in out
     assert stderr.getvalue() == ""
 
 

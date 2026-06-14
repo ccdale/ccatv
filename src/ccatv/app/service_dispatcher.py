@@ -956,10 +956,32 @@ class ServiceCommandDispatcher:
                 }
             )
 
+        next_scheduled_row = connection.execute(
+            """
+            SELECT id, channel_name, program_title, start_at_utc
+            FROM scheduler_jobs
+            WHERE state = 'scheduled'
+              AND start_at_utc >= ?
+            ORDER BY start_at_utc ASC
+            LIMIT 1
+            """,
+            (now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),),
+        ).fetchone()
+
+        next_scheduled: dict[str, object] | None = None
+        if next_scheduled_row is not None:
+            next_scheduled = {
+                "jobId": int(next_scheduled_row[0]),
+                "channel": str(next_scheduled_row[1]) if next_scheduled_row[1] else "unknown",
+                "program": str(next_scheduled_row[2]) if next_scheduled_row[2] else "untitled",
+                "startAtUtc": str(next_scheduled_row[3]),
+            }
+
         return {
             "isRecording": len(active_recordings) > 0,
             "activeCount": len(active_recordings),
             "activeRecordings": active_recordings,
+            "nextScheduled": next_scheduled,
         }
 
     def _match_recording_to_epg(self, recording) -> dict[str, str | None] | None:

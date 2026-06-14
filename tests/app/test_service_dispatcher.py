@@ -660,6 +660,36 @@ def test_dispatch_recording_status_get_no_active_recordings() -> None:
     assert response["payload"]["isRecording"] is False
     assert response["payload"]["activeCount"] == 0
     assert response["payload"]["activeRecordings"] == []
+    assert response["payload"]["nextScheduled"] is None
+
+
+def test_dispatch_recording_status_get_includes_next_scheduled_job() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    job = context.persistence.create_scheduler_job(
+        channel_name="BBC TWO HD",
+        start_at_utc="2099-06-14T14:30:00Z",
+        duration_seconds=1800,
+        state="scheduled",
+        program_title="Gardeners' World",
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.status.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["isRecording"] is False
+    assert payload["nextScheduled"] == {
+        "jobId": job.id,
+        "channel": "BBC TWO HD",
+        "program": "Gardeners' World",
+        "startAtUtc": "2099-06-14T14:30:00Z",
+    }
 
 
 def test_dispatch_recording_status_get_with_active_recording() -> None:

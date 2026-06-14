@@ -779,14 +779,27 @@ def run_recordings_backfill_metadata(
 def run_status(args: argparse.Namespace, deps: CliDependencies) -> int:
     """Show current recording status."""
     try:
+        del args
         client = deps.service_client_factory()
         result = client.execute("recording.status.get", {})
         is_recording = result.get("isRecording", False)
         active_count = result.get("activeCount", 0)
         active_recordings = result.get("activeRecordings", [])
+        next_scheduled = result.get("nextScheduled")
 
         if not is_recording:
             print("No recordings in progress.", file=deps.stdout)
+            if isinstance(next_scheduled, dict):
+                job_id = next_scheduled.get("jobId")
+                channel = next_scheduled.get("channel") or "unknown"
+                program = next_scheduled.get("program") or "untitled"
+                start_at_utc = next_scheduled.get("startAtUtc") or "unknown"
+                print(
+                    f"Next recording: [job={job_id}] {channel}: {program} at {start_at_utc}",
+                    file=deps.stdout,
+                )
+            else:
+                print("No upcoming scheduled recordings.", file=deps.stdout)
             return 0
 
         print(f"Recording in progress ({active_count} active):", file=deps.stdout)
