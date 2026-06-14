@@ -233,6 +233,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recordings_backfill_parser.set_defaults(handler=run_recordings_backfill_metadata)
 
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show current recording status",
+    )
+    status_parser.set_defaults(handler=run_status)
+
     return parser
 
 
@@ -254,6 +260,15 @@ def setup_main(
     """Run the dedicated setup entrypoint."""
     setup_argv = list(sys.argv[1:] if argv is None else argv)
     return main(["setup", *setup_argv], deps=deps)
+
+
+def status_main(
+    argv: Sequence[str] | None = None,
+    deps: CliDependencies | None = None,
+) -> int:
+    """Run the dedicated status entrypoint."""
+    status_argv = list(sys.argv[1:] if argv is None else argv)
+    return main(["status", *status_argv], deps=deps)
 
 
 def run_setup(args: argparse.Namespace, deps: CliDependencies) -> int:
@@ -761,6 +776,37 @@ def run_recordings_backfill_metadata(
     return 0
 
 
+def run_status(args: argparse.Namespace, deps: CliDependencies) -> int:
+    """Show current recording status."""
+    try:
+        client = deps.service_client_factory()
+        result = client.execute("recording.status.get", {})
+        is_recording = result.get("isRecording", False)
+        active_count = result.get("activeCount", 0)
+        active_recordings = result.get("activeRecordings", [])
+
+        if not is_recording:
+            print("No recordings in progress.", file=deps.stdout)
+            return 0
+
+        print(f"Recording in progress ({active_count} active):", file=deps.stdout)
+        for rec in active_recordings:
+            job_id = rec.get("jobId")
+            channel = rec.get("channel")
+            program = rec.get("program")
+            duration = rec.get("elapsedSeconds", 0)
+            minutes = duration // 60
+            seconds = duration % 60
+            print(
+                f"  [job={job_id}] {channel}: {program} ({minutes}m{seconds}s)",
+                file=deps.stdout,
+            )
+        return 0
+    except ServiceClientError as exc:
+        print(f"Error: {exc}", file=deps.stderr)
+        return 1
+
+
 def _run_async_blocking(coroutine: object) -> object:
     try:
         asyncio.get_running_loop()
@@ -800,5 +846,7 @@ __all__ = [
     "run_epg_sync_sd",
     "run_recordings_backfill_metadata",
     "run_setup",
+    "run_status",
     "setup_main",
+    "status_main",
 ]

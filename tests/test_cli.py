@@ -1228,3 +1228,107 @@ def test_main_channel_map_clears_mapping_when_service_name_omitted() -> None:
     ]
     assert "Cleared dvbstreamer service name for 'Quest'" in stdout.getvalue()
     assert stderr.getvalue() == ""
+
+
+# ---------------------------------------------------------------------------
+# status command
+# ---------------------------------------------------------------------------
+
+
+def test_main_status_no_recordings_in_progress() -> None:
+    class _StubClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+            return {"isRecording": False, "activeCount": 0, "activeRecordings": []}
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["status"], deps=deps)
+
+    assert exit_code == 0
+    assert "No recordings in progress." in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
+def test_main_status_shows_active_recordings() -> None:
+    class _StubClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+            return {
+                "isRecording": True,
+                "activeCount": 1,
+                "activeRecordings": [
+                    {
+                        "recordingId": 34,
+                        "jobId": 112,
+                        "channel": "BBC One East HD",
+                        "program": "Points of View",
+                        "elapsedSeconds": 1080,
+                    }
+                ],
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["status"], deps=deps)
+
+    assert exit_code == 0
+    out = stdout.getvalue()
+    assert "Recording in progress (1 active)" in out
+    assert "job=112" in out
+    assert "BBC One East HD" in out
+    assert "Points of View" in out
+    assert "18m0s" in out
+    assert stderr.getvalue() == ""
+
+
+def test_main_status_returns_error_on_service_client_failure() -> None:
+    class _StubClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, command: str, payload: dict[str, object]) -> dict[str, object]:
+            raise ServiceClientError(
+                code="SERVICE_UNAVAILABLE", message="connection refused"
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(["status"], deps=deps)
+
+    assert exit_code == 1
+    assert "Error:" in stderr.getvalue()

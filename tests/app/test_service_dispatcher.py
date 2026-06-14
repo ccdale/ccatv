@@ -646,6 +646,112 @@ def test_dispatch_recording_schedule_list_returns_empty_when_no_jobs() -> None:
     assert response["payload"]["jobs"] == []
 
 
+def test_dispatch_recording_status_get_no_active_recordings() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.status.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    assert response["payload"]["isRecording"] is False
+    assert response["payload"]["activeCount"] == 0
+    assert response["payload"]["activeRecordings"] == []
+
+
+def test_dispatch_recording_status_get_with_active_recording() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.create_recording(
+        channel_name="BBC One East HD",
+        output_path="/tmp/bbc1.ts",
+        state="recording",
+        started_at_utc="2026-06-14T12:43:00Z",
+        program_title="Points of View",
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.status.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["isRecording"] is True
+    assert payload["activeCount"] == 1
+    rec = payload["activeRecordings"][0]
+    assert rec["channel"] == "BBC One East HD"
+    assert rec["program"] == "Points of View"
+    assert isinstance(rec["elapsedSeconds"], int)
+    assert rec["elapsedSeconds"] >= 0
+
+
+def test_dispatch_recording_status_get_excludes_completed_recordings() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.create_recording(
+        channel_name="BBC One East HD",
+        output_path="/tmp/bbc1.ts",
+        state="ready",
+        started_at_utc="2026-06-14T12:43:00Z",
+        program_title="Points of View",
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.status.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    assert response["payload"]["isRecording"] is False
+    assert response["payload"]["activeCount"] == 0
+
+
+def test_dispatch_recording_status_get_links_scheduler_job_id() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    job = context.persistence.create_scheduler_job(
+        channel_name="Channel 4 HD",
+        start_at_utc="2026-06-14T12:58:00Z",
+        duration_seconds=1800,
+        state="scheduled",
+    )
+    context.persistence.update_scheduler_job_state(job.id, state="running")
+    context.persistence.create_recording(
+        channel_name="Channel 4 HD",
+        output_path="/tmp/ch4.ts",
+        state="recording",
+        started_at_utc="2026-06-14T12:58:00Z",
+        program_title="The Simpsons",
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "recording.status.get",
+        "payload": {},
+    })
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["isRecording"] is True
+    rec = payload["activeRecordings"][0]
+    assert rec["jobId"] == job.id
+    assert rec["channel"] == "Channel 4 HD"
+    assert rec["program"] == "The Simpsons"
+
+
+def test_dispatch_recording_status_get_is_in_service_commands() -> None:
+    assert "recording.status.get" in SERVICE_COMMANDS
+
+
 def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

@@ -68,6 +68,7 @@ SERVICE_COMMANDS = [
     "recording.schedule.cancel",
     "recording.schedule.list",
     "recording.metadata.backfill",
+    "recording.status.get",
     "recording.worker.cycle.run",
     "metadata.channels.list",
     "metadata.channels.dvbservices.list",
@@ -189,6 +190,8 @@ class ServiceCommandDispatcher:
             return self._recording_schedule_list(payload)
         if command == "recording.metadata.backfill":
             return self._recording_metadata_backfill(payload)
+        if command == "recording.status.get":
+            return self._recording_status_get(payload)
         if command == "recording.worker.cycle.run":
             return self._recording_worker_cycle_run(payload)
         if command == "metadata.channels.list":
@@ -856,6 +859,51 @@ class ServiceCommandDispatcher:
             "updatedFromEpg": updated_from_epg,
             "updatedFromNfo": updated_from_nfo,
             "unchanged": unchanged,
+        }
+
+    def _recording_status_get(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        """Get current recording status (in-progress recordings)."""
+        connection = self._context.persistence.connection
+        rows = connection.execute(
+            """
+            SELECT r.id, r.channel_name, r.program_title, r.started_at_utc,
+                   j.id AS job_id
+            FROM recordings r
+            LEFT JOIN scheduler_jobs j
+                ON j.channel_name = r.channel_name AND j.state = 'running'
+            WHERE r.state = 'recording'
+            """,
+        ).fetchall()
+
+        active_recordings = []
+        now_dt = datetime.now(timezone.utc)
+        for row in rows:
+            rec_id, channel, program, started_at, job_id = row
+            elapsed_seconds = 0
+            if started_at:
+                try:
+                    start_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                    elapsed_seconds = int((now_dt - start_dt).total_seconds())
+                except (ValueError, AttributeError):
+                    pass
+
+            active_recordings.append(
+                {
+                    "recordingId": rec_id,
+                    "jobId": job_id,
+                    "channel": channel or "unknown",
+                    "program": program or "untitled",
+                    "elapsedSeconds": max(0, elapsed_seconds),
+                }
+            )
+
+        return {
+            "isRecording": len(active_recordings) > 0,
+            "activeCount": len(active_recordings),
+            "activeRecordings": active_recordings,
         }
 
     def _match_recording_to_epg(self, recording) -> dict[str, str | None] | None:
