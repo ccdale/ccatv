@@ -332,6 +332,18 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.post("/api/recordings/<int:recording_id>/stop")
+    def api_recording_stop(recording_id: int):
+        payload = {
+            "id": recording_id,
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "recording.stop",
+            payload,
+        )
+        return jsonify(response), status_code
+
     @app.get("/api/guide")
     def api_guide_list():
         channel = request.args.get("channel", default=None, type=str)

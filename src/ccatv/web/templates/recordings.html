@@ -370,12 +370,19 @@
           stateCell.append(pill);
 
           const actionsCell = document.createElement("td");
-          const deleteButton = document.createElement("button");
-          deleteButton.type = "button";
-          deleteButton.className = "danger";
-          deleteButton.textContent = "Delete";
-          deleteButton.addEventListener("click", () => { void deleteRecording(recording, deleteButton); });
-          actionsCell.append(deleteButton);
+          const isRunning = recording.state === "recording";
+          const actionButton = document.createElement("button");
+          actionButton.type = "button";
+          actionButton.className = isRunning ? "" : "danger";
+          actionButton.textContent = isRunning ? "Stop" : "Delete";
+          actionButton.addEventListener("click", () => {
+            if (isRunning) {
+              void stopRecording(recording, actionButton);
+            } else {
+              void deleteRecording(recording, actionButton);
+            }
+          });
+          actionsCell.append(actionButton);
 
           row.append(programmeCell, channelCell, datetimeCell, sizeCell, stateCell, actionsCell);
           recordingTableBody.append(row);
@@ -410,6 +417,26 @@
           recordings = recordings.filter((item) => item.id !== recording.id);
           renderRecordings();
           setStatus(`Deleted recording ${recording.id} from the database.`);
+        } catch (error) {
+          setStatus(error.message, "error");
+          button.disabled = false;
+        }
+      }
+
+      async function stopRecording(recording, button) {
+        if (!window.confirm(`Stop recording ${recording.id}? This will end the capture and initiate post-processing.`)) {
+          return;
+        }
+        button.disabled = true;
+        try {
+          await fetchJson(`/api/recordings/${recording.id}/stop`, {
+            method: "POST",
+          });
+          setStatus(`Stop requested for recording ${recording.id}. State will change to Processing shortly.`);
+          // Reload after a short delay to let the backend process the stop request
+          setTimeout(() => {
+            void loadRecordings();
+          }, 500);
         } catch (error) {
           setStatus(error.message, "error");
           button.disabled = false;

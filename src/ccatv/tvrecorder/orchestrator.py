@@ -231,6 +231,7 @@ class RecorderOrchestrator:
         default_factory=dict, init=False, repr=False
     )
     _results_lock: Any = field(default_factory=threading.Lock, init=False, repr=False)
+    _stop_jobs: set[int] = field(default_factory=set, init=False, repr=False)
     adapter_pool: Any = None  # AdapterPool | None; injected after construction
 
     def list_due_scheduler_jobs(
@@ -249,6 +250,11 @@ class RecorderOrchestrator:
         ]
         due_jobs.sort(key=lambda job: (_parse_utc_iso(job.start_at_utc), job.id))
         return due_jobs
+
+    def request_job_stop(self, job_id: int) -> None:
+        """Request that a currently-running recording job stop early and proceed to post-processing."""
+        with self._results_lock:
+            self._stop_jobs.add(job_id)
 
     def run_due_jobs(
         self,
@@ -482,6 +488,7 @@ class RecorderOrchestrator:
                 recording.id,
             )
             self._run_periodic_growth_checks(
+                job_id=job.id,
                 recording_id=recording.id,
                 recording_duration_seconds=effective_duration_seconds,
             )
@@ -614,6 +621,7 @@ class RecorderOrchestrator:
     def _run_periodic_growth_checks(
         self,
         *,
+        job_id: int,
         recording_id: int,
         recording_duration_seconds: int,
     ) -> None:
@@ -627,15 +635,27 @@ class RecorderOrchestrator:
         remaining_seconds = float(recording_duration_seconds)
         check_count = 0
         while remaining_seconds > 0:
-            # Exit early if shutdown is requested
+            # Exit early if shutdown is requested or job is marked for stop
             if self.should_stop():
                 self.logger.info(
-                    "recording interrupted by shutdown: recording_id=%s remaining_seconds=%.1f checks_completed=%d",
+                    "recording interrupted by shutdown: job_id=%s recording_id=%s remaining_seconds=%.1f checks_completed=%d",
+                    job_id,
                     recording_id,
                     remaining_seconds,
                     check_count,
                 )
                 break
+            with self._results_lock:
+                if job_id in self._stop_jobs:
+                    self._stop_jobs.discard(job_id)
+                    self.logger.info(
+                        "recording stopped by user request: job_id=%s recording_id=%s remaining_seconds=%.1f checks_completed=%d",
+                        job_id,
+                        recording_id,
+                        remaining_seconds,
+                        check_count,
+                    )
+                    break
 
             sleep_seconds = min(
                 self.periodic_policy.interval_seconds,
@@ -655,7 +675,8 @@ class RecorderOrchestrator:
             # Log progress for longer recordings (every 5 checks or at key intervals)
             if check_count % 5 == 0 or remaining_seconds <= 30:
                 self.logger.debug(
-                    "recording in progress: recording_id=%s remaining_seconds=%.1f checks_completed=%d",
+                    "recording in progress: job_id=%s recording_id=%s remaining_seconds=%.1f checks_completed=%d",
+                    job_id,
                     recording_id,
                     remaining_seconds,
                     check_count,

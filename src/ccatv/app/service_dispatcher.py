@@ -64,6 +64,7 @@ SERVICE_COMMANDS = [
     "service.info.get",
     "recording.list",
     "recording.delete",
+    "recording.stop",
     "recording.schedule.create",
     "recording.schedule.cancel",
     "recording.schedule.list",
@@ -182,6 +183,8 @@ class ServiceCommandDispatcher:
             return self._recording_list(payload)
         if command == "recording.delete":
             return self._recording_delete(payload)
+        if command == "recording.stop":
+            return self._recording_stop(payload)
         if command == "recording.schedule.create":
             return self._recording_schedule_create(payload)
         if command == "recording.schedule.cancel":
@@ -513,6 +516,59 @@ class ServiceCommandDispatcher:
             "outputPath": deleted.output_path,
             "deleteFiles": delete_files,
             "fileDelete": file_result,
+        }
+
+    def _recording_stop(self, payload: dict[str, object]) -> dict[str, object]:
+        recording_id = payload.get("id")
+        if not isinstance(recording_id, int) or recording_id < 1:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="id must be a positive integer",
+            )
+
+        # Get the recording to find its associated scheduler job
+        try:
+            recording = self._context.persistence.get_recording(recording_id)
+        except ValueError as exc:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=str(exc),
+            ) from exc
+
+        # Check if the recording is currently running
+        if recording.state != "recording":
+            raise ServiceCommandError(
+                code="INVALID_STATE",
+                message=f"recording {recording_id} is not in 'recording' state (current state: {recording.state})",
+            )
+
+        # Find the scheduler job for this recording by matching channel and start time
+        scheduler_jobs = self._context.persistence.list_scheduler_jobs()
+        matching_job = None
+        for job in scheduler_jobs:
+            if (
+                job.channel_name == recording.channel_name
+                and job.state == "running"
+            ):
+                # This is a best-effort match; ideally we'd have a foreign key
+                # from recordings to scheduler_jobs, but for now we match on
+                # channel and running state
+                matching_job = job
+                break
+
+        if matching_job is None:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=f"no running scheduler job found for recording {recording_id}",
+            )
+
+        # Request the orchestrator to stop the job early
+        self._context.recorder_orchestrator.request_job_stop(matching_job.id)
+
+        return {
+            "recordingId": recording.id,
+            "jobId": matching_job.id,
+            "status": "stop_requested",
         }
 
     def _delete_recording_files(self, output_path: str) -> dict[str, list[object]]:
