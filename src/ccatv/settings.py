@@ -106,6 +106,7 @@ class AppSettings:
     recording_growth_min_bytes: int = 1
     recording_final_stability_checks: int = 2
     recording_final_stability_interval_seconds: float = 2.0
+    comskip_ini_path: str = "/home/chris/.config/comskip/comskip.ini"
     database_path: str = str(
         Path(user_data_dir("ccatv", appauthor=False)) / "ccatv.sqlite3"
     )
@@ -185,6 +186,10 @@ class AppSettings:
             recording_final_stability_interval_seconds=_env_non_negative_float(
                 "CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS",
                 2.0,
+            ),
+            comskip_ini_path=_env_non_empty_str(
+                "CCATV_COMSKIP_INI_PATH",
+                "/home/chris/.config/comskip/comskip.ini",
             ),
             database_path=os.getenv(
                 "CCATV_DATABASE_PATH",

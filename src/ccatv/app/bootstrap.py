@@ -201,7 +201,7 @@ def bootstrap_app() -> AppContext:
                         run_comskip=True,
                         comskip_command=(
                             "/usr/bin/comskip",
-                            f"--ini={Path.home()}/.config/comskip/comskip.ini",
+                            f"--ini={settings.comskip_ini_path}",
                         ),
                     ),
                     FfmpegTranscodePostProcessingRunner(delete_source=True),

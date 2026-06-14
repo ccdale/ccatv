@@ -31,6 +31,7 @@ def test_from_env_loads_core_defaults(monkeypatch) -> None:
         "CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS",
         raising=False,
     )
+    monkeypatch.delenv("CCATV_COMSKIP_INI_PATH", raising=False)
 
     settings = AppSettings.from_env()
 
@@ -55,6 +56,7 @@ def test_from_env_loads_core_defaults(monkeypatch) -> None:
     assert settings.recording_growth_min_bytes == 1
     assert settings.recording_final_stability_checks == 2
     assert settings.recording_final_stability_interval_seconds == 2.0
+    assert settings.comskip_ini_path == "/home/chris/.config/comskip/comskip.ini"
 
 
 def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
@@ -79,6 +81,7 @@ def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
     monkeypatch.setenv("CCATV_RECORDING_GROWTH_MIN_BYTES", "2048")
     monkeypatch.setenv("CCATV_RECORDING_FINAL_STABILITY_CHECKS", "3")
     monkeypatch.setenv("CCATV_RECORDING_FINAL_STABILITY_INTERVAL_SECONDS", "4")
+    monkeypatch.setenv("CCATV_COMSKIP_INI_PATH", "/tmp/comskip-test.ini")
 
     settings = AppSettings.from_env()
 
@@ -103,6 +106,7 @@ def test_from_env_parses_numeric_and_string_overrides(monkeypatch) -> None:
     assert settings.recording_growth_min_bytes == 2048
     assert settings.recording_final_stability_checks == 3
     assert settings.recording_final_stability_interval_seconds == 4.0
+    assert settings.comskip_ini_path == "/tmp/comskip-test.ini"
 
 
 def test_from_env_falls_back_for_invalid_numeric_values(monkeypatch) -> None:
