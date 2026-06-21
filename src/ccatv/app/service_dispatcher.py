@@ -1163,10 +1163,38 @@ class ServiceCommandDispatcher:
             }
             key = display_name.casefold()
             current = channels_by_name.get(key)
-            if current is None or source_priority(channel["source"]) < source_priority(
+            if current is None:
+                channels_by_name[key] = channel
+                continue
+
+            merged_favorite = bool(current["favoriteChannel"]) or bool(
+                channel["favoriteChannel"]
+            )
+
+            preferred = current
+            if source_priority(channel["source"]) < source_priority(
                 str(current["source"])
             ):
-                channels_by_name[key] = channel
+                preferred = channel
+
+            fallback = channel if preferred is current else current
+            if preferred["callsign"] is None and fallback["callsign"] is not None:
+                preferred["callsign"] = fallback["callsign"]
+            if (
+                preferred["logicalChannelNumber"] is None
+                and fallback["logicalChannelNumber"] is not None
+            ):
+                preferred["logicalChannelNumber"] = fallback["logicalChannelNumber"]
+            if (
+                preferred["dvbstreamerServiceName"] is None
+                and fallback["dvbstreamerServiceName"] is not None
+            ):
+                preferred["dvbstreamerServiceName"] = fallback[
+                    "dvbstreamerServiceName"
+                ]
+
+            preferred["favoriteChannel"] = merged_favorite
+            channels_by_name[key] = preferred
 
         return {
             "channels": sorted(

@@ -1011,6 +1011,50 @@ def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None
     ]
 
 
+def test_dispatch_metadata_channels_list_keeps_favorite_from_fallback_source() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number,
+            favorite_channel
+        ) VALUES(?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("schedules_direct", "100", "BBC FOUR HD", "BBC4HD", "106", 1),
+            ("dvbstreamer_ota", "200", "BBC FOUR HD", None, None, 0),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.list",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["channels"] == [
+        {
+            "name": "BBC FOUR HD",
+            "callsign": "BBC4HD",
+            "logicalChannelNumber": "106",
+            "source": "dvbstreamer_ota",
+            "sourceChannelId": "200",
+            "dvbstreamerServiceName": None,
+            "favoriteChannel": True,
+        }
+    ]
+
+
 def test_dispatch_metadata_channels_service_name_set_updates_mapping() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
