@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from queue import Queue
+import re
 import signal as _signal
 import subprocess
 from threading import Lock, Thread
@@ -43,6 +44,7 @@ from ccatv.tvrecorder.config import (
 )
 from ccatv.tvrecorder.manager import DvbStreamerState
 from ccatv.tvrecorder.dvbctrl import DvbCtrlClient
+from ccatv.tvrecorder.commands import serviceinfo_command
 
 API_VERSION = "v1alpha1"
 MIN_RECORDING_SECONDS = 30
@@ -1505,12 +1507,19 @@ class ServiceCommandDispatcher:
             }
 
         films_by_slot: dict[tuple[str, str, str, str], dict[str, object]] = {}
+        service_eligibility_cache: dict[str, bool] = {}
         for row in rows:
             title = str(row[8])
             channel_name = str(row[2])
             if (
                 channel_scope_value == "favourites"
                 and channel_name.strip().casefold() not in favourite_names
+            ):
+                continue
+
+            if not self._channel_is_eligible_for_films(
+                channel_name,
+                cache=service_eligibility_cache,
             ):
                 continue
 
@@ -1564,6 +1573,63 @@ class ServiceCommandDispatcher:
             },
             "films": films,
         }
+
+    def _channel_is_eligible_for_films(
+        self,
+        channel_name: str,
+        *,
+        cache: dict[str, bool],
+    ) -> bool:
+        key = channel_name.strip().casefold()
+        if key in cache:
+            return cache[key]
+
+        # Default to include when control-plane inspection is unavailable.
+        eligible = True
+        try:
+            resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
+            serviceinfo = self._context.tvrecorder.run(
+                serviceinfo_command(resolved_name)
+            ).stdout
+            has_pid = self._serviceinfo_has_media_pid(serviceinfo)
+            is_radio = self._serviceinfo_is_radio(serviceinfo)
+            eligible = has_pid and not is_radio
+        except Exception:
+            eligible = True
+
+        cache[key] = eligible
+        return eligible
+
+    def _serviceinfo_has_media_pid(self, raw: str) -> bool:
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lowered = stripped.casefold()
+            if "pid" not in lowered:
+                continue
+            if "service id" in lowered:
+                continue
+            if ":" in stripped:
+                value = stripped.split(":", 1)[1].strip()
+            else:
+                value = stripped
+            value_lower = value.casefold()
+            if value_lower in {"none", "n/a", "-", "null", "no"}:
+                continue
+            if re.search(r"0x[0-9a-fA-F]+|\\b\\d+\\b", value):
+                return True
+        return False
+
+    def _serviceinfo_is_radio(self, raw: str) -> bool:
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lowered = stripped.casefold()
+            if "type" in lowered and "radio" in lowered:
+                return True
+        return False
 
     def _metadata_sd_sync_run(self, payload: dict[str, object]) -> dict[str, object]:
         lineup_id = payload.get("lineupId")

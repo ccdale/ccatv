@@ -1120,6 +1120,97 @@ def test_dispatch_metadata_films_list_favourites_scope_filters_channels() -> Non
     assert films[0]["channelName"] == "Film4"
 
 
+def test_dispatch_metadata_films_list_excludes_radio_and_no_pid_channels() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "200", "Film4", "FILM4", "14"),
+            ("dvbstreamer_ota", "201", "BBC Radio 4", "RADIO4", "704"),
+            ("dvbstreamer_ota", "202", "Web Movie Channel", "WEBMOV", "999"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "p1", "Film A", "Feature", "Movie"),
+            ("dvbstreamer_ota", "p2", "Film B", "Feature", "Movie"),
+            ("dvbstreamer_ota", "p3", "Film C", "Feature", "Movie"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "2026-05-25T21:00:00Z", "2026-05-25T23:00:00Z", 7200),
+            (2, 2, "2026-05-25T21:30:00Z", "2026-05-25T23:30:00Z", 7200),
+            (3, 3, "2026-05-25T22:00:00Z", "2026-05-26T00:00:00Z", 7200),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    def _run_serviceinfo(command) -> SimpleNamespace:
+        service_name = command.args[0]
+        if service_name == "Film4":
+            return SimpleNamespace(
+                stdout="Type: TV\nVideo PID: 0x0078\nAudio PID: 0x0082\n"
+            )
+        if service_name == "BBC Radio 4":
+            return SimpleNamespace(
+                stdout="Type: Radio\nAudio PID: 0x0140\n"
+            )
+        return SimpleNamespace(
+            stdout="Type: TV\nVideo PID: none\nAudio PID: none\n"
+        )
+
+    context.tvrecorder = SimpleNamespace(
+        resolve_service_name=lambda name: name,
+        run=_run_serviceinfo,
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 8,
+                "channelScope": "all",
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    films = response["payload"]["films"]
+    assert len(films) == 1
+    assert films[0]["channelName"] == "Film4"
+
+
 def test_dispatch_metadata_films_list_rejects_invalid_duration_range() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
