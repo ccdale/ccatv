@@ -45,12 +45,20 @@
       .status.error { color: #b42318; background: rgba(180, 35, 24, 0.1); }
       .toolbar { margin-top: 1rem; display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
       .toolbar .meta { color: var(--muted); font-size: 0.93rem; }
+      .toolbar-controls { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+      .toolbar-controls label { color: var(--muted); font-size: 0.9rem; }
+      select { font: inherit; border: 1px solid var(--line); border-radius: 999px; padding: 0.55rem 0.75rem; background: #fff; color: var(--ink); }
       .film-list { margin-top: 0.9rem; display: grid; gap: 0.65rem; }
       .film-card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 0.85rem 0.95rem; display: grid; gap: 0.45rem; }
       .film-header { display: flex; justify-content: space-between; gap: 0.7rem; flex-wrap: wrap; align-items: center; }
       .film-title { font-size: 1.06rem; font-weight: 700; }
+      .film-title-button { border: 0; background: none; color: inherit; padding: 0; text-align: left; font: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: rgba(15, 118, 110, 0.45); text-underline-offset: 2px; }
       .film-meta { color: var(--muted); font-size: 0.92rem; }
       .film-description { color: var(--muted); font-size: 0.93rem; }
+      .other-showings { border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.7rem; background: rgba(255, 255, 255, 0.75); }
+      .other-showings[hidden] { display: none; }
+      .other-showings-title { font-weight: 700; font-size: 0.9rem; }
+      .other-showing-row { margin-top: 0.3rem; color: var(--muted); font-size: 0.9rem; }
       .pill { display: inline-flex; align-items: center; padding: 0.28rem 0.55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.84rem; }
       .empty { border: 1px dashed var(--line); border-radius: 14px; padding: 1.2rem; color: var(--muted); background: rgba(255, 255, 255, 0.6); }
       @media (max-width: 760px) {
@@ -79,7 +87,14 @@
 
       <div class="toolbar">
         <div id="window-meta" class="meta">Films list loading.</div>
-        <button id="refresh-button" class="ghost" type="button">Refresh films</button>
+        <div class="toolbar-controls">
+          <label for="channel-scope-select">Channels</label>
+          <select id="channel-scope-select">
+            <option value="favourites">Favourites</option>
+            <option value="all">All</option>
+          </select>
+          <button id="refresh-button" class="ghost" type="button">Refresh films</button>
+        </div>
       </div>
 
       <section id="film-list" class="film-list">
@@ -93,6 +108,7 @@
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
+      const channelScopeSelect = document.getElementById("channel-scope-select");
       const statusNode = document.getElementById("status");
       const windowMeta = document.getElementById("window-meta");
       const filmList = document.getElementById("film-list");
@@ -100,6 +116,7 @@
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let films = [];
       let schedules = [];
+      let channelScope = "favourites";
 
       class ApiError extends Error {
         constructor(message, code = null) {
@@ -167,10 +184,34 @@
       }
 
       async function loadFilms() {
-        const payload = await fetchJson("/api/upcoming-films");
+        const query = new URLSearchParams({
+          channelScope,
+        });
+        const payload = await fetchJson(`/api/upcoming-films?${query.toString()}`);
         films = Array.isArray(payload.films) ? payload.films : [];
         const window = payload.window || {};
+        const filters = payload.filters || {};
+        if (typeof filters.channelScope === "string") {
+          channelScope = String(filters.channelScope).toLowerCase();
+        }
+        channelScopeSelect.value = channelScope;
         windowMeta.textContent = `Window ${formatDateTime(window.startAtUtc)} to ${formatDateTime(window.endAtUtc)}.`;
+      }
+
+      function sameFilmKey(left, right) {
+        const leftContent = String(left.contentRef || "").trim();
+        const rightContent = String(right.contentRef || "").trim();
+        if (leftContent && rightContent) {
+          return leftContent === rightContent;
+        }
+        return String(left.title || "").trim().toLowerCase() === String(right.title || "").trim().toLowerCase();
+      }
+
+      function findOtherShowings(film) {
+        return films
+          .filter((candidate) => sameFilmKey(candidate, film))
+          .filter((candidate) => !(candidate.channelName === film.channelName && candidate.startAtUtc === film.startAtUtc))
+          .sort((a, b) => String(a.startAtUtc).localeCompare(String(b.startAtUtc)));
       }
 
       async function loadSchedules() {
@@ -239,7 +280,11 @@
 
           const title = document.createElement("div");
           title.className = "film-title";
-          title.textContent = film.title || "Untitled";
+          const titleButton = document.createElement("button");
+          titleButton.type = "button";
+          titleButton.className = "film-title-button";
+          titleButton.textContent = film.title || "Untitled";
+          title.append(titleButton);
 
           const button = document.createElement("button");
           button.type = "button";
@@ -268,7 +313,7 @@
 
           const source = document.createElement("span");
           source.className = "pill";
-          source.textContent = `${film.source || "unknown source"}`;
+          source.textContent = `${film.source || "unknown source"}${film.contentRef ? " | content id" : ""}`;
 
           card.append(header, meta, source);
           if (film.description) {
@@ -277,6 +322,31 @@
             description.textContent = film.description;
             card.append(description);
           }
+
+          const otherShowings = findOtherShowings(film);
+          const showingsPanel = document.createElement("div");
+          showingsPanel.className = "other-showings";
+          showingsPanel.hidden = true;
+
+          const showingsTitle = document.createElement("div");
+          showingsTitle.className = "other-showings-title";
+          showingsTitle.textContent = otherShowings.length
+            ? `Other showings (${otherShowings.length})`
+            : "No other showings found in this window";
+          showingsPanel.append(showingsTitle);
+
+          for (const showing of otherShowings) {
+            const row = document.createElement("div");
+            row.className = "other-showing-row";
+            row.textContent = `${showing.channelName || "-"} | ${formatDateTime(showing.startAtUtc)} - ${formatDateTime(showing.stopAtUtc)} | ${formatDuration(showing.durationSeconds)}`;
+            showingsPanel.append(row);
+          }
+
+          titleButton.addEventListener("click", () => {
+            showingsPanel.hidden = !showingsPanel.hidden;
+          });
+
+          card.append(showingsPanel);
           filmList.append(card);
         }
       }
@@ -341,6 +411,15 @@
           await loadPageData();
         } catch (error) {
           setStatus(error.message || "Failed to refresh.", "error");
+        }
+      });
+
+      channelScopeSelect.addEventListener("change", async () => {
+        channelScope = String(channelScopeSelect.value || "favourites").toLowerCase();
+        try {
+          await loadPageData();
+        } catch (error) {
+          setStatus(error.message || "Failed to apply channel scope.", "error");
         }
       });
 

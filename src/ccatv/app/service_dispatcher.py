@@ -1393,6 +1393,19 @@ class ServiceCommandDispatcher:
         }
 
     def _metadata_films_list(self, payload: dict[str, object]) -> dict[str, object]:
+        channel_scope = payload.get("channelScope", "favourites")
+        if not isinstance(channel_scope, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channelScope must be 'all' or 'favourites'",
+            )
+        channel_scope_value = channel_scope.strip().lower()
+        if channel_scope_value not in {"all", "favourites"}:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channelScope must be 'all' or 'favourites'",
+            )
+
         window_hours = payload.get("windowHours", 24 * 7)
         if not isinstance(window_hours, int | float) or window_hours <= 0:
             raise ServiceCommandError(
@@ -1458,7 +1471,9 @@ class ServiceCommandDispatcher:
                 b.duration_seconds,
                 p.title,
                 p.description_long,
-                p.genre_primary
+                p.genre_primary,
+                json_extract(p.metadata_json, '$.contentRef') AS content_ref,
+                json_extract(p.metadata_json, '$.seriesRef') AS series_ref
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
@@ -1473,10 +1488,32 @@ class ServiceCommandDispatcher:
             (start_utc, end_utc, min_duration_seconds, max_duration_seconds),
         ).fetchall()
 
+        favourite_names: set[str] = set()
+        if channel_scope_value == "favourites":
+            favorite_rows = self._context.persistence.connection.execute(
+                """
+                SELECT lower(trim(display_name))
+                FROM epg_channels
+                WHERE favorite_channel = 1
+                  AND trim(display_name) != ''
+                """
+            ).fetchall()
+            favourite_names = {
+                str(row[0])
+                for row in favorite_rows
+                if row[0] is not None and str(row[0]).strip()
+            }
+
         films_by_slot: dict[tuple[str, str, str, str], dict[str, object]] = {}
         for row in rows:
             title = str(row[8])
             channel_name = str(row[2])
+            if (
+                channel_scope_value == "favourites"
+                and channel_name.strip().casefold() not in favourite_names
+            ):
+                continue
+
             stop_at_utc = str(row[6]) if row[6] is not None else ""
             dedupe_key = (
                 channel_name.casefold(),
@@ -1496,6 +1533,8 @@ class ServiceCommandDispatcher:
                 "title": title,
                 "description": str(row[9]) if row[9] is not None else None,
                 "genre": str(row[10]) if row[10] is not None else None,
+                "contentRef": str(row[11]) if row[11] is not None else None,
+                "seriesRef": str(row[12]) if row[12] is not None else None,
             }
 
             current = films_by_slot.get(dedupe_key)
@@ -1519,6 +1558,7 @@ class ServiceCommandDispatcher:
                 "endAtUtc": end_utc,
             },
             "filters": {
+                "channelScope": channel_scope_value,
                 "minDurationHours": float(min_duration_hours),
                 "maxDurationHours": float(max_duration_hours),
             },

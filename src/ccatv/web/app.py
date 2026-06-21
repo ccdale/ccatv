@@ -535,6 +535,19 @@ def create_app(
     def api_upcoming_films():
         payload: dict[str, object] = {}
 
+        channel_scope = request.args.get("channelScope", default="favourites", type=str)
+        if channel_scope is None:
+            channel_scope = "favourites"
+        channel_scope_value = channel_scope.strip().lower()
+        if channel_scope_value not in {"all", "favourites"}:
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="query parameter 'channelScope' must be 'all' or 'favourites'",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+        payload["channelScope"] = channel_scope_value
+
         start_at_utc = request.args.get("startAtUtc", default=None, type=str)
         if start_at_utc is not None:
             if not start_at_utc.strip():

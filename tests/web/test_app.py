@@ -109,6 +109,7 @@ class _StubServiceClient:
                     "endAtUtc": "2026-06-01T20:00:00Z",
                 },
                 "filters": {
+                    "channelScope": "favourites",
                     "minDurationHours": 1.5,
                     "maxDurationHours": 3.5,
                 },
@@ -121,6 +122,7 @@ class _StubServiceClient:
                         "title": "Film Example",
                         "description": "Example feature film",
                         "source": "dvbstreamer_ota",
+                        "contentRef": "example.org/content-1",
                     }
                 ],
             }
@@ -270,6 +272,8 @@ def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
     assert "Upcoming Films" in body
     assert "Chronological list" in body
     assert "Record" in body
+    assert "channel-scope-select" in body
+    assert "Other showings" in body
     assert stub.calls == []
 
 
@@ -776,6 +780,7 @@ def test_upcoming_films_forwards_query_params(monkeypatch) -> None:
         (
             "metadata.films.list",
             {
+                "channelScope": "favourites",
                 "startAtUtc": "2026-05-25T20:00:00Z",
                 "windowHours": 48.0,
                 "minDurationHours": 1.5,
@@ -800,6 +805,28 @@ def test_upcoming_films_rejects_non_numeric_window_hours(monkeypatch) -> None:
     client = app.test_client()
 
     response = client.get("/api/upcoming-films?windowHours=abc")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
+def test_upcoming_films_rejects_invalid_channel_scope(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/upcoming-films?channelScope=invalid")
 
     assert response.status_code == 400
     assert response.get_json()["ok"] is False
