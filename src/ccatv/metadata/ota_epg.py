@@ -25,6 +25,8 @@ class OtaEpgEvent:
     end_utc: str | None
     title: str
     description: str | None
+    content_ref: str | None = None
+    series_ref: str | None = None
     encrypted: bool | None = None
 
 
@@ -169,6 +171,8 @@ def parse_dvbstreamer_epg(raw_text: str) -> list[OtaEpgEvent]:
                 end_utc=aggregate.end_utc,
                 title=title,
                 description=_select_detail(aggregate, "description"),
+                content_ref=_select_detail(aggregate, "content"),
+                series_ref=_select_detail(aggregate, "series"),
                 encrypted=aggregate.encrypted,
             )
         )
@@ -258,21 +262,48 @@ def _upsert_channel(
 def _upsert_program(
     connection: sqlite3.Connection, source: str, event: OtaEpgEvent
 ) -> tuple[int, bool]:
+    program_metadata: str | None = None
+    if event.content_ref or event.series_ref:
+        metadata_payload: dict[str, str] = {}
+        if event.content_ref:
+            metadata_payload["contentRef"] = event.content_ref
+        if event.series_ref:
+            metadata_payload["seriesRef"] = event.series_ref
+        program_metadata = json.dumps(metadata_payload, sort_keys=True)
+
     update_result = connection.execute(
         """
         UPDATE epg_programs
-        SET title = ?, description_long = ?
+        SET title = ?, description_long = ?, metadata_json = ?
         WHERE source = ? AND source_program_id = ?
         """,
-        (event.title, event.description, source, event.event_source_id),
+        (
+            event.title,
+            event.description,
+            program_metadata,
+            source,
+            event.event_source_id,
+        ),
     )
     if update_result.rowcount == 0:
         connection.execute(
             """
-            INSERT INTO epg_programs(source, source_program_id, title, description_long)
-            VALUES(?, ?, ?, ?)
+            INSERT INTO epg_programs(
+                source,
+                source_program_id,
+                title,
+                description_long,
+                metadata_json
+            )
+            VALUES(?, ?, ?, ?, ?)
             """,
-            (source, event.event_source_id, event.title, event.description),
+            (
+                source,
+                event.event_source_id,
+                event.title,
+                event.description,
+                program_metadata,
+            ),
         )
         inserted = True
     else:

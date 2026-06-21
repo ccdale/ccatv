@@ -46,6 +46,80 @@ def test_parse_fixture_keeps_truncated_descriptions() -> None:
     assert truncated
 
 
+def test_parse_extracts_content_and_series_references() -> None:
+    raw_text = "\n".join(
+        [
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<new start="2026-06-06 17:30:00" end="2026-06-06 18:00:00" ca="no"/>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="eng" name="title">The Wayne Rooney Show - Episode 77</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="eng" name="description">Test description</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="zxx" name="content">fp.bbc.co.uk/2p/9PBBP2</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="zxx" name="series">fp.bbc.co.uk/2p_8Y4R28</detail>',
+            "</event>",
+        ]
+    )
+
+    events = parse_dvbstreamer_epg(raw_text)
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.content_ref == "fp.bbc.co.uk/2p/9PBBP2"
+    assert event.series_ref == "fp.bbc.co.uk/2p_8Y4R28"
+
+
+def test_ingest_persists_content_and_series_metadata(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    raw_text = "\n".join(
+        [
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<new start="2026-06-06 17:30:00" end="2026-06-06 18:00:00" ca="no"/>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="eng" name="title">The Wayne Rooney Show - Episode 77</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="eng" name="description">Test description</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="zxx" name="content">fp.bbc.co.uk/2p/9PBBP2</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00000bbd">',
+            '<detail lang="zxx" name="series">fp.bbc.co.uk/2p_8Y4R28</detail>',
+            "</event>",
+        ]
+    )
+
+    try:
+        stats = ingest_dvbstreamer_epg(connection, raw_text)
+        assert stats.parsed_events == 1
+
+        row = connection.execute(
+            """
+            SELECT metadata_json
+            FROM epg_programs
+            WHERE source = ? AND source_program_id = ?
+            """,
+            ("dvbstreamer_ota", "0x233a:0x1047:0x1600:0x00000bbd"),
+        ).fetchone()
+
+        assert row is not None
+        assert row[0] is not None
+        metadata = json.loads(row[0])
+        assert metadata["contentRef"] == "fp.bbc.co.uk/2p/9PBBP2"
+        assert metadata["seriesRef"] == "fp.bbc.co.uk/2p_8Y4R28"
+    finally:
+        connection.close()
+
+
 def test_ingest_fixture_populates_v2_tables(tmp_path: Path) -> None:
     db_path = tmp_path / "ccatv.sqlite3"
     connection = initialize_database(db_path)
