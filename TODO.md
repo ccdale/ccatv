@@ -50,6 +50,9 @@ These pieces exist but are not yet wired to application runtime workflows:
 - Guide/search enhancement: add an "other showings" option that matches by OTA `content` identifier (broadcaster episode/programme id) when available.
 	- Persist and query by `content` reference for alternate-airing discovery across channels/times.
 	- Validate captured `content` and `series` references in the live host database after OTA ingest runs (druidmedia).
+- Metadata enhancement: attempt to infer series/episode numbering from OTA description text.
+	- Parse patterns such as `2/12`, `4/10`, and `ep 5` when they appear near the start or end of the description.
+	- Record parsed values with a confidence flag/source note so future conflict logic can prefer explicit metadata when available.
 - Jellyfin integration implementation.
 - inputlirc remote mapping implementation.
 - Recording scheduler and conflict policy implementation.
