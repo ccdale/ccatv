@@ -421,22 +421,23 @@ class PersistenceStore:
                 """
                 SELECT favorite_channel
                 FROM epg_channels
-                WHERE display_name = ?
+                WHERE lower(trim(display_name)) = lower(trim(?))
                 """,
                 (display_name,),
             ).fetchall()
         for row in rows:
-            return bool(row[0])
+            if bool(row[0]):
+                return True
         return False
 
     def set_favorite_channel(self, display_name: str, favorite: bool) -> int:
-        """Set favorite flag for all EPG channel rows matching display_name."""
+        """Set favorite flag for all rows matching display_name case-insensitively."""
         with self._lock:
             result = self.connection.execute(
                 """
                 UPDATE epg_channels
                 SET favorite_channel = ?
-                WHERE display_name = ?
+                WHERE lower(trim(display_name)) = lower(trim(?))
                 """,
                 (1 if favorite else 0, display_name),
             )

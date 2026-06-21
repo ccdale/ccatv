@@ -160,6 +160,38 @@ def test_set_favorite_channel_returns_zero_when_channel_unknown(tmp_path: Path) 
         connection.close()
 
 
+def test_set_favorite_channel_updates_case_variants(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        connection.executemany(
+            """
+            INSERT INTO epg_channels(
+                source,
+                source_channel_id,
+                display_name,
+                callsign,
+                logical_channel_number,
+                favorite_channel
+            ) VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("dvbstreamer_ota", "200", "BBC FOUR HD", "BBC4HD", "106", 0),
+                ("schedules_direct", "100", "BBC Four HD", "BBC4HD", "106", 1),
+            ],
+        )
+        connection.commit()
+
+        assert store.get_favorite_channel("BBC FOUR HD") is True
+
+        updated = store.set_favorite_channel("BBC FOUR HD", False)
+
+        assert updated == 2
+        assert store.get_favorite_channel("BBC FOUR HD") is False
+    finally:
+        connection.close()
+
+
 def test_delete_recording_removes_row_and_returns_deleted_record(tmp_path: Path) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     store = PersistenceStore(connection=connection)
