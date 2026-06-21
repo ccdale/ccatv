@@ -44,6 +44,8 @@ def test_initialize_database_creates_expected_tables(tmp_path: Path) -> None:
     assert "epg_broadcasts" in tables
     assert "epg_ingest_runs" in tables
     assert "epg_source_checkpoints" in tables
+    assert "series_recording_subscriptions" in tables
+    assert "recorded_content_refs" in tables
 
 
 def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
@@ -59,7 +61,7 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
 
     assert applied_count == 0
     assert applied_versions is not None
-    assert applied_versions[0] == 6
+    assert applied_versions[0] == 7
 
 
 def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None:
@@ -77,7 +79,7 @@ def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None
         second.close()
 
     assert applied_versions is not None
-    assert applied_versions[0] == 6
+    assert applied_versions[0] == 7
 
 
 def test_migration_v4_adds_dvbstreamer_service_name_column(tmp_path: Path) -> None:
@@ -120,6 +122,8 @@ def test_migration_v6_adds_program_snapshot_columns(tmp_path: Path) -> None:
         "program_description",
         "program_start_at_utc",
         "program_stop_at_utc",
+        "program_content_ref",
+        "program_series_ref",
     }:
         assert column in recording_column_names
         assert column in scheduler_column_names

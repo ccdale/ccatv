@@ -192,6 +192,39 @@ def test_set_favorite_channel_updates_case_variants(tmp_path: Path) -> None:
         connection.close()
 
 
+def test_series_recording_subscription_roundtrip(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        assert store.list_series_recording_subscriptions() == []
+
+        store.set_series_recording_subscription("example.org/series-1", True)
+        assert store.list_series_recording_subscriptions() == ["example.org/series-1"]
+
+        store.set_series_recording_subscription("example.org/series-1", False)
+        assert store.list_series_recording_subscriptions() == []
+    finally:
+        connection.close()
+
+
+def test_recorded_content_ref_history_roundtrip(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        assert store.has_recorded_content_ref("example.org/content-1") is False
+
+        store.mark_recorded_content_ref(
+            content_ref="example.org/content-1",
+            series_ref="example.org/series-1",
+            title="Episode 1",
+            recording_id=123,
+        )
+
+        assert store.has_recorded_content_ref("example.org/content-1") is True
+    finally:
+        connection.close()
+
+
 def test_delete_recording_removes_row_and_returns_deleted_record(tmp_path: Path) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     store = PersistenceStore(connection=connection)

@@ -19,6 +19,8 @@ class RecordingStateRecord:
     program_description: str | None
     program_start_at_utc: str | None
     program_stop_at_utc: str | None
+    program_content_ref: str | None = None
+    program_series_ref: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,8 @@ class SchedulerJobRecord:
     program_description: str | None
     program_start_at_utc: str | None
     program_stop_at_utc: str | None
+    program_content_ref: str | None = None
+    program_series_ref: str | None = None
 
 
 @dataclass(slots=True)
@@ -51,6 +55,8 @@ class PersistenceStore:
         program_description: str | None = None,
         program_start_at_utc: str | None = None,
         program_stop_at_utc: str | None = None,
+        program_content_ref: str | None = None,
+        program_series_ref: str | None = None,
     ) -> RecordingStateRecord:
         with self._lock:
             cursor = self.connection.execute(
@@ -64,9 +70,11 @@ class PersistenceStore:
                     program_title,
                     program_description,
                     program_start_at_utc,
-                    program_stop_at_utc
+                    program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     channel_name,
@@ -78,6 +86,8 @@ class PersistenceStore:
                     program_description,
                     program_start_at_utc,
                     program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref,
                 ),
             )
             self.connection.commit()
@@ -102,7 +112,9 @@ class PersistenceStore:
                     program_title,
                     program_description,
                     program_start_at_utc,
-                    program_stop_at_utc
+                    program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref
                 FROM recordings
                 WHERE id = ?
                 """,
@@ -123,6 +135,8 @@ class PersistenceStore:
             program_description=row[7],
             program_start_at_utc=row[8],
             program_stop_at_utc=row[9],
+            program_content_ref=row[10],
+            program_series_ref=row[11],
         )
 
     def list_recordings(self) -> list[RecordingStateRecord]:
@@ -139,7 +153,9 @@ class PersistenceStore:
                     program_title,
                     program_description,
                     program_start_at_utc,
-                    program_stop_at_utc
+                    program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref
                 FROM recordings
                 ORDER BY id
                 """
@@ -156,6 +172,8 @@ class PersistenceStore:
                 program_description=row[7],
                 program_start_at_utc=row[8],
                 program_stop_at_utc=row[9],
+                program_content_ref=row[10],
+                program_series_ref=row[11],
             )
             for row in rows
         ]
@@ -250,6 +268,8 @@ class PersistenceStore:
         program_description: str | None = None,
         program_start_at_utc: str | None = None,
         program_stop_at_utc: str | None = None,
+        program_content_ref: str | None = None,
+        program_series_ref: str | None = None,
     ) -> SchedulerJobRecord:
         with self._lock:
             cursor = self.connection.execute(
@@ -262,9 +282,11 @@ class PersistenceStore:
                     program_title,
                     program_description,
                     program_start_at_utc,
-                    program_stop_at_utc
+                    program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     channel_name,
@@ -275,6 +297,8 @@ class PersistenceStore:
                     program_description,
                     program_start_at_utc,
                     program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref,
                 ),
             )
             self.connection.commit()
@@ -298,7 +322,9 @@ class PersistenceStore:
                     program_title,
                     program_description,
                     program_start_at_utc,
-                    program_stop_at_utc
+                    program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref
                 FROM scheduler_jobs
                 WHERE id = ?
                 """,
@@ -318,6 +344,8 @@ class PersistenceStore:
             program_description=row[6],
             program_start_at_utc=row[7],
             program_stop_at_utc=row[8],
+            program_content_ref=row[9],
+            program_series_ref=row[10],
         )
 
     def list_scheduler_jobs(self) -> list[SchedulerJobRecord]:
@@ -333,7 +361,9 @@ class PersistenceStore:
                     program_title,
                     program_description,
                     program_start_at_utc,
-                    program_stop_at_utc
+                    program_stop_at_utc,
+                    program_content_ref,
+                    program_series_ref
                 FROM scheduler_jobs
                 ORDER BY id
                 """
@@ -349,6 +379,8 @@ class PersistenceStore:
                 program_description=row[6],
                 program_start_at_utc=row[7],
                 program_stop_at_utc=row[8],
+                program_content_ref=row[9],
+                program_series_ref=row[10],
             )
             for row in rows
         ]
@@ -443,3 +475,92 @@ class PersistenceStore:
             )
             self.connection.commit()
             return result.rowcount
+
+    def list_series_recording_subscriptions(self) -> list[str]:
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT series_ref
+                FROM series_recording_subscriptions
+                WHERE enabled = 1
+                ORDER BY series_ref COLLATE NOCASE
+                """
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    def set_series_recording_subscription(self, series_ref: str, enabled: bool) -> None:
+        normalized = series_ref.strip()
+        if not normalized:
+            raise ValueError("series_ref must be a non-empty string")
+        with self._lock:
+            self.connection.execute(
+                """
+                INSERT INTO series_recording_subscriptions(
+                    series_ref,
+                    enabled,
+                    created_at_utc,
+                    updated_at_utc
+                )
+                VALUES(?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                ON CONFLICT(series_ref)
+                DO UPDATE SET
+                    enabled = excluded.enabled,
+                    updated_at_utc = excluded.updated_at_utc
+                """,
+                (normalized, 1 if enabled else 0),
+            )
+            self.connection.commit()
+
+    def has_recorded_content_ref(self, content_ref: str) -> bool:
+        normalized = content_ref.strip()
+        if not normalized:
+            return False
+        with self._lock:
+            row = self.connection.execute(
+                """
+                SELECT 1
+                FROM recorded_content_refs
+                WHERE content_ref = ?
+                LIMIT 1
+                """,
+                (normalized,),
+            ).fetchone()
+        return row is not None
+
+    def mark_recorded_content_ref(
+        self,
+        *,
+        content_ref: str,
+        series_ref: str | None,
+        title: str | None,
+        recording_id: int | None,
+    ) -> None:
+        normalized = content_ref.strip()
+        if not normalized:
+            return
+        with self._lock:
+            self.connection.execute(
+                """
+                INSERT INTO recorded_content_refs(
+                    content_ref,
+                    series_ref,
+                    title,
+                    recording_id,
+                    recorded_at_utc
+                )
+                VALUES(?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                ON CONFLICT(content_ref)
+                DO UPDATE SET
+                    series_ref = COALESCE(excluded.series_ref, recorded_content_refs.series_ref),
+                    title = COALESCE(excluded.title, recorded_content_refs.title),
+                    recording_id = COALESCE(excluded.recording_id, recorded_content_refs.recording_id),
+                    recorded_at_utc = excluded.recorded_at_utc
+                """,
+                (
+                    normalized,
+                    series_ref.strip() if isinstance(series_ref, str) and series_ref.strip() else None,
+                    title.strip() if isinstance(title, str) and title.strip() else None,
+                    recording_id,
+                ),
+            )
+            self.connection.commit()

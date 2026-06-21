@@ -116,6 +116,7 @@
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let films = [];
       let schedules = [];
+      let seriesSubscriptions = new Set();
       let channelScope = "favourites";
 
       class ApiError extends Error {
@@ -221,6 +222,33 @@
           .slice();
       }
 
+      async function loadSeriesSubscriptions() {
+        const payload = await fetchJson("/api/series-recordings");
+        const subscriptions = Array.isArray(payload.subscriptions) ? payload.subscriptions : [];
+        seriesSubscriptions = new Set(
+          subscriptions
+            .filter((item) => item && item.enabled && typeof item.seriesRef === "string")
+            .map((item) => item.seriesRef)
+        );
+      }
+
+      function isSeriesRecordingEnabled(seriesRef) {
+        return typeof seriesRef === "string" && seriesSubscriptions.has(seriesRef);
+      }
+
+      async function setSeriesRecording(seriesRef, enabled) {
+        await fetchJson("/api/series-recordings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seriesRef, enabled }),
+        });
+        if (enabled) {
+          seriesSubscriptions.add(seriesRef);
+        } else {
+          seriesSubscriptions.delete(seriesRef);
+        }
+      }
+
       async function createRecording(film) {
         const durationSeconds = film.durationSeconds || Math.max(60, Math.round((new Date(film.stopAtUtc) - new Date(film.startAtUtc)) / 1000));
         return fetchJson("/api/schedules", {
@@ -234,6 +262,8 @@
             programDescription: film.description,
             programStartAtUtc: film.startAtUtc,
             programStopAtUtc: film.stopAtUtc,
+            programContentRef: film.contentRef,
+            programSeriesRef: film.seriesRef,
           }),
         });
       }
@@ -307,6 +337,28 @@
 
           header.append(title, button);
 
+          if (typeof film.seriesRef === "string" && film.seriesRef) {
+            const seriesEnabled = isSeriesRecordingEnabled(film.seriesRef);
+            const seriesButton = document.createElement("button");
+            seriesButton.type = "button";
+            seriesButton.className = "secondary";
+            seriesButton.textContent = seriesEnabled ? "Series on" : "Record series";
+            seriesButton.addEventListener("click", async () => {
+              seriesButton.disabled = true;
+              try {
+                await setSeriesRecording(film.seriesRef, !seriesEnabled);
+                await loadSchedules();
+                renderFilms();
+                setStatus(`${film.title}: series recording ${!seriesEnabled ? "enabled" : "disabled"}.`);
+              } catch (error) {
+                setStatus(error.message || "Failed to update series recording.", "error");
+              } finally {
+                seriesButton.disabled = false;
+              }
+            });
+            header.append(seriesButton);
+          }
+
           const meta = document.createElement("div");
           meta.className = "film-meta";
           meta.textContent = `${film.channelName || "-"} | ${formatDateTime(film.startAtUtc)} - ${formatDateTime(film.stopAtUtc)} | ${formatDuration(film.durationSeconds)}`;
@@ -355,11 +407,12 @@
         if (!isAuthenticated) {
           films = [];
           schedules = [];
+          seriesSubscriptions = new Set();
           windowMeta.textContent = "Sign in to load upcoming films.";
           renderFilms();
           return;
         }
-        await Promise.all([loadFilms(), loadSchedules()]);
+        await Promise.all([loadFilms(), loadSchedules(), loadSeriesSubscriptions()]);
         renderFilms();
         setStatus(`Loaded ${films.length} upcoming film(s).`);
       }

@@ -1211,6 +1211,58 @@ def test_dispatch_metadata_films_list_excludes_radio_and_no_pid_channels() -> No
     assert films[0]["channelName"] == "Film4"
 
 
+def test_auto_schedule_series_recordings_skips_recorded_content_ref() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.set_series_recording_subscription("example.org/series-1", True)
+    context.persistence.mark_recorded_content_ref(
+        content_ref="example.org/content-1",
+        series_ref="example.org/series-1",
+        title="Episode 1",
+        recording_id=1,
+    )
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "Film4"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, metadata_json)
+        VALUES(?, ?, ?, ?)
+        """,
+        (
+            "dvbstreamer_ota",
+            "p1",
+            "Episode 1",
+            '{"contentRef":"example.org/content-1","seriesRef":"example.org/series-1"}',
+        ),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc, duration_seconds)
+        VALUES(1, 1, ?, ?, ?)
+        """,
+        ("2099-05-25T21:00:00Z", "2099-05-25T22:00:00Z", 3600),
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(
+        resolve_service_name=lambda name: name,
+        run=lambda _command: SimpleNamespace(stdout="Type: TV\nVideo PID: 0x100\n"),
+        schedule_recording=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("must not schedule")),
+    )
+
+    stats = dispatcher._auto_schedule_series_recordings()
+
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+
+
 def test_dispatch_metadata_films_list_rejects_invalid_duration_range() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -1526,6 +1578,61 @@ def test_dispatch_metadata_channels_favorite_set_returns_not_found() -> None:
 
     assert response["ok"] is False
     assert response["error"]["code"] == "NOT_FOUND"
+
+
+def test_dispatch_metadata_series_recording_set_and_list() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    set_response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.series.recording.set",
+            "payload": {
+                "seriesRef": "example.org/series-1",
+                "enabled": True,
+            },
+        }
+    )
+
+    assert set_response["ok"] is True
+    assert set_response["payload"]["seriesRef"] == "example.org/series-1"
+    assert set_response["payload"]["enabled"] is True
+
+    list_response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.series.recording.list",
+            "payload": {},
+        }
+    )
+
+    assert list_response["ok"] is True
+    assert list_response["payload"]["subscriptions"] == [
+        {
+            "seriesRef": "example.org/series-1",
+            "enabled": True,
+        }
+    ]
+
+
+def test_dispatch_metadata_series_recording_set_rejects_invalid_payload() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.series.recording.set",
+            "payload": {
+                "seriesRef": "   ",
+                "enabled": "yes",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_dispatch_metadata_channels_dvbservices_list_returns_sorted_unique_services() -> None:

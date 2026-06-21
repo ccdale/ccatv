@@ -463,6 +463,8 @@ class RecorderOrchestrator:
                 program_description=job.program_description,
                 program_start_at_utc=job.program_start_at_utc,
                 program_stop_at_utc=job.program_stop_at_utc,
+                program_content_ref=job.program_content_ref,
+                program_series_ref=job.program_series_ref,
             )
             self.logger.info(
                 "recording started: job_id=%s channel=%s program=%s duration=%s seconds output=%s",

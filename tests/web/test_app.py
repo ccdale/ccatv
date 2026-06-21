@@ -53,6 +53,21 @@ class _StubServiceClient:
                 "favorite": bool(payload.get("favorite")),
                 "updatedRows": 1,
             }
+        if command == "metadata.series.recording.list":
+            return {
+                "subscriptions": [
+                    {
+                        "seriesRef": "example.org/series-1",
+                        "enabled": True,
+                    }
+                ]
+            }
+        if command == "metadata.series.recording.set":
+            return {
+                "seriesRef": str(payload.get("seriesRef")),
+                "enabled": bool(payload.get("enabled")),
+                "autoSchedule": {"scheduled": 0, "skipped": 0},
+            }
         if command == "recording.schedule.list":
             return {"jobs": []}
         if command == "recording.list":
@@ -565,6 +580,80 @@ def test_channel_favorite_route_rejects_non_object_json(monkeypatch) -> None:
     assert stub.calls == []
 
 
+def test_series_recording_list_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/series-recordings")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        ("metadata.series.recording.list", {}),
+    ]
+
+
+def test_series_recording_set_route_forwards_payload(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post(
+        "/api/series-recordings",
+        json={"seriesRef": "example.org/series-1", "enabled": True},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        (
+            "metadata.series.recording.set",
+            {"seriesRef": "example.org/series-1", "enabled": True},
+        )
+    ]
+
+
+def test_series_recording_set_route_rejects_non_object_json(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post("/api/series-recordings", json=["bad"])
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
 def test_schedule_list_forwards_state_query(monkeypatch) -> None:
     stub = _StubServiceClient()
     monkeypatch.setattr(
@@ -654,6 +743,8 @@ def test_schedule_create_maps_service_error(monkeypatch) -> None:
             "programDescription": None,
             "programStartAtUtc": None,
             "programStopAtUtc": None,
+            "programContentRef": None,
+            "programSeriesRef": None,
         },
     )]
 

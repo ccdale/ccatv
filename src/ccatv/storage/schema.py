@@ -171,6 +171,14 @@ MIGRATIONS: tuple[Migration, ...] = (
             ADD COLUMN program_stop_at_utc TEXT
             """,
             """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_content_ref TEXT
+            """,
+            """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_series_ref TEXT
+            """,
+            """
             ALTER TABLE recordings
             ADD COLUMN program_title TEXT
             """,
@@ -185,6 +193,37 @@ MIGRATIONS: tuple[Migration, ...] = (
             """
             ALTER TABLE recordings
             ADD COLUMN program_stop_at_utc TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_content_ref TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_series_ref TEXT
+            """,
+        ),
+    ),
+    Migration(
+        version=7,
+        name="series_recording_subscriptions_v7",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS series_recording_subscriptions (
+                series_ref TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at_utc TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS recorded_content_refs (
+                content_ref TEXT PRIMARY KEY,
+                series_ref TEXT,
+                title TEXT,
+                recording_id INTEGER,
+                recorded_at_utc TEXT NOT NULL
+            )
             """,
         ),
     ),

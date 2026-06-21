@@ -249,6 +249,8 @@ class TvRecorderService:
         program_description: str | None = None,
         program_start_at_utc: str | None = None,
         program_stop_at_utc: str | None = None,
+        program_content_ref: str | None = None,
+        program_series_ref: str | None = None,
     ) -> SchedulerJobRecord:
         padded_start_utc, padded_duration_seconds = (
             self.compute_padded_recording_window(
@@ -265,6 +267,8 @@ class TvRecorderService:
             program_description=program_description,
             program_start_at_utc=program_start_at_utc,
             program_stop_at_utc=program_stop_at_utc,
+            program_content_ref=program_content_ref,
+            program_series_ref=program_series_ref,
         )
 
     def compute_padded_recording_window(
@@ -314,6 +318,8 @@ class TvRecorderService:
         program_description: str | None = None,
         program_start_at_utc: str | None = None,
         program_stop_at_utc: str | None = None,
+        program_content_ref: str | None = None,
+        program_series_ref: str | None = None,
     ) -> RecordingStateRecord:
         return self._require_persistence().create_recording(
             channel_name=channel_name,
@@ -324,6 +330,8 @@ class TvRecorderService:
             program_description=program_description,
             program_start_at_utc=program_start_at_utc,
             program_stop_at_utc=program_stop_at_utc,
+            program_content_ref=program_content_ref,
+            program_series_ref=program_series_ref,
         )
 
     def mark_recording_capture_completed(
@@ -371,10 +379,22 @@ class TvRecorderService:
         return self.mark_recording_failed(recording_id)
 
     def mark_recording_ready(self, recording_id: int) -> RecordingStateRecord:
-        return self._require_persistence().update_recording_state(
+        persistence = self._require_persistence()
+        updated = persistence.update_recording_state(
             recording_id,
             state="ready",
         )
+        if (
+            isinstance(updated.program_content_ref, str)
+            and updated.program_content_ref.strip()
+        ):
+            persistence.mark_recorded_content_ref(
+                content_ref=updated.program_content_ref,
+                series_ref=updated.program_series_ref,
+                title=updated.program_title,
+                recording_id=updated.id,
+            )
+        return updated
 
     def mark_recording_failed(
         self,

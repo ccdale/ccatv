@@ -246,6 +246,7 @@
       let channels = [];
       let favouriteChannels = [];
       let schedules = [];
+      let seriesSubscriptions = new Set();
       let timelineData = new Map();
       let timelineOriginMs = 0;
       let timelineStartMs = 0;
@@ -320,6 +321,7 @@
         channels = [];
         favouriteChannels = [];
         schedules = [];
+        seriesSubscriptions = new Set();
         timelineData = new Map();
         timelineOriginMs = 0;
         timelineStartMs = 0;
@@ -502,6 +504,27 @@
 
           top.append(heading, toggle);
 
+          if (typeof programme.seriesRef === "string" && programme.seriesRef) {
+            const seriesEnabled = isSeriesRecordingEnabled(programme.seriesRef);
+            const seriesToggle = document.createElement("button");
+            seriesToggle.type = "button";
+            seriesToggle.className = "record-switch" + (seriesEnabled ? " is-on" : "");
+            seriesToggle.setAttribute("role", "switch");
+            seriesToggle.setAttribute("aria-checked", seriesEnabled ? "true" : "false");
+            seriesToggle.setAttribute("aria-label", seriesEnabled ? "Disable series recording" : "Enable series recording");
+            const seriesKnob = document.createElement("span");
+            seriesKnob.className = "record-switch-knob";
+            seriesToggle.append(seriesKnob);
+            seriesToggle.addEventListener("click", () => {
+              void setSeriesRecording(programme.seriesRef, !seriesEnabled).then(async () => {
+                await loadSchedules();
+                renderTimeline();
+                renderGuideSearchResults();
+              });
+            });
+            top.append(seriesToggle);
+          }
+
           const meta = document.createElement("div");
           meta.className = "guide-search-result-meta";
           meta.textContent = `${programme.channelName} | ${formatLongDateTime(programme.startAtUtc)} to ${formatTime(programme.stopAtUtc)} | ${formatDuration(programme.durationSeconds)}${programme.genre ? ` | ${programme.genre}` : ""}`;
@@ -601,6 +624,37 @@
 
         switchRow.append(switchLabel, switchButton);
         timelineHover.append(title, meta, genre, description, switchRow);
+
+        if (typeof programme.seriesRef === "string" && programme.seriesRef) {
+          const seriesEnabled = isSeriesRecordingEnabled(programme.seriesRef);
+          const seriesRow = document.createElement("div");
+          seriesRow.className = "record-toggle-row";
+
+          const seriesLabel = document.createElement("span");
+          seriesLabel.className = "record-toggle-label";
+          seriesLabel.textContent = seriesEnabled ? "Series recording enabled" : "Series recording disabled";
+
+          const seriesButton = document.createElement("button");
+          seriesButton.type = "button";
+          seriesButton.className = "record-switch" + (seriesEnabled ? " is-on" : "");
+          seriesButton.setAttribute("role", "switch");
+          seriesButton.setAttribute("aria-checked", seriesEnabled ? "true" : "false");
+          seriesButton.setAttribute("aria-label", seriesEnabled ? "Disable series recording" : "Enable series recording");
+          const seriesKnob = document.createElement("span");
+          seriesKnob.className = "record-switch-knob";
+          seriesButton.append(seriesKnob);
+          seriesButton.addEventListener("click", () => {
+            void setSeriesRecording(programme.seriesRef, !seriesEnabled).then(async () => {
+              await loadSchedules();
+              renderTimeline();
+              renderTimelineHover(programme, findScheduledJob(programme) || null);
+              renderGuideSearchResults();
+            });
+          });
+
+          seriesRow.append(seriesLabel, seriesButton);
+          timelineHover.append(seriesRow);
+        }
       }
 
       function renderTimelineRuler(startMs, windowMinutes) {
@@ -757,6 +811,33 @@
           .sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
       }
 
+      async function loadSeriesSubscriptions() {
+        const payload = await fetchJson("/api/series-recordings");
+        const subscriptions = Array.isArray(payload.subscriptions) ? payload.subscriptions : [];
+        seriesSubscriptions = new Set(
+          subscriptions
+            .filter((item) => item && item.enabled && typeof item.seriesRef === "string")
+            .map((item) => item.seriesRef)
+        );
+      }
+
+      function isSeriesRecordingEnabled(seriesRef) {
+        return typeof seriesRef === "string" && seriesSubscriptions.has(seriesRef);
+      }
+
+      async function setSeriesRecording(seriesRef, enabled) {
+        await fetchJson("/api/series-recordings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seriesRef, enabled }),
+        });
+        if (enabled) {
+          seriesSubscriptions.add(seriesRef);
+        } else {
+          seriesSubscriptions.delete(seriesRef);
+        }
+      }
+
       async function loadTimeline() {
         timelineData = new Map();
         renderTimeline();
@@ -811,6 +892,8 @@
               programDescription: programme.description,
               programStartAtUtc: programme.startAtUtc,
               programStopAtUtc: programme.stopAtUtc,
+              programContentRef: programme.contentRef,
+              programSeriesRef: programme.seriesRef,
             }),
           });
           await loadSchedules();
@@ -851,7 +934,7 @@
       }
 
       async function initializeAfterAuth() {
-        await Promise.all([loadChannels(), loadSchedules()]);
+        await Promise.all([loadChannels(), loadSchedules(), loadSeriesSubscriptions()]);
         timelineOriginMs = Date.now();
         timelineStartMs = timelineOriginMs;
         await loadTimeline();
