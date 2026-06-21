@@ -8,6 +8,7 @@ from pathlib import Path
 from queue import Queue
 import re
 import signal as _signal
+import sqlite3
 import subprocess
 from threading import Lock, Thread
 from types import SimpleNamespace
@@ -163,13 +164,19 @@ class ServiceCommandDispatcher:
                 },
             }
         except Exception as exc:
+            error_message = str(exc)
+            if isinstance(exc, sqlite3.OperationalError) and "no such column:" in error_message:
+                error_message = (
+                    f"{error_message}. Database schema is out of date; run migrations by "
+                    "restarting ccatv-service after upgrading."
+                )
             return {
                 "apiVersion": API_VERSION,
                 "requestId": request_id,
                 "ok": False,
                 "error": {
                     "code": "INTERNAL_ERROR",
-                    "message": str(exc),
+                    "message": error_message,
                     "retryable": False,
                     "details": {},
                 },

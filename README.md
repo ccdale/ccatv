@@ -99,6 +99,8 @@ Notes:
 - `CCATV_SERVICE_AUTH_TOKEN` is required by `ccatv-web`
 - `CCATV_WEB_AUTH_TOKEN` is optional, recommended if LAN exposed
 - For LAN access to web UI, use `--listen-host 0.0.0.0`
+- After upgrading ccatv to a new version, restart `ccatv-service` once so database
+  migrations are applied before opening the web UI.
 
 ## Daily Metadata Sync
 

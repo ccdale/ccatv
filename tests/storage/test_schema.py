@@ -61,7 +61,7 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
 
     assert applied_count == 0
     assert applied_versions is not None
-    assert applied_versions[0] == 7
+    assert applied_versions[0] == 8
 
 
 def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None:
@@ -79,7 +79,7 @@ def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None
         second.close()
 
     assert applied_versions is not None
-    assert applied_versions[0] == 7
+    assert applied_versions[0] == 8
 
 
 def test_migration_v4_adds_dvbstreamer_service_name_column(tmp_path: Path) -> None:

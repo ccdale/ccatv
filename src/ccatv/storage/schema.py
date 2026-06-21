@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,7 +228,49 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=8,
+        name="recording_program_refs_backfill_v8",
+        statements=(
+            """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_content_ref TEXT
+            """,
+            """
+            ALTER TABLE scheduler_jobs
+            ADD COLUMN program_series_ref TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_content_ref TEXT
+            """,
+            """
+            ALTER TABLE recordings
+            ADD COLUMN program_series_ref TEXT
+            """,
+        ),
+    ),
 )
+
+
+_ADD_COLUMN_RE = re.compile(
+    r"^\s*ALTER\s+TABLE\s+(?P<table>\w+)\s+ADD\s+COLUMN\s+(?P<column>\w+)\b",
+    re.IGNORECASE,
+)
+
+
+def _column_exists(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(str(row[1]).lower() == column_name.lower() for row in rows)
+
+
+def _should_skip_statement(connection: sqlite3.Connection, statement: str) -> bool:
+    match = _ADD_COLUMN_RE.match(statement)
+    if match is None:
+        return False
+    table_name = match.group("table")
+    column_name = match.group("column")
+    return _column_exists(connection, table_name, column_name)
 
 
 def open_database(path: Path) -> sqlite3.Connection:
@@ -262,6 +305,8 @@ def apply_migrations(connection: sqlite3.Connection) -> int:
         try:
             connection.execute("BEGIN")
             for statement in migration.statements:
+                if _should_skip_statement(connection, statement):
+                    continue
                 connection.execute(statement)
             connection.execute(
                 "INSERT INTO schema_migrations(version, name) VALUES(?, ?)",
