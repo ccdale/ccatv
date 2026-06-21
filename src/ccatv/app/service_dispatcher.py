@@ -55,6 +55,7 @@ SERVICE_CAPABILITIES = [
     "recording.worker.cycle",
     "metadata.channels",
     "metadata.guide",
+    "metadata.films",
     "metadata.ota.sync",
     "metadata.sd.sync",
     "runtime.setup",
@@ -77,6 +78,7 @@ SERVICE_COMMANDS = [
     "metadata.channels.favorite.set",
     "metadata.channels.service-name.set",
     "metadata.guide.list",
+    "metadata.films.list",
     "metadata.ota.sync.run",
     "metadata.ota.sync.channel-names.backfill.run",
     "metadata.sd.sync.run",
@@ -208,6 +210,8 @@ class ServiceCommandDispatcher:
             return self._metadata_channels_service_name_set(payload)
         if command == "metadata.guide.list":
             return self._metadata_guide_list(payload)
+        if command == "metadata.films.list":
+            return self._metadata_films_list(payload)
         if command == "metadata.ota.sync.run":
             return self._metadata_ota_sync_run(payload)
         if command == "metadata.ota.sync.channel-names.backfill.run":
@@ -1386,6 +1390,139 @@ class ServiceCommandDispatcher:
                 }
                 for row in rows
             ],
+        }
+
+    def _metadata_films_list(self, payload: dict[str, object]) -> dict[str, object]:
+        window_hours = payload.get("windowHours", 24 * 7)
+        if not isinstance(window_hours, int | float) or window_hours <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="windowHours must be greater than 0",
+            )
+
+        min_duration_hours = payload.get("minDurationHours", 1.5)
+        if not isinstance(min_duration_hours, int | float) or min_duration_hours <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="minDurationHours must be greater than 0",
+            )
+
+        max_duration_hours = payload.get("maxDurationHours", 3.5)
+        if not isinstance(max_duration_hours, int | float) or max_duration_hours <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="maxDurationHours must be greater than 0",
+            )
+
+        if float(max_duration_hours) <= float(min_duration_hours):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="maxDurationHours must be greater than minDurationHours",
+            )
+
+        start_at_utc = payload.get("startAtUtc")
+        if start_at_utc is None:
+            start = datetime.now(timezone.utc)
+        elif isinstance(start_at_utc, str) and start_at_utc.strip():
+            try:
+                start = datetime.strptime(start_at_utc.strip(), "%Y-%m-%dT%H:%M:%SZ")
+                start = start.replace(tzinfo=timezone.utc)
+            except ValueError as exc:
+                raise ServiceCommandError(
+                    code="VALIDATION_ERROR",
+                    message="startAtUtc must be an ISO-8601 UTC timestamp string",
+                ) from exc
+        else:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="startAtUtc must be a non-empty string when provided",
+            )
+
+        start_utc = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_utc = (start + timedelta(hours=float(window_hours))).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        min_duration_seconds = int(float(min_duration_hours) * 3600)
+        max_duration_seconds = int(float(max_duration_hours) * 3600)
+
+        rows = self._context.persistence.connection.execute(
+            """
+            SELECT
+                c.source,
+                c.source_channel_id,
+                c.display_name,
+                c.callsign,
+                c.logical_channel_number,
+                b.start_utc,
+                b.stop_utc,
+                b.duration_seconds,
+                p.title,
+                p.description_long,
+                p.genre_primary
+            FROM epg_broadcasts AS b
+            JOIN epg_channels AS c ON c.id = b.channel_id
+            JOIN epg_programs AS p ON p.id = b.program_id
+            WHERE b.start_utc >= ?
+              AND b.start_utc < ?
+              AND b.duration_seconds >= ?
+              AND b.duration_seconds <= ?
+            ORDER BY b.start_utc ASC,
+                     c.display_name COLLATE NOCASE ASC,
+                     p.title COLLATE NOCASE ASC
+            """,
+            (start_utc, end_utc, min_duration_seconds, max_duration_seconds),
+        ).fetchall()
+
+        films_by_slot: dict[tuple[str, str, str, str], dict[str, object]] = {}
+        for row in rows:
+            title = str(row[8])
+            channel_name = str(row[2])
+            stop_at_utc = str(row[6]) if row[6] is not None else ""
+            dedupe_key = (
+                channel_name.casefold(),
+                str(row[5]),
+                stop_at_utc,
+                title.casefold(),
+            )
+            film = {
+                "source": str(row[0]),
+                "sourceChannelId": str(row[1]),
+                "channelName": channel_name,
+                "callsign": str(row[3]) if row[3] is not None else None,
+                "logicalChannelNumber": str(row[4]) if row[4] is not None else None,
+                "startAtUtc": str(row[5]),
+                "stopAtUtc": str(row[6]) if row[6] is not None else None,
+                "durationSeconds": int(row[7]) if row[7] is not None else None,
+                "title": title,
+                "description": str(row[9]) if row[9] is not None else None,
+                "genre": str(row[10]) if row[10] is not None else None,
+            }
+
+            current = films_by_slot.get(dedupe_key)
+            if current is None or source_priority(film["source"]) < source_priority(
+                str(current["source"])
+            ):
+                films_by_slot[dedupe_key] = film
+
+        films = sorted(
+            films_by_slot.values(),
+            key=lambda film: (
+                str(film["startAtUtc"]),
+                str(film["channelName"]).casefold(),
+                str(film["title"]).casefold(),
+            ),
+        )
+
+        return {
+            "window": {
+                "startAtUtc": start_utc,
+                "endAtUtc": end_utc,
+            },
+            "filters": {
+                "minDurationHours": float(min_duration_hours),
+                "maxDurationHours": float(max_duration_hours),
+            },
+            "films": films,
         }
 
     def _metadata_sd_sync_run(self, payload: dict[str, object]) -> dict[str, object]:

@@ -102,6 +102,28 @@ class _StubServiceClient:
                     }
                 ],
             }
+        if command == "metadata.films.list":
+            return {
+                "window": {
+                    "startAtUtc": "2026-05-25T20:00:00Z",
+                    "endAtUtc": "2026-06-01T20:00:00Z",
+                },
+                "filters": {
+                    "minDurationHours": 1.5,
+                    "maxDurationHours": 3.5,
+                },
+                "films": [
+                    {
+                        "channelName": "Film4",
+                        "startAtUtc": "2026-05-25T20:00:00Z",
+                        "stopAtUtc": "2026-05-25T22:00:00Z",
+                        "durationSeconds": 7200,
+                        "title": "Film Example",
+                        "description": "Example feature film",
+                        "source": "dvbstreamer_ota",
+                    }
+                ],
+            }
         return {}
 
     def close(self) -> None:
@@ -167,6 +189,8 @@ def test_index_route_serves_browser_ui(monkeypatch) -> None:
     assert 'href="/channel-manager"' in body
     assert "Recordings" in body
     assert 'href="/recordings"' in body
+    assert "Upcoming Films" in body
+    assert 'href="/upcoming-films"' in body
     assert "header-expand-btn" in body
     assert "hero-drawer" in body
     assert "health-pill" in body
@@ -219,7 +243,33 @@ def test_recordings_page_serves_browser_ui(monkeypatch) -> None:
     assert "Recordings" in body
     assert "Upcoming recordings" in body
     assert "Back to Guide" in body
+    assert "Upcoming Films" in body
     assert "health-pill" in body
+    assert stub.calls == []
+
+
+def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+        web_auth_token="web-token",
+    )
+    client = app.test_client()
+
+    response = client.get("/upcoming-films")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Upcoming Films" in body
+    assert "Chronological list" in body
+    assert "Record" in body
     assert stub.calls == []
 
 
@@ -695,6 +745,61 @@ def test_guide_list_rejects_non_numeric_window_hours(monkeypatch) -> None:
     client = app.test_client()
 
     response = client.get("/api/guide?channel=BBC%20TWO%20HD&windowHours=abc")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
+def test_upcoming_films_forwards_query_params(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get(
+        "/api/upcoming-films?startAtUtc=2026-05-25T20:00:00Z&windowHours=48&minDurationHours=1.5&maxDurationHours=3.5"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        (
+            "metadata.films.list",
+            {
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 48.0,
+                "minDurationHours": 1.5,
+                "maxDurationHours": 3.5,
+            },
+        )
+    ]
+
+
+def test_upcoming_films_rejects_non_numeric_window_hours(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/upcoming-films?windowHours=abc")
 
     assert response.status_code == 400
     assert response.get_json()["ok"] is False

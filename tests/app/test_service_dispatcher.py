@@ -958,6 +958,100 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     assert programs[0]["genre"] == "News"
 
 
+def test_dispatch_metadata_films_list_returns_duration_filtered_programs() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "200", "Film4", "FILM4", "14"),
+            ("schedules_direct", "100", "Film4", "FILM4", "14"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "p-ota", "The Film", "Feature film", "Movie"),
+            ("schedules_direct", "p-sd", "The Film", "Feature film", "Movie"),
+            ("dvbstreamer_ota", "p-short", "Too Short", "Not a film", "Movie"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "2026-05-25T21:00:00Z", "2026-05-25T23:00:00Z", 7200),
+            (2, 2, "2026-05-25T21:00:00Z", "2026-05-25T23:00:00Z", 7200),
+            (1, 3, "2026-05-25T23:30:00Z", "2026-05-26T00:00:00Z", 1800),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 8,
+                "minDurationHours": 1.5,
+                "maxDurationHours": 3.5,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    films = response["payload"]["films"]
+    assert len(films) == 1
+    assert films[0]["title"] == "The Film"
+    assert films[0]["channelName"] == "Film4"
+    assert films[0]["durationSeconds"] == 7200
+    assert films[0]["source"] == "dvbstreamer_ota"
+
+
+def test_dispatch_metadata_films_list_rejects_invalid_duration_range() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "minDurationHours": 3.5,
+                "maxDurationHours": 1.5,
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

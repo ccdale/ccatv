@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ccatv upcoming films</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f2f7f5;
+        --panel: rgba(255, 255, 255, 0.94);
+        --ink: #122027;
+        --muted: #4a5b62;
+        --line: rgba(18, 32, 39, 0.14);
+        --accent: #0f766e;
+        --accent-soft: rgba(15, 118, 110, 0.14);
+        --shadow: 0 16px 42px rgba(15, 118, 110, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% 0%, rgba(15, 118, 110, 0.14), transparent 24%),
+          radial-gradient(circle at 90% 92%, rgba(13, 148, 136, 0.12), transparent 30%),
+          var(--bg);
+      }
+      main { width: min(1200px, calc(100vw - 2rem)); margin: 0 auto; padding: 1.4rem 0 2.2rem; }
+      .hero { padding: 1.25rem 1.4rem; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow); }
+      h1, h2, p { margin: 0; }
+      h1 { font-size: clamp(1.8rem, 4vw, 2.7rem); letter-spacing: -0.02em; }
+      .subtitle { margin-top: 0.45rem; color: var(--muted); }
+      .hero-links { margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+      .hero-links a { color: var(--accent); text-decoration: none; font-weight: 700; }
+      .auth-bar { margin-top: 1rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.7rem; }
+      input, button { font: inherit; }
+      input { min-width: 0; padding: 0.8rem 0.95rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.9); }
+      button { padding: 0.8rem 1rem; border: 0; border-radius: 999px; cursor: pointer; background: var(--ink); color: #fff; }
+      button.secondary { background: rgba(18, 32, 39, 0.08); color: var(--ink); border: 1px solid var(--line); }
+      button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+      button:disabled { opacity: 0.6; cursor: default; }
+      .status { margin-top: 0.9rem; padding: 0.8rem 0.95rem; border-radius: 13px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.75); color: var(--muted); }
+      .status.error { color: #b42318; background: rgba(180, 35, 24, 0.1); }
+      .toolbar { margin-top: 1rem; display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+      .toolbar .meta { color: var(--muted); font-size: 0.93rem; }
+      .film-list { margin-top: 0.9rem; display: grid; gap: 0.65rem; }
+      .film-card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 0.85rem 0.95rem; display: grid; gap: 0.45rem; }
+      .film-header { display: flex; justify-content: space-between; gap: 0.7rem; flex-wrap: wrap; align-items: center; }
+      .film-title { font-size: 1.06rem; font-weight: 700; }
+      .film-meta { color: var(--muted); font-size: 0.92rem; }
+      .film-description { color: var(--muted); font-size: 0.93rem; }
+      .pill { display: inline-flex; align-items: center; padding: 0.28rem 0.55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.84rem; }
+      .empty { border: 1px dashed var(--line); border-radius: 14px; padding: 1.2rem; color: var(--muted); background: rgba(255, 255, 255, 0.6); }
+      @media (max-width: 760px) {
+        main { width: calc(100vw - 1rem); }
+        .auth-bar { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Upcoming Films</h1>
+        <p class="subtitle">Chronological list of longer film-like broadcasts between 1.5 and 3.5 hours.</p>
+        <div class="hero-links">
+          <a href="/">Back to Guide</a>
+          <a href="/channel-manager">Channel Manager</a>
+          <a href="/recordings">Recordings</a>
+        </div>
+        <div class="auth-bar">
+          <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
+          <button id="login-button" type="button">Sign in</button>
+          <button id="logout-button" class="secondary" type="button">Sign out</button>
+        </div>
+        <div id="status" class="status">Checking session.</div>
+      </section>
+
+      <div class="toolbar">
+        <div id="window-meta" class="meta">Films list loading.</div>
+        <button id="refresh-button" class="ghost" type="button">Refresh films</button>
+      </div>
+
+      <section id="film-list" class="film-list">
+        <div class="empty">Sign in to load upcoming films.</div>
+      </section>
+    </main>
+
+    <script>
+      const bootstrap = {{ {"authRequired": auth_required, "authenticated": authenticated}|tojson }};
+      const tokenInput = document.getElementById("token-input");
+      const loginButton = document.getElementById("login-button");
+      const logoutButton = document.getElementById("logout-button");
+      const refreshButton = document.getElementById("refresh-button");
+      const statusNode = document.getElementById("status");
+      const windowMeta = document.getElementById("window-meta");
+      const filmList = document.getElementById("film-list");
+
+      let isAuthenticated = Boolean(bootstrap.authenticated);
+      let films = [];
+      let schedules = [];
+
+      class ApiError extends Error {
+        constructor(message, code = null) {
+          super(message);
+          this.code = code;
+        }
+      }
+
+      function setStatus(message, level = "info") {
+        statusNode.textContent = message;
+        statusNode.className = "status" + (level === "info" ? "" : " " + level);
+      }
+
+      function setAuthUiState() {
+        tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
+        loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
+        logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
+        tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          ...options,
+        });
+        const body = await response.json().catch(() => ({ ok: false, error: { message: "invalid JSON response" } }));
+        if (!response.ok || body.ok === false) {
+          const code = body.error && body.error.code ? body.error.code : null;
+          const message = body.error && body.error.message ? body.error.message : `request failed with status ${response.status}`;
+          throw new ApiError(code ? `${message} (${code})` : message, code);
+        }
+        return body.payload;
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "-";
+        return new Intl.DateTimeFormat([], {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(value));
+      }
+
+      function formatDuration(seconds) {
+        if (!Number.isFinite(seconds) || seconds <= 0) return "Unknown duration";
+        const minutes = Math.round(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const remainder = minutes % 60;
+        if (!hours) return `${minutes} min`;
+        return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+      }
+
+      function scheduleKey(channelName, startAtUtc) {
+        return `${String(channelName || "").toLowerCase()}@@${String(startAtUtc || "")}`;
+      }
+
+      function findScheduledJob(film) {
+        const key = scheduleKey(film.channelName, film.startAtUtc);
+        return schedules.find((job) => {
+          if (!job || typeof job !== "object") return false;
+          return scheduleKey(job.channelName, job.programStartAtUtc || job.startAtUtc) === key;
+        }) || null;
+      }
+
+      async function loadFilms() {
+        const payload = await fetchJson("/api/upcoming-films");
+        films = Array.isArray(payload.films) ? payload.films : [];
+        const window = payload.window || {};
+        windowMeta.textContent = `Window ${formatDateTime(window.startAtUtc)} to ${formatDateTime(window.endAtUtc)}.`;
+      }
+
+      async function loadSchedules() {
+        const payload = await fetchJson("/api/schedules");
+        schedules = (payload.jobs || [])
+          .filter((job) => String(job.state || "").toLowerCase() !== "cancelled")
+          .slice();
+      }
+
+      async function createRecording(film) {
+        const durationSeconds = film.durationSeconds || Math.max(60, Math.round((new Date(film.stopAtUtc) - new Date(film.startAtUtc)) / 1000));
+        return fetchJson("/api/schedules", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelName: film.channelName,
+            startAtUtc: film.startAtUtc,
+            durationSeconds,
+            programTitle: film.title,
+            programDescription: film.description,
+            programStartAtUtc: film.startAtUtc,
+            programStopAtUtc: film.stopAtUtc,
+          }),
+        });
+      }
+
+      async function cancelRecording(jobId) {
+        return fetchJson(`/api/schedules/${jobId}`, {
+          method: "DELETE",
+        });
+      }
+
+      async function toggleFilmRecording(film) {
+        const existing = findScheduledJob(film);
+        if (existing) {
+          await cancelRecording(existing.id);
+          return "cancelled";
+        }
+        await createRecording(film);
+        return "scheduled";
+      }
+
+      function renderFilms() {
+        filmList.replaceChildren();
+        if (!isAuthenticated) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Sign in to load upcoming films.";
+          filmList.append(empty);
+          return;
+        }
+        if (!films.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No upcoming films found in the configured duration range.";
+          filmList.append(empty);
+          return;
+        }
+
+        for (const film of films) {
+          const card = document.createElement("article");
+          card.className = "film-card";
+
+          const header = document.createElement("div");
+          header.className = "film-header";
+
+          const title = document.createElement("div");
+          title.className = "film-title";
+          title.textContent = film.title || "Untitled";
+
+          const button = document.createElement("button");
+          button.type = "button";
+          const existing = findScheduledJob(film);
+          button.textContent = existing ? "Cancel recording" : "Record";
+          button.className = existing ? "secondary" : "";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+              const action = await toggleFilmRecording(film);
+              await loadSchedules();
+              renderFilms();
+              setStatus(`${film.title}: recording ${action}.`);
+            } catch (error) {
+              setStatus(error.message || "Failed to update recording.", "error");
+            } finally {
+              button.disabled = false;
+            }
+          });
+
+          header.append(title, button);
+
+          const meta = document.createElement("div");
+          meta.className = "film-meta";
+          meta.textContent = `${film.channelName || "-"} | ${formatDateTime(film.startAtUtc)} - ${formatDateTime(film.stopAtUtc)} | ${formatDuration(film.durationSeconds)}`;
+
+          const source = document.createElement("span");
+          source.className = "pill";
+          source.textContent = `${film.source || "unknown source"}`;
+
+          card.append(header, meta, source);
+          if (film.description) {
+            const description = document.createElement("div");
+            description.className = "film-description";
+            description.textContent = film.description;
+            card.append(description);
+          }
+          filmList.append(card);
+        }
+      }
+
+      async function loadPageData() {
+        if (!isAuthenticated) {
+          films = [];
+          schedules = [];
+          windowMeta.textContent = "Sign in to load upcoming films.";
+          renderFilms();
+          return;
+        }
+        await Promise.all([loadFilms(), loadSchedules()]);
+        renderFilms();
+        setStatus(`Loaded ${films.length} upcoming film(s).`);
+      }
+
+      async function refreshSessionStatus() {
+        const payload = await fetchJson("/auth/session");
+        isAuthenticated = Boolean(payload.authenticated);
+        setAuthUiState();
+      }
+
+      async function login() {
+        const token = tokenInput.value.trim();
+        await fetchJson("/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        tokenInput.value = "";
+        await refreshSessionStatus();
+        await loadPageData();
+      }
+
+      async function logout() {
+        await fetchJson("/auth/session", { method: "DELETE" });
+        await refreshSessionStatus();
+        await loadPageData();
+      }
+
+      loginButton.addEventListener("click", async () => {
+        try {
+          await login();
+          setStatus("Signed in.");
+        } catch (error) {
+          setStatus(error.message || "Sign in failed.", "error");
+        }
+      });
+
+      logoutButton.addEventListener("click", async () => {
+        try {
+          await logout();
+          setStatus("Signed out.");
+        } catch (error) {
+          setStatus(error.message || "Sign out failed.", "error");
+        }
+      });
+
+      refreshButton.addEventListener("click", async () => {
+        try {
+          await loadPageData();
+        } catch (error) {
+          setStatus(error.message || "Failed to refresh.", "error");
+        }
+      });
+
+      tokenInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void login();
+        }
+      });
+
+      async function bootstrapPage() {
+        try {
+          await refreshSessionStatus();
+          await loadPageData();
+        } catch (error) {
+          setStatus(error.message || "Failed to initialize upcoming films page.", "error");
+        }
+      }
+
+      setAuthUiState();
+      void bootstrapPage();
+    </script>
+  </body>
+</html>

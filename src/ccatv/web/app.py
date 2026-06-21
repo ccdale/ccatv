@@ -113,6 +113,14 @@ def create_app(
             authenticated=web_auth_token is None or _session_authenticated(),
         )
 
+    @app.get("/upcoming-films")
+    def upcoming_films_page():
+        return render_template(
+            "upcoming_films.html",
+            auth_required=web_auth_token is not None,
+            authenticated=web_auth_token is None or _session_authenticated(),
+        )
+
     @app.get("/auth/session")
     def auth_session_status():
         return jsonify(
@@ -522,6 +530,68 @@ def create_app(
                 },
             }
         )
+
+    @app.get("/api/upcoming-films")
+    def api_upcoming_films():
+        payload: dict[str, object] = {}
+
+        start_at_utc = request.args.get("startAtUtc", default=None, type=str)
+        if start_at_utc is not None:
+            if not start_at_utc.strip():
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'startAtUtc' cannot be empty",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            payload["startAtUtc"] = start_at_utc.strip()
+
+        window_hours = request.args.get("windowHours", default=None, type=str)
+        if window_hours is not None:
+            try:
+                payload["windowHours"] = float(window_hours)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'windowHours' must be numeric",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+
+        min_duration_hours = request.args.get(
+            "minDurationHours", default=None, type=str
+        )
+        if min_duration_hours is not None:
+            try:
+                payload["minDurationHours"] = float(min_duration_hours)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'minDurationHours' must be numeric",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+
+        max_duration_hours = request.args.get(
+            "maxDurationHours", default=None, type=str
+        )
+        if max_duration_hours is not None:
+            try:
+                payload["maxDurationHours"] = float(max_duration_hours)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'maxDurationHours' must be numeric",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.films.list",
+            payload,
+        )
+        return jsonify(response), status_code
 
     @app.post("/api/schedules")
     def api_schedule_create():
