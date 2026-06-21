@@ -47,6 +47,9 @@ These pieces exist but are not yet wired to application runtime workflows:
 - Build a Flask/FastAPI-based scheduler service (remote API) so recording jobs can be created/managed off-box; prioritize this before the GTK4 app work.
 - Full schedules direct ingestion implementation.
 	- Prioritize this before final daemon-behavior design so richer guide data (including repeat/alternate airing windows) can drive conflict, retry, and recording-selection policies.
+- Guide/search enhancement: add an "other showings" option that matches by OTA `content` identifier (broadcaster episode/programme id) when available.
+	- Persist and query by `content` reference for alternate-airing discovery across channels/times.
+	- Validate captured `content` and `series` references in the live host database after OTA ingest runs (druidmedia).
 - Jellyfin integration implementation.
 - inputlirc remote mapping implementation.
 - Recording scheduler and conflict policy implementation.
