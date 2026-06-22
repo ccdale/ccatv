@@ -2069,7 +2069,6 @@ class ServiceCommandDispatcher:
 
         logger = self._context.logger
         self._raise_if_stopping()
-        self._ensure_ota_control_ready()
 
         # ------------------------------------------------------------------ #
         # 1.  Discover one representative TV service per transport stream.     #
@@ -2149,57 +2148,81 @@ class ServiceCommandDispatcher:
                             self._raise_if_stopping()
                             time.sleep(min(5.0, deadline - time.monotonic()))
 
-                    try:
-                        resolved = self._context.tvrecorder.resolve_service_name(svc)
-                        self._context.tvrecorder.select_service(resolved)
-                        self._wait_for_frontend_lock(
-                            timeout_seconds=float(frontend_lock_timeout_seconds),
+                    capture_clients = self._ota_multimux_capture_clients()
+                    if not capture_clients:
+                        last_exc = RuntimeError(
+                            "no capture clients available (all adapters busy?)"
                         )
-                        try:
-                            channel_name_map = (
-                                self._context.tvrecorder.list_service_channel_name_map()
-                            )
-                        except Exception as map_exc:
-                            logger.warning(
-                                "failed to resolve channel name map for mux %s: %s",
-                                ts_id,
-                                map_exc,
-                            )
-                            channel_name_map = {}
-
-                        grab_result = self._capture_ota_epg_stream(
-                            grab_command=grab_command.strip(),
-                            capture_seconds=float(capture_seconds),
-                        )
-                        stats = ingest_dvbstreamer_epg(
-                            target_connection,
-                            grab_result.stdout,
-                            channel_name_map=channel_name_map,
-                            source=source.strip(),
-                        )
-                        total_channels += stats.channels_upserted
-                        total_programs += stats.programs_upserted
-                        total_broadcasts += stats.broadcasts_upserted
-                        muxes_ok.append(ts_id)
-                        logger.info(
-                            "OTA multi-mux sync: mux %s ok "
-                            "(service=%r channels=%d programs=%d broadcasts=%d)",
-                            ts_id,
-                            svc,
-                            stats.channels_upserted,
-                            stats.programs_upserted,
-                            stats.broadcasts_upserted,
-                        )
-                        last_exc = None
-                        break
-                    except Exception as exc:
-                        last_exc = exc
                         logger.warning(
                             "OTA multi-mux sync: mux %s attempt %d failed: %s",
                             ts_id,
                             attempt + 1,
-                            exc,
+                            last_exc,
                         )
+                        continue
+
+                    for adapter_index, tvrecorder, dvbctrl, manager in capture_clients:
+                        try:
+                            self._ensure_ota_control_ready_with_clients(
+                                dvbctrl=dvbctrl,
+                                manager=manager,
+                            )
+                            resolved = tvrecorder.resolve_service_name(svc)
+                            tvrecorder.select_service(resolved)
+                            self._wait_for_frontend_lock_with_service(
+                                tvrecorder=tvrecorder,
+                                timeout_seconds=float(frontend_lock_timeout_seconds),
+                            )
+                            try:
+                                channel_name_map = tvrecorder.list_service_channel_name_map()
+                            except Exception as map_exc:
+                                logger.warning(
+                                    "failed to resolve channel name map for mux %s: %s",
+                                    ts_id,
+                                    map_exc,
+                                )
+                                channel_name_map = {}
+
+                            grab_result = self._capture_ota_epg_stream_with_clients(
+                                tvrecorder=tvrecorder,
+                                dvbctrl=dvbctrl,
+                                grab_command=grab_command.strip(),
+                                capture_seconds=float(capture_seconds),
+                            )
+                            stats = ingest_dvbstreamer_epg(
+                                target_connection,
+                                grab_result.stdout,
+                                channel_name_map=channel_name_map,
+                                source=source.strip(),
+                            )
+                            total_channels += stats.channels_upserted
+                            total_programs += stats.programs_upserted
+                            total_broadcasts += stats.broadcasts_upserted
+                            muxes_ok.append(ts_id)
+                            logger.info(
+                                "OTA multi-mux sync: mux %s ok "
+                                "(service=%r adapter=%s channels=%d programs=%d broadcasts=%d)",
+                                ts_id,
+                                svc,
+                                adapter_index,
+                                stats.channels_upserted,
+                                stats.programs_upserted,
+                                stats.broadcasts_upserted,
+                            )
+                            last_exc = None
+                            break
+                        except Exception as exc:
+                            last_exc = exc
+                            logger.warning(
+                                "OTA multi-mux sync: mux %s attempt %d adapter %s failed: %s",
+                                ts_id,
+                                attempt + 1,
+                                adapter_index,
+                                exc,
+                            )
+
+                    if last_exc is None:
+                        break
 
                 if last_exc is not None:
                     muxes_failed.append(ts_id)
@@ -2236,6 +2259,41 @@ class ServiceCommandDispatcher:
                 "seriesAutoSkipped": auto_schedule["skipped"],
             }
         }
+
+    def _ota_multimux_capture_clients(self) -> list[tuple[int, object, object, object]]:
+        """Return candidate (adapter, tvrecorder, dvbctrl, dvbstreamer) tuples.
+
+        The primary adapter is always included.  Idle adapter-pool slots are
+        appended so multimux capture can try another adapter before sleeping.
+        """
+        clients: list[tuple[int, object, object, object]] = []
+
+        primary_tvrecorder = getattr(self._context, "tvrecorder", None)
+        primary_dvbctrl = getattr(self._context, "dvbctrl", None)
+        primary_manager = getattr(self._context, "dvbstreamer", None)
+        if primary_tvrecorder is not None and primary_dvbctrl is not None:
+            adapter_index = int(getattr(primary_dvbctrl, "adapter_index", 0))
+            clients.append((adapter_index, primary_tvrecorder, primary_dvbctrl, primary_manager))
+
+        adapter_pool = getattr(self._context, "adapter_pool", None)
+        if adapter_pool is None:
+            return clients
+
+        for slot in adapter_pool.idle_slots_snapshot():
+            capture_controller = getattr(slot, "capture_controller", None)
+            tvrecorder = getattr(capture_controller, "service", None)
+            if tvrecorder is None:
+                continue
+            dvbctrl = getattr(tvrecorder, "_dvbctrl", None)
+            if dvbctrl is None:
+                continue
+            adapter_index = int(getattr(slot, "adapter_index", getattr(dvbctrl, "adapter_index", -1)))
+            if any(existing_index == adapter_index for existing_index, *_rest in clients):
+                continue
+            manager = getattr(slot, "dvbstreamer", None)
+            clients.append((adapter_index, tvrecorder, dvbctrl, manager))
+
+        return clients
 
     def _metadata_ota_sync_run(self, payload: dict[str, object]) -> dict[str, object]:
         source = payload.get("source", "dvbstreamer_ota")
@@ -2462,8 +2520,13 @@ class ServiceCommandDispatcher:
         }
 
     def _ensure_ota_control_ready(self) -> None:
+        self._ensure_ota_control_ready_with_clients(
+            dvbctrl=getattr(self._context, "dvbctrl", None),
+            manager=getattr(self._context, "dvbstreamer", None),
+        )
+
+    def _ensure_ota_control_ready_with_clients(self, *, dvbctrl, manager) -> None:
         logger = self._context.logger
-        dvbctrl = getattr(self._context, "dvbctrl", None)
 
         if dvbctrl is not None:
             try:
@@ -2472,7 +2535,6 @@ class ServiceCommandDispatcher:
             except Exception:
                 pass
 
-        manager = getattr(self._context, "dvbstreamer", None)
         if manager is None:
             return
 
@@ -2511,11 +2573,27 @@ class ServiceCommandDispatcher:
             ) from exc
 
     def _capture_ota_epg_stream(self, *, grab_command: str, capture_seconds: float):
-        dvbctrl = getattr(self._context, "dvbctrl", None)
+        return self._capture_ota_epg_stream_with_clients(
+            tvrecorder=getattr(self._context, "tvrecorder", None),
+            dvbctrl=getattr(self._context, "dvbctrl", None),
+            grab_command=grab_command,
+            capture_seconds=capture_seconds,
+        )
+
+    def _capture_ota_epg_stream_with_clients(
+        self,
+        *,
+        tvrecorder,
+        dvbctrl,
+        grab_command: str,
+        capture_seconds: float,
+    ):
         if dvbctrl is None:
             raise RuntimeError("dvbctrl not available for OTA EPG streaming capture")
+        if tvrecorder is None:
+            raise RuntimeError("tvrecorder not available for OTA EPG streaming capture")
 
-        self._context.tvrecorder.run_raw("epgcapstart")
+        tvrecorder.run_raw("epgcapstart")
 
         proc = dvbctrl.start_command(grab_command)
         stop_error: Exception | None = None
@@ -2528,7 +2606,10 @@ class ServiceCommandDispatcher:
                     time.sleep(min(0.25, remaining))
         finally:
             try:
-                self._stop_ota_capture_with_separate_client()
+                self._stop_ota_capture_with_separate_client_for(
+                    dvbctrl=dvbctrl,
+                    tvrecorder=tvrecorder,
+                )
             except Exception as exc:
                 stop_error = exc
             try:
@@ -2556,9 +2637,16 @@ class ServiceCommandDispatcher:
         return SimpleNamespace(stdout=stdout)
 
     def _stop_ota_capture_with_separate_client(self) -> None:
-        dvbctrl = getattr(self._context, "dvbctrl", None)
+        self._stop_ota_capture_with_separate_client_for(
+            dvbctrl=getattr(self._context, "dvbctrl", None),
+            tvrecorder=getattr(self._context, "tvrecorder", None),
+        )
+
+    def _stop_ota_capture_with_separate_client_for(self, *, dvbctrl, tvrecorder) -> None:
         if dvbctrl is None:
-            self._context.tvrecorder.run_raw("epgcapstop")
+            if tvrecorder is None:
+                raise RuntimeError("tvrecorder not available for OTA EPG stop")
+            tvrecorder.run_raw("epgcapstop")
             return
 
         stop_client = DvbCtrlClient(
@@ -2572,13 +2660,21 @@ class ServiceCommandDispatcher:
         stop_client.run_command("epgcapstop")
 
     def _wait_for_frontend_lock(self, *, timeout_seconds: float) -> None:
+        self._wait_for_frontend_lock_with_service(
+            tvrecorder=getattr(self._context, "tvrecorder", None),
+            timeout_seconds=timeout_seconds,
+        )
+
+    def _wait_for_frontend_lock_with_service(self, *, tvrecorder, timeout_seconds: float) -> None:
+        if tvrecorder is None:
+            raise RuntimeError("tvrecorder not available for frontend lock polling")
         deadline = time.monotonic() + timeout_seconds
         last_error: Exception | None = None
 
         while time.monotonic() < deadline:
             self._raise_if_stopping()
             try:
-                status = self._context.tvrecorder.frontend_status()
+                status = tvrecorder.frontend_status()
                 if status.locked:
                     return
             except Exception as exc:

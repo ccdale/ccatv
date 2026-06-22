@@ -1804,8 +1804,13 @@ def test_dispatch_ota_multimux_sync_returns_stats_per_mux() -> None:
         run_command=lambda _cmd: SimpleNamespace(stdout="", stderr="", returncode=0),
         start_command=lambda _cmd: _MockPopen(),
     )
-    dispatcher._capture_ota_epg_stream = _fake_capture
-    dispatcher._wait_for_frontend_lock = lambda **_kw: None
+    dispatcher._capture_ota_epg_stream_with_clients = (
+        lambda **_kw: _fake_capture(
+            grab_command=str(_kw.get("grab_command", "epgdata")),
+            capture_seconds=float(_kw.get("capture_seconds", 0.0)),
+        )
+    )
+    dispatcher._wait_for_frontend_lock_with_service = lambda **_kw: None
 
     response = dispatcher.dispatch(
         {
@@ -1866,8 +1871,10 @@ def test_dispatch_ota_multimux_sync_skips_radio_channels() -> None:
         run_command=lambda _cmd: SimpleNamespace(stdout="", stderr="", returncode=0),
         start_command=lambda _cmd: _MockPopen(),
     )
-    dispatcher._capture_ota_epg_stream = lambda **_kw: captures.append("") or SimpleNamespace(stdout="")  # type: ignore[assignment]
-    dispatcher._wait_for_frontend_lock = lambda **_kw: None
+    dispatcher._capture_ota_epg_stream_with_clients = (
+        lambda **_kw: captures.append("") or SimpleNamespace(stdout="")
+    )
+    dispatcher._wait_for_frontend_lock_with_service = lambda **_kw: None
 
     response = dispatcher.dispatch(
         {
