@@ -87,6 +87,9 @@ class NfoSidecarPostProcessingRunner:
             messages.append(f"nfo sidecar already exists: {nfo_path}")
         else:
             root = ET.Element("episodedetails")
+            ET.SubElement(root, "uniqueid", type="local", default="true").text = str(
+                request.recording_id
+            ).zfill(5)
             ET.SubElement(root, "title").text = (
                 request.program_title
                 or Path(request.output_path).stem
