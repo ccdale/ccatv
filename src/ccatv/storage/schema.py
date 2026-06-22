@@ -250,6 +250,22 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=9,
+        name="channel_lineup_overrides_v9",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS channel_lineup_overrides (
+                epg_channel_name TEXT PRIMARY KEY COLLATE NOCASE,
+                broadcaster_name TEXT,
+                schedules_direct_name TEXT,
+                guide_display_name TEXT,
+                guide_logical_channel_number TEXT,
+                updated_at_utc TEXT NOT NULL
+            )
+            """,
+        ),
+    ),
 )
 
 

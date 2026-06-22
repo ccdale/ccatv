@@ -192,6 +192,73 @@ def test_set_favorite_channel_updates_case_variants(tmp_path: Path) -> None:
         connection.close()
 
 
+def test_channel_lineup_override_roundtrip(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        connection.execute(
+            """
+            INSERT INTO epg_channels(
+                source,
+                source_channel_id,
+                display_name,
+                callsign,
+                logical_channel_number
+            ) VALUES(?, ?, ?, ?, ?)
+            """,
+            ("dvbstreamer_ota", "200", "ITV1 HD", "ITV1", "3"),
+        )
+        connection.commit()
+
+        result = store.set_channel_lineup_override(
+            epg_channel_name="ITV1 HD",
+            broadcaster_name="ITV1",
+            schedules_direct_name="ITV1 HD (Meridian, Anglia)",
+            guide_name="ITV1",
+            guide_logical_channel_number="3",
+        )
+
+        assert result == {"action": "saved", "updatedRows": 1}
+        overrides = store.list_channel_lineup_overrides()
+        assert "itv1 hd" in overrides
+        assert overrides["itv1 hd"] == {
+            "epgChannelName": "ITV1 HD",
+            "broadcasterName": "ITV1",
+            "schedulesDirectName": "ITV1 HD (Meridian, Anglia)",
+            "guideName": "ITV1",
+            "guideLogicalChannelNumber": "3",
+        }
+    finally:
+        connection.close()
+
+
+def test_channel_lineup_override_can_clear(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        store.set_channel_lineup_override(
+            epg_channel_name="BBC FOUR HD",
+            broadcaster_name="BBC FOUR HD",
+            schedules_direct_name="BBC Four HD",
+            guide_name="BBC4",
+            guide_logical_channel_number="9",
+        )
+
+        result = store.set_channel_lineup_override(
+            epg_channel_name="BBC FOUR HD",
+            broadcaster_name=None,
+            schedules_direct_name=None,
+            guide_name=None,
+            guide_logical_channel_number=None,
+        )
+
+        assert result == {"action": "cleared", "updatedRows": 1}
+        overrides = store.list_channel_lineup_overrides()
+        assert "bbc four hd" not in overrides
+    finally:
+        connection.close()
+
+
 def test_series_recording_subscription_roundtrip(tmp_path: Path) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     store = PersistenceStore(connection=connection)

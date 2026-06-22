@@ -730,13 +730,14 @@
 
           const label = document.createElement("div");
           label.className = "timeline-channel-label";
-          label.textContent = channel.name;
+          label.textContent = channel.guideName || channel.name;
 
           const track = document.createElement("div");
           track.className = "timeline-track";
           track.style.width = `${windowMinutes * PIXELS_PER_MINUTE}px`;
 
-          const programmes = timelineData.get(channel.name) || [];
+          const queryChannelName = channel.epgName || channel.name;
+          const programmes = timelineData.get(queryChannelName) || [];
           let renderedAny = false;
           for (const programme of programmes) {
             const clipStart = Math.max(programme.startMs, windowStartMs);
@@ -803,9 +804,40 @@
         guideSubtitle.textContent = windowText;
       }
 
+      function lcnSortKey(value) {
+        if (typeof value !== "string") {
+          return [1, ""];
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return [1, ""];
+        }
+        const numeric = Number.parseInt(trimmed, 10);
+        if (Number.isFinite(numeric)) {
+          return [0, numeric];
+        }
+        return [1, trimmed.toLowerCase()];
+      }
+
       async function loadChannels() {
         const payload = await fetchJson("/api/channels");
-        channels = payload.channels || [];
+        channels = (payload.channels || []).slice().sort((left, right) => {
+          const [leftType, leftKey] = lcnSortKey(
+            left.guideLogicalChannelNumber || left.logicalChannelNumber || ""
+          );
+          const [rightType, rightKey] = lcnSortKey(
+            right.guideLogicalChannelNumber || right.logicalChannelNumber || ""
+          );
+          if (leftType !== rightType) {
+            return leftType - rightType;
+          }
+          if (leftKey !== rightKey) {
+            return leftKey < rightKey ? -1 : 1;
+          }
+          return String(left.guideName || left.name || "").localeCompare(
+            String(right.guideName || right.name || "")
+          );
+        });
         favouriteChannels = channels.filter((channel) => channel.favoriteChannel);
       }
 
@@ -858,13 +890,14 @@
         const start = new Date(timelineOriginMs);
         try {
           const allPayloads = await Promise.all(favouriteChannels.map(async (channel) => {
+            const queryChannelName = channel.epgName || channel.name;
             const query = new URLSearchParams({
-              channel: channel.name,
+              channel: queryChannelName,
               startAtUtc: toUtcNoMillis(start),
               windowHours: String(TIMELINE_RANGE_DAYS * 24),
             });
             const payload = await fetchJson(`/api/guide?${query.toString()}`);
-            return { channelName: channel.name, programs: payload.programs || [] };
+            return { channelName: queryChannelName, programs: payload.programs || [] };
           }));
 
           for (const item of allPayloads) {

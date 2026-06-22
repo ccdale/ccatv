@@ -476,6 +476,122 @@ class PersistenceStore:
             self.connection.commit()
             return result.rowcount
 
+    def list_channel_lineup_overrides(
+        self,
+    ) -> dict[str, dict[str, str | None]]:
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT
+                    epg_channel_name,
+                    broadcaster_name,
+                    schedules_direct_name,
+                    guide_display_name,
+                    guide_logical_channel_number
+                FROM channel_lineup_overrides
+                """
+            ).fetchall()
+        overrides: dict[str, dict[str, str | None]] = {}
+        for row in rows:
+            epg_name = str(row[0]).strip()
+            if not epg_name:
+                continue
+            overrides[epg_name.casefold()] = {
+                "epgChannelName": epg_name,
+                "broadcasterName": str(row[1]).strip() if row[1] is not None else None,
+                "schedulesDirectName": (
+                    str(row[2]).strip() if row[2] is not None else None
+                ),
+                "guideName": str(row[3]).strip() if row[3] is not None else None,
+                "guideLogicalChannelNumber": (
+                    str(row[4]).strip() if row[4] is not None else None
+                ),
+            }
+        return overrides
+
+    def set_channel_lineup_override(
+        self,
+        *,
+        epg_channel_name: str,
+        broadcaster_name: str | None,
+        schedules_direct_name: str | None,
+        guide_name: str | None,
+        guide_logical_channel_number: str | None,
+    ) -> dict[str, object]:
+        normalized_epg_name = epg_channel_name.strip()
+        normalized_broadcaster = (
+            broadcaster_name.strip() if isinstance(broadcaster_name, str) else None
+        )
+        normalized_sd = (
+            schedules_direct_name.strip()
+            if isinstance(schedules_direct_name, str)
+            else None
+        )
+        normalized_guide_name = guide_name.strip() if isinstance(guide_name, str) else None
+        normalized_guide_lcn = (
+            guide_logical_channel_number.strip()
+            if isinstance(guide_logical_channel_number, str)
+            else None
+        )
+
+        normalized_broadcaster = normalized_broadcaster or None
+        normalized_sd = normalized_sd or None
+        normalized_guide_name = normalized_guide_name or None
+        normalized_guide_lcn = normalized_guide_lcn or None
+
+        with self._lock:
+            if (
+                normalized_broadcaster is None
+                and normalized_sd is None
+                and normalized_guide_name is None
+                and normalized_guide_lcn is None
+            ):
+                deleted = self.connection.execute(
+                    """
+                    DELETE FROM channel_lineup_overrides
+                    WHERE epg_channel_name = ?
+                    """,
+                    (normalized_epg_name,),
+                ).rowcount
+                self.connection.commit()
+                return {
+                    "action": "cleared",
+                    "updatedRows": int(deleted),
+                }
+
+            self.connection.execute(
+                """
+                INSERT INTO channel_lineup_overrides(
+                    epg_channel_name,
+                    broadcaster_name,
+                    schedules_direct_name,
+                    guide_display_name,
+                    guide_logical_channel_number,
+                    updated_at_utc
+                )
+                VALUES(?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                ON CONFLICT(epg_channel_name)
+                DO UPDATE SET
+                    broadcaster_name = excluded.broadcaster_name,
+                    schedules_direct_name = excluded.schedules_direct_name,
+                    guide_display_name = excluded.guide_display_name,
+                    guide_logical_channel_number = excluded.guide_logical_channel_number,
+                    updated_at_utc = excluded.updated_at_utc
+                """,
+                (
+                    normalized_epg_name,
+                    normalized_broadcaster,
+                    normalized_sd,
+                    normalized_guide_name,
+                    normalized_guide_lcn,
+                ),
+            )
+            self.connection.commit()
+            return {
+                "action": "saved",
+                "updatedRows": 1,
+            }
+
     def list_series_recording_subscriptions(self) -> list[str]:
         with self._lock:
             rows = self.connection.execute(

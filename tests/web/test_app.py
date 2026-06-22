@@ -27,12 +27,26 @@ class _StubServiceClient:
                 "channels": [
                     {
                         "name": "BBC TWO HD",
+                        "epgName": "BBC TWO HD",
                         "callsign": "BBC2",
                         "logicalChannelNumber": "2",
                         "source": "dvbstreamer_ota",
                         "sourceChannelId": "200",
                         "dvbstreamerServiceName": None,
                         "favoriteChannel": False,
+                        "guideName": "BBC TWO HD",
+                        "guideLogicalChannelNumber": "2",
+                        "broadcasterName": None,
+                        "schedulesDirectName": "BBC TWO HD",
+                        "sourceVariants": [
+                            {
+                                "source": "dvbstreamer_ota",
+                                "name": "BBC TWO HD",
+                                "sourceChannelId": "200",
+                                "callsign": "BBC2",
+                                "logicalChannelNumber": "2",
+                            }
+                        ],
                     }
                 ]
             }
@@ -51,6 +65,16 @@ class _StubServiceClient:
             return {
                 "channelName": str(payload.get("channelName")),
                 "favorite": bool(payload.get("favorite")),
+                "updatedRows": 1,
+            }
+        if command == "metadata.channels.lineup.set":
+            return {
+                "epgChannelName": str(payload.get("epgChannelName")),
+                "broadcasterName": payload.get("broadcasterName"),
+                "schedulesDirectName": payload.get("schedulesDirectName"),
+                "guideName": payload.get("guideName"),
+                "guideLogicalChannelNumber": payload.get("guideLogicalChannelNumber"),
+                "action": "saved",
                 "updatedRows": 1,
             }
         if command == "metadata.series.recording.list":
@@ -555,6 +579,47 @@ def test_channel_favorite_route_forwards_payload(monkeypatch) -> None:
     assert response.get_json()["ok"] is True
     assert stub.calls == [
         ("metadata.channels.favorite.set", {"channelName": "Quest", "favorite": True})
+    ]
+
+
+def test_channel_lineup_route_forwards_payload(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post(
+        "/api/channels/lineup",
+        json={
+            "epgChannelName": "ITV1 HD",
+            "broadcasterName": "ITV1",
+            "schedulesDirectName": "ITV1 HD (Meridian, Anglia)",
+            "guideName": "ITV1",
+            "guideLogicalChannelNumber": "3",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        (
+            "metadata.channels.lineup.set",
+            {
+                "epgChannelName": "ITV1 HD",
+                "broadcasterName": "ITV1",
+                "schedulesDirectName": "ITV1 HD (Meridian, Anglia)",
+                "guideName": "ITV1",
+                "guideLogicalChannelNumber": "3",
+            },
+        )
     ]
 
 

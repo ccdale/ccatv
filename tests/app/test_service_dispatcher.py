@@ -1416,26 +1416,38 @@ def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None
     )
 
     assert response["ok"] is True
-    assert response["payload"]["channels"] == [
-        {
-            "name": "BBC TWO HD",
-            "callsign": "BBC2",
-            "logicalChannelNumber": "2",
-            "source": "dvbstreamer_ota",
-            "sourceChannelId": "200",
-            "dvbstreamerServiceName": None,
-            "favoriteChannel": False,
-        },
-        {
-            "name": "BBC FOUR",
-            "callsign": "BBC4",
-            "logicalChannelNumber": "9",
-            "source": "schedules_direct",
-            "sourceChannelId": "300",
-            "dvbstreamerServiceName": None,
-            "favoriteChannel": False,
-        },
-    ]
+    channels = response["payload"]["channels"]
+    assert len(channels) == 2
+
+    bbc_two = channels[0]
+    assert bbc_two["name"] == "BBC TWO HD"
+    assert bbc_two["epgName"] == "BBC TWO HD"
+    assert bbc_two["callsign"] == "BBC2"
+    assert bbc_two["logicalChannelNumber"] == "2"
+    assert bbc_two["source"] == "dvbstreamer_ota"
+    assert bbc_two["sourceChannelId"] == "200"
+    assert bbc_two["dvbstreamerServiceName"] is None
+    assert bbc_two["favoriteChannel"] is False
+    assert bbc_two["guideName"] == "BBC TWO HD"
+    assert bbc_two["guideLogicalChannelNumber"] == "2"
+    assert bbc_two["broadcasterName"] is None
+    assert bbc_two["schedulesDirectName"] == "BBC TWO HD"
+    assert len(bbc_two["sourceVariants"]) == 2
+
+    bbc_four = channels[1]
+    assert bbc_four["name"] == "BBC FOUR"
+    assert bbc_four["epgName"] == "BBC FOUR"
+    assert bbc_four["callsign"] == "BBC4"
+    assert bbc_four["logicalChannelNumber"] == "9"
+    assert bbc_four["source"] == "schedules_direct"
+    assert bbc_four["sourceChannelId"] == "300"
+    assert bbc_four["dvbstreamerServiceName"] is None
+    assert bbc_four["favoriteChannel"] is False
+    assert bbc_four["guideName"] == "BBC FOUR"
+    assert bbc_four["guideLogicalChannelNumber"] == "9"
+    assert bbc_four["broadcasterName"] is None
+    assert bbc_four["schedulesDirectName"] == "BBC FOUR"
+    assert len(bbc_four["sourceVariants"]) == 1
 
 
 def test_dispatch_metadata_channels_list_keeps_favorite_from_fallback_source() -> None:
@@ -1469,17 +1481,22 @@ def test_dispatch_metadata_channels_list_keeps_favorite_from_fallback_source() -
     )
 
     assert response["ok"] is True
-    assert response["payload"]["channels"] == [
-        {
-            "name": "BBC FOUR HD",
-            "callsign": "BBC4HD",
-            "logicalChannelNumber": "106",
-            "source": "dvbstreamer_ota",
-            "sourceChannelId": "200",
-            "dvbstreamerServiceName": None,
-            "favoriteChannel": True,
-        }
-    ]
+    channels = response["payload"]["channels"]
+    assert len(channels) == 1
+    channel = channels[0]
+    assert channel["name"] == "BBC FOUR HD"
+    assert channel["epgName"] == "BBC FOUR HD"
+    assert channel["callsign"] == "BBC4HD"
+    assert channel["logicalChannelNumber"] == "106"
+    assert channel["source"] == "dvbstreamer_ota"
+    assert channel["sourceChannelId"] == "200"
+    assert channel["dvbstreamerServiceName"] is None
+    assert channel["favoriteChannel"] is True
+    assert channel["guideName"] == "BBC FOUR HD"
+    assert channel["guideLogicalChannelNumber"] == "106"
+    assert channel["broadcasterName"] is None
+    assert channel["schedulesDirectName"] == "BBC FOUR HD"
+    assert len(channel["sourceVariants"]) == 2
 
 
 def test_dispatch_metadata_channels_service_name_set_updates_mapping() -> None:
@@ -1625,6 +1642,44 @@ def test_dispatch_metadata_channels_favorite_set_rejects_non_boolean() -> None:
 
     assert response["ok"] is False
     assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_metadata_channels_lineup_set_saves_override() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "BBC FOUR HD", "BBC4HD", "106"),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.channels.lineup.set",
+            "payload": {
+                "epgChannelName": "BBC FOUR HD",
+                "broadcasterName": "BBC FOUR HD",
+                "schedulesDirectName": "BBC Four HD",
+                "guideName": "BBC4",
+                "guideLogicalChannelNumber": "9",
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["epgChannelName"] == "BBC FOUR HD"
+    assert response["payload"]["guideName"] == "BBC4"
+    assert response["payload"]["guideLogicalChannelNumber"] == "9"
 
 
 def test_dispatch_metadata_channels_favorite_set_rejects_empty_channel_name() -> None:

@@ -15,7 +15,6 @@
         --accent: #0a7f5a;
         --accent-soft: #ddf7ee;
         --warn: #b45309;
-        --star: #d97706;
         --danger: #b91c1c;
       }
       * { box-sizing: border-box; }
@@ -30,17 +29,18 @@
           var(--bg);
       }
       main {
-        width: min(1320px, calc(100vw - 2rem));
+        width: min(1480px, calc(100vw - 2rem));
         margin: 0 auto;
         padding: 1.5rem 0 2rem;
       }
+      h1, h2, p { margin: 0; }
+      input, button, select { font: inherit; }
       .hero {
         padding: 1.2rem 1.35rem;
         border: 1px solid var(--line);
         border-radius: 20px;
         background: linear-gradient(130deg, #ffffff 0%, #eef8ff 100%);
       }
-      h1, h2, p { margin: 0; }
       h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); letter-spacing: -0.02em; }
       .subtitle { margin-top: 0.5rem; color: var(--muted); }
       .hero-row {
@@ -50,17 +50,17 @@
         gap: 0.75rem;
         align-items: center;
       }
-      input, button, select { font: inherit; }
-      input {
-        min-width: 260px;
-        border-radius: 999px;
+      input[type="password"], input[type="text"], input[type="search"] {
+        min-width: 220px;
+        border-radius: 10px;
         border: 1px solid var(--line);
-        padding: 0.65rem 0.95rem;
+        padding: 0.5rem 0.65rem;
+        background: #fff;
       }
       button {
         border: 0;
         border-radius: 999px;
-        padding: 0.65rem 0.95rem;
+        padding: 0.6rem 0.9rem;
         cursor: pointer;
         background: var(--ink);
         color: #fff;
@@ -71,14 +71,12 @@
         border: 1px solid var(--line);
       }
       button.favorite {
-        background: #fff5e8;
-        color: #8a3b00;
+        background: #fff8ea;
+        color: #6b2f00;
         border: 1px solid #f4d7b3;
       }
       button.favorite.active {
         background: #ffe8c7;
-        color: #6b2f00;
-        border-color: #f0bf7a;
       }
       button:disabled { opacity: 0.55; cursor: default; }
       .status {
@@ -100,6 +98,12 @@
         flex-wrap: wrap;
       }
       .toolbar a { color: var(--ink); text-decoration: none; border-bottom: 1px dashed #94a3b8; }
+      .toolbar .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
       .table-wrap {
         margin-top: 0.9rem;
         border: 1px solid var(--line);
@@ -110,10 +114,10 @@
       table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 1000px;
+        min-width: 1400px;
       }
       th, td {
-        padding: 0.8rem 0.75rem;
+        padding: 0.72rem 0.65rem;
         border-bottom: 1px solid #edf2fb;
         vertical-align: top;
       }
@@ -122,49 +126,60 @@
         top: 0;
         background: #f8fbff;
         text-align: left;
-        font-size: 0.93rem;
+        font-size: 0.92rem;
       }
-      td small { color: var(--muted); display: block; margin-top: 0.2rem; }
-      .mapping-cell {
+      .loading {
+        padding: 1.4rem;
+        color: var(--muted);
+      }
+      .cell-stack {
         display: grid;
         gap: 0.45rem;
       }
-      .mapping-current {
+      .muted {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+      }
+      .pill {
         display: inline-flex;
         align-items: center;
-        gap: 0.35rem;
-        padding: 0.3rem 0.55rem;
+        gap: 0.2rem;
         border-radius: 999px;
-        background: var(--accent-soft);
-        color: #0b5a42;
-        width: fit-content;
+        padding: 0.2rem 0.5rem;
+        border: 1px solid #d8e0ef;
+        background: #f9fbff;
+        font-size: 0.82rem;
       }
-      .mapping-current.empty {
-        background: #eef2f7;
-        color: #334155;
-      }
-      .mapping-controls {
+      .pill.sd { background: #fff3d9; border-color: #f4d5a3; }
+      .pill.ota { background: #e9f7ff; border-color: #bde4f8; }
+      .pill.other { background: #eef2f7; border-color: #d7dfec; }
+      .inline {
         display: flex;
         flex-wrap: wrap;
         gap: 0.45rem;
         align-items: center;
       }
+      .inline input, .inline select {
+        min-width: 180px;
+      }
+      .inline .wide {
+        min-width: 230px;
+      }
       select {
-        min-width: 240px;
         border: 1px solid var(--line);
         border-radius: 10px;
         padding: 0.45rem 0.55rem;
         background: #fff;
       }
-      .hint { color: var(--muted); font-size: 0.9rem; }
-      .loading {
-        padding: 1.5rem;
-        color: var(--muted);
-      }
       @media (max-width: 760px) {
         main { width: calc(100vw - 1rem); }
         .hero-row { flex-direction: column; align-items: stretch; }
-        input { min-width: 0; width: 100%; }
+        input[type="password"], input[type="text"], input[type="search"] { min-width: 0; width: 100%; }
       }
     </style>
   </head>
@@ -172,7 +187,7 @@
     <main>
       <section class="hero">
         <h1>Channel Manager</h1>
-        <p class="subtitle">Map EPG channel names to dvbstreamer services and curate your favourites.</p>
+        <p class="subtitle">Link broadcaster, OTA EPG, and Schedules Direct channel names, then curate your guide name and LCN order.</p>
         <div class="hero-row">
           <input id="token-input" type="password" placeholder="CCATV_WEB_AUTH_TOKEN" autocomplete="off">
           <button id="login-button" type="button">Sign in</button>
@@ -182,22 +197,29 @@
       </section>
 
       <div class="toolbar">
-        <a href="/">Back to Guide</a>
-        <a href="/upcoming-films">Upcoming Films</a>
-        <button id="refresh-button" class="secondary" type="button">Refresh Channel Data</button>
+        <div class="controls">
+          <a href="/">Back to Guide</a>
+          <a href="/upcoming-films">Upcoming Films</a>
+        </div>
+        <div class="controls">
+          <input id="filter-input" type="search" placeholder="Filter channels by any linked name">
+          <button id="refresh-button" class="secondary" type="button">Refresh Channel Data</button>
+        </div>
       </div>
 
       <section class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th style="width: 32%;">EPG Channel</th>
-              <th style="width: 48%;">Probable dvbstreamer Service</th>
-              <th style="width: 20%;">Favourite</th>
+              <th style="width: 20%;">EPG Channel</th>
+              <th style="width: 30%;">Linked Names</th>
+              <th style="width: 28%;">Guide Channel List (Custom)</th>
+              <th style="width: 14%;">Probable dvbstreamer Service</th>
+              <th style="width: 8%;">Favourite</th>
             </tr>
           </thead>
           <tbody id="channel-table-body">
-            <tr><td class="loading" colspan="3">Sign in to load channels.</td></tr>
+            <tr><td class="loading" colspan="5">Sign in to load channels.</td></tr>
           </tbody>
         </table>
       </section>
@@ -210,6 +232,7 @@
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
+      const filterInput = document.getElementById("filter-input");
       const tableBody = document.getElementById("channel-table-body");
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
@@ -226,6 +249,48 @@
       function setStatus(message, level = "info") {
         statusNode.textContent = message;
         statusNode.className = "status" + (level === "info" ? "" : " " + level);
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          ...options,
+        });
+        const body = await response.json().catch(() => ({ ok: false, error: { message: "invalid JSON response" } }));
+        if (!response.ok || body.ok === false) {
+          const code = body.error && body.error.code ? body.error.code : null;
+          const message = body.error && body.error.message ? body.error.message : `request failed with status ${response.status}`;
+          throw new ApiError(code ? `${message} (${code})` : message, code);
+        }
+        return body.payload;
+      }
+
+      function setAuthUiState() {
+        tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
+        loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
+        logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
+        tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
+      }
+
+      function lcnSortKey(value) {
+        if (typeof value !== "string") {
+          return [1, ""];
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return [1, ""];
+        }
+        const numeric = Number.parseInt(trimmed, 10);
+        if (Number.isFinite(numeric)) {
+          return [0, numeric];
+        }
+        return [1, trimmed.toLowerCase()];
+      }
+
+      function sourceBadgeClass(source) {
+        if (source === "schedules_direct") return "pill sd";
+        if (source === "dvbstreamer_ota") return "pill ota";
+        return "pill other";
       }
 
       function normalizeName(value) {
@@ -254,47 +319,30 @@
         return score;
       }
 
-      function uniqueLikelyMatches(epgName, services) {
-        const ranked = services
+      function likelyServices(epgName) {
+        return dvbServices
           .map((service) => ({ service, score: scoreMatch(epgName, service) }))
           .filter((item) => item.score >= 20)
-          .sort((left, right) => right.score - left.score || left.service.localeCompare(right.service));
-        const deduped = [];
-        const seen = new Set();
-        for (const item of ranked) {
-          const key = item.service.toLowerCase();
-          if (!seen.has(key)) {
-            seen.add(key);
-            deduped.push(item.service);
+          .sort((left, right) => right.score - left.score || left.service.localeCompare(right.service))
+          .slice(0, 10)
+          .map((item) => item.service);
+      }
+
+      function allSchedulesDirectNames() {
+        const names = new Set();
+        for (const channel of channels) {
+          const variants = Array.isArray(channel.sourceVariants) ? channel.sourceVariants : [];
+          for (const item of variants) {
+            if (!item || item.source !== "schedules_direct") continue;
+            if (typeof item.name === "string" && item.name.trim()) {
+              names.add(item.name.trim());
+            }
           }
-          if (deduped.length >= 8) break;
+          if (typeof channel.schedulesDirectName === "string" && channel.schedulesDirectName.trim()) {
+            names.add(channel.schedulesDirectName.trim());
+          }
         }
-        return deduped;
-      }
-
-      async function fetchJson(url, options = {}) {
-        const response = await fetch(url, {
-          credentials: "same-origin",
-          ...options,
-        });
-        const body = await response.json().catch(() => ({ ok: false, error: { message: "invalid JSON response" } }));
-        if (!response.ok || body.ok === false) {
-          const code = body.error && body.error.code ? body.error.code : null;
-          const message = body.error && body.error.message ? body.error.message : `request failed with status ${response.status}`;
-          throw new ApiError(code ? `${message} (${code})` : message, code);
-        }
-        return body.payload;
-      }
-
-      function setAuthUiState() {
-        tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
-        loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
-        logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
-        tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
-      }
-
-      function getExactMatches(channelName) {
-        return dvbServices.filter((svc) => svc.toLowerCase() === channelName.toLowerCase());
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
       }
 
       async function saveMapping(channelName, serviceName) {
@@ -313,99 +361,214 @@
         });
       }
 
+      async function saveLineup(channel, values) {
+        await fetchJson("/api/channels/lineup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            epgChannelName: channel.name,
+            broadcasterName: values.broadcasterName,
+            schedulesDirectName: values.schedulesDirectName,
+            guideName: values.guideName,
+            guideLogicalChannelNumber: values.guideLogicalChannelNumber,
+          }),
+        });
+      }
+
+      function matchesFilter(channel, query) {
+        if (!query) return true;
+        const lowered = query.toLowerCase();
+        const values = [
+          channel.name,
+          channel.epgName,
+          channel.guideName,
+          channel.schedulesDirectName,
+          channel.broadcasterName,
+          channel.dvbstreamerServiceName,
+          channel.logicalChannelNumber,
+          channel.guideLogicalChannelNumber,
+        ].filter((item) => typeof item === "string");
+        const variants = Array.isArray(channel.sourceVariants) ? channel.sourceVariants : [];
+        for (const item of variants) {
+          if (item && typeof item.name === "string") {
+            values.push(item.name);
+          }
+        }
+        return values.some((item) => item.toLowerCase().includes(lowered));
+      }
+
       function renderRow(channel) {
         const row = document.createElement("tr");
 
         const epgCell = document.createElement("td");
-        epgCell.innerHTML = `<strong>${channel.name}</strong><small>${channel.logicalChannelNumber ? `LCN ${channel.logicalChannelNumber} · ` : ""}${channel.callsign || ""}${channel.callsign ? " · " : ""}${channel.source}</small>`;
+        epgCell.className = "cell-stack";
+        epgCell.innerHTML = `<strong>${channel.epgName || channel.name}</strong><div class=\"muted\">Source: ${channel.source || "unknown"} · LCN ${channel.logicalChannelNumber || "n/a"}</div>`;
 
-        const mapCell = document.createElement("td");
-        mapCell.className = "mapping-cell";
+        const linksCell = document.createElement("td");
+        linksCell.className = "cell-stack";
 
-        const current = document.createElement("div");
-        current.className = "mapping-current" + (channel.dvbstreamerServiceName ? "" : " empty");
-        current.textContent = channel.dvbstreamerServiceName || "No mapping stored";
-        mapCell.append(current);
-
-        const controls = document.createElement("div");
-        controls.className = "mapping-controls";
-
-        const exactMatches = getExactMatches(channel.name);
-        const likely = uniqueLikelyMatches(channel.name, dvbServices);
-
-        let selectedValue = channel.dvbstreamerServiceName || "";
-        if (!selectedValue && exactMatches.length === 1) {
-          selectedValue = exactMatches[0];
-        }
-
-        if (!channel.dvbstreamerServiceName && exactMatches.length === 1) {
-          const hint = document.createElement("div");
-          hint.className = "hint";
-          hint.textContent = `Exact one-to-one match: ${exactMatches[0]}`;
-          controls.append(hint);
-
-          const applyButton = document.createElement("button");
-          applyButton.type = "button";
-          applyButton.textContent = "Apply Exact Match";
-          applyButton.addEventListener("click", async () => {
-            applyButton.disabled = true;
-            try {
-              await saveMapping(channel.name, exactMatches[0]);
-              setStatus(`Saved mapping for ${channel.name}.`);
-              await loadTableData();
-            } catch (error) {
-              setStatus(error.message || "Failed to save mapping.", "error");
-            } finally {
-              applyButton.disabled = false;
-            }
-          });
-          controls.append(applyButton);
+        const pills = document.createElement("div");
+        pills.className = "pill-row";
+        const variants = Array.isArray(channel.sourceVariants) ? channel.sourceVariants : [];
+        if (!variants.length) {
+          const none = document.createElement("span");
+          none.className = "pill other";
+          none.textContent = "No source variants";
+          pills.append(none);
         } else {
-          const options = Array.from(new Set([
-            ...(channel.dvbstreamerServiceName ? [channel.dvbstreamerServiceName] : []),
-            ...likely,
-          ]));
-
-          const select = document.createElement("select");
-          const empty = document.createElement("option");
-          empty.value = "";
-          empty.textContent = "Clear mapping";
-          select.append(empty);
-
-          for (const service of options) {
-            const option = document.createElement("option");
-            option.value = service;
-            option.textContent = service;
-            if (service === selectedValue) option.selected = true;
-            select.append(option);
+          for (const item of variants) {
+            if (!item) continue;
+            const badge = document.createElement("span");
+            badge.className = sourceBadgeClass(item.source);
+            badge.textContent = `${item.source}: ${item.name || "(unnamed)"}`;
+            pills.append(badge);
           }
-
-          const saveButton = document.createElement("button");
-          saveButton.type = "button";
-          saveButton.textContent = "Save Mapping";
-          saveButton.addEventListener("click", async () => {
-            saveButton.disabled = true;
-            try {
-              await saveMapping(channel.name, select.value || null);
-              setStatus(`Saved mapping for ${channel.name}.`);
-              await loadTableData();
-            } catch (error) {
-              setStatus(error.message || "Failed to save mapping.", "error");
-            } finally {
-              saveButton.disabled = false;
-            }
-          });
-
-          controls.append(select, saveButton);
         }
+        linksCell.append(pills);
 
-        mapCell.append(controls);
+        const sdInputRow = document.createElement("div");
+        sdInputRow.className = "inline";
+        const sdLabel = document.createElement("span");
+        sdLabel.className = "muted";
+        sdLabel.textContent = "Schedules Direct name:";
+        const sdInput = document.createElement("input");
+        sdInput.type = "text";
+        sdInput.className = "wide";
+        sdInput.value = channel.schedulesDirectName || "";
+        sdInput.setAttribute("list", "schedules-direct-names");
+        sdInputRow.append(sdLabel, sdInput);
+
+        const broadcasterRow = document.createElement("div");
+        broadcasterRow.className = "inline";
+        const broadcasterLabel = document.createElement("span");
+        broadcasterLabel.className = "muted";
+        broadcasterLabel.textContent = "Broadcaster name:";
+        const broadcasterSelect = document.createElement("select");
+        const clearBroadcaster = document.createElement("option");
+        clearBroadcaster.value = "";
+        clearBroadcaster.textContent = "(none)";
+        broadcasterSelect.append(clearBroadcaster);
+        const broadcasterOptions = Array.from(new Set([
+          ...(channel.broadcasterName ? [channel.broadcasterName] : []),
+          ...(channel.dvbstreamerServiceName ? [channel.dvbstreamerServiceName] : []),
+          ...likelyServices(channel.name),
+        ]));
+        for (const service of broadcasterOptions) {
+          if (!service) continue;
+          const option = document.createElement("option");
+          option.value = service;
+          option.textContent = service;
+          if (service === channel.broadcasterName) {
+            option.selected = true;
+          }
+          broadcasterSelect.append(option);
+        }
+        broadcasterRow.append(broadcasterLabel, broadcasterSelect);
+
+        linksCell.append(sdInputRow, broadcasterRow);
+
+        const guideCell = document.createElement("td");
+        guideCell.className = "cell-stack";
+
+        const guideNameRow = document.createElement("div");
+        guideNameRow.className = "inline";
+        const guideNameLabel = document.createElement("span");
+        guideNameLabel.className = "muted";
+        guideNameLabel.textContent = "Guide name:";
+        const guideNameInput = document.createElement("input");
+        guideNameInput.type = "text";
+        guideNameInput.className = "wide";
+        guideNameInput.value = channel.guideName || channel.name || "";
+        guideNameRow.append(guideNameLabel, guideNameInput);
+
+        const guideLcnRow = document.createElement("div");
+        guideLcnRow.className = "inline";
+        const guideLcnLabel = document.createElement("span");
+        guideLcnLabel.className = "muted";
+        guideLcnLabel.textContent = "Guide LCN:";
+        const guideLcnInput = document.createElement("input");
+        guideLcnInput.type = "text";
+        guideLcnInput.value = channel.guideLogicalChannelNumber || channel.logicalChannelNumber || "";
+        guideLcnInput.style.maxWidth = "120px";
+
+        const saveGuideButton = document.createElement("button");
+        saveGuideButton.type = "button";
+        saveGuideButton.className = "secondary";
+        saveGuideButton.textContent = "Save Links";
+        saveGuideButton.addEventListener("click", async () => {
+          saveGuideButton.disabled = true;
+          try {
+            await saveLineup(channel, {
+              broadcasterName: broadcasterSelect.value || null,
+              schedulesDirectName: sdInput.value || null,
+              guideName: guideNameInput.value || null,
+              guideLogicalChannelNumber: guideLcnInput.value || null,
+            });
+            setStatus(`Saved channel links for ${channel.name}.`);
+            await loadTableData();
+          } catch (error) {
+            setStatus(error.message || "Failed to save channel links.", "error");
+          } finally {
+            saveGuideButton.disabled = false;
+          }
+        });
+
+        guideLcnRow.append(guideLcnLabel, guideLcnInput, saveGuideButton);
+        guideCell.append(guideNameRow, guideLcnRow);
+
+        const mappingCell = document.createElement("td");
+        mappingCell.className = "cell-stack";
+        const currentMapping = document.createElement("div");
+        currentMapping.className = "muted";
+        currentMapping.textContent = channel.dvbstreamerServiceName
+          ? `Stored mapping: ${channel.dvbstreamerServiceName}`
+          : "Stored mapping: none";
+
+        const mappingRow = document.createElement("div");
+        mappingRow.className = "inline";
+        const mappingSelect = document.createElement("select");
+        const clearMap = document.createElement("option");
+        clearMap.value = "";
+        clearMap.textContent = "Clear mapping";
+        mappingSelect.append(clearMap);
+        const mappingOptions = Array.from(new Set([
+          ...(channel.dvbstreamerServiceName ? [channel.dvbstreamerServiceName] : []),
+          ...likelyServices(channel.name),
+        ]));
+        for (const service of mappingOptions) {
+          if (!service) continue;
+          const option = document.createElement("option");
+          option.value = service;
+          option.textContent = service;
+          if (service === channel.dvbstreamerServiceName) {
+            option.selected = true;
+          }
+          mappingSelect.append(option);
+        }
+        const saveMapButton = document.createElement("button");
+        saveMapButton.type = "button";
+        saveMapButton.className = "secondary";
+        saveMapButton.textContent = "Save Mapping";
+        saveMapButton.addEventListener("click", async () => {
+          saveMapButton.disabled = true;
+          try {
+            await saveMapping(channel.name, mappingSelect.value || null);
+            setStatus(`Saved dvbstreamer mapping for ${channel.name}.`);
+            await loadTableData();
+          } catch (error) {
+            setStatus(error.message || "Failed to save mapping.", "error");
+          } finally {
+            saveMapButton.disabled = false;
+          }
+        });
+        mappingRow.append(mappingSelect, saveMapButton);
+        mappingCell.append(currentMapping, mappingRow);
 
         const favCell = document.createElement("td");
         const favoriteButton = document.createElement("button");
         favoriteButton.type = "button";
         favoriteButton.className = "favorite" + (channel.favoriteChannel ? " active" : "");
-        favoriteButton.textContent = channel.favoriteChannel ? "★ Favourite" : "☆ Add Favourite";
+        favoriteButton.textContent = channel.favoriteChannel ? "★" : "☆";
         favoriteButton.addEventListener("click", async () => {
           favoriteButton.disabled = true;
           try {
@@ -420,23 +583,47 @@
         });
         favCell.append(favoriteButton);
 
-        row.append(epgCell, mapCell, favCell);
+        row.append(epgCell, linksCell, guideCell, mappingCell, favCell);
         return row;
       }
 
       function renderTable() {
         tableBody.replaceChildren();
         if (!isAuthenticated) {
-          tableBody.innerHTML = '<tr><td class="loading" colspan="3">Sign in to load channels.</td></tr>';
+          tableBody.innerHTML = '<tr><td class="loading" colspan="5">Sign in to load channels.</td></tr>';
           return;
         }
         if (!channels.length) {
-          tableBody.innerHTML = '<tr><td class="loading" colspan="3">No EPG channels found.</td></tr>';
+          tableBody.innerHTML = '<tr><td class="loading" colspan="5">No EPG channels found.</td></tr>';
           return;
         }
-        for (const channel of channels) {
+
+        const query = String(filterInput.value || "").trim().toLowerCase();
+        const filtered = channels.filter((channel) => matchesFilter(channel, query));
+        if (!filtered.length) {
+          tableBody.innerHTML = '<tr><td class="loading" colspan="5">No channels match this filter.</td></tr>';
+          return;
+        }
+
+        for (const channel of filtered) {
           tableBody.append(renderRow(channel));
         }
+      }
+
+      function renderSchedulesDirectDatalist() {
+        const existing = document.getElementById("schedules-direct-names");
+        if (existing) {
+          existing.remove();
+        }
+        const list = document.createElement("datalist");
+        list.id = "schedules-direct-names";
+        const names = allSchedulesDirectNames();
+        for (const name of names) {
+          const option = document.createElement("option");
+          option.value = name;
+          list.append(option);
+        }
+        document.body.append(list);
       }
 
       async function loadTableData() {
@@ -450,8 +637,25 @@
           fetchJson("/api/channels"),
           fetchJson("/api/dvbservices"),
         ]);
-        channels = channelPayload.channels || [];
+        channels = (channelPayload.channels || []).slice().sort((left, right) => {
+          const [leftType, leftKey] = lcnSortKey(
+            left.guideLogicalChannelNumber || left.logicalChannelNumber || ""
+          );
+          const [rightType, rightKey] = lcnSortKey(
+            right.guideLogicalChannelNumber || right.logicalChannelNumber || ""
+          );
+          if (leftType !== rightType) {
+            return leftType - rightType;
+          }
+          if (leftKey !== rightKey) {
+            return leftKey < rightKey ? -1 : 1;
+          }
+          return String(left.guideName || left.name || "").localeCompare(
+            String(right.guideName || right.name || "")
+          );
+        });
         dvbServices = servicePayload.services || [];
+        renderSchedulesDirectDatalist();
         if (!servicePayload.available) {
           setStatus(`Channels loaded. dvbstreamer services unavailable: ${servicePayload.error || "unknown error"}`, "warn");
         } else {
@@ -519,6 +723,10 @@
         } catch (error) {
           setStatus(error.message || "Failed to refresh channel data.", "error");
         }
+      });
+
+      filterInput.addEventListener("input", () => {
+        renderTable();
       });
 
       async function bootstrapPage() {

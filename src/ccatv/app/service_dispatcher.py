@@ -81,6 +81,7 @@ SERVICE_COMMANDS = [
     "metadata.channels.list",
     "metadata.channels.dvbservices.list",
     "metadata.channels.favorite.set",
+    "metadata.channels.lineup.set",
     "metadata.channels.service-name.set",
     "metadata.guide.list",
     "metadata.films.list",
@@ -220,6 +221,8 @@ class ServiceCommandDispatcher:
             return self._metadata_channels_dvbservices_list(payload)
         if command == "metadata.channels.favorite.set":
             return self._metadata_channels_favorite_set(payload)
+        if command == "metadata.channels.lineup.set":
+            return self._metadata_channels_lineup_set(payload)
         if command == "metadata.channels.service-name.set":
             return self._metadata_channels_service_name_set(payload)
         if command == "metadata.guide.list":
@@ -1204,18 +1207,32 @@ class ServiceCommandDispatcher:
             """
         ).fetchall()
 
+        lineup_overrides = self._context.persistence.list_channel_lineup_overrides()
+
         channels_by_name: dict[str, dict[str, object]] = {}
         for row in rows:
             display_name = str(row[2]).strip()
             dvb_name = str(row[5]).strip() if row[5] is not None else None
             channel = {
                 "name": display_name,
+                "epgName": display_name,
                 "callsign": str(row[3]) if row[3] is not None else None,
                 "logicalChannelNumber": str(row[4]) if row[4] is not None else None,
                 "source": str(row[0]),
                 "sourceChannelId": str(row[1]),
                 "dvbstreamerServiceName": dvb_name or None,
                 "favoriteChannel": bool(row[6]),
+                "sourceVariants": [
+                    {
+                        "source": str(row[0]),
+                        "name": display_name,
+                        "sourceChannelId": str(row[1]),
+                        "callsign": str(row[3]) if row[3] is not None else None,
+                        "logicalChannelNumber": (
+                            str(row[4]) if row[4] is not None else None
+                        ),
+                    }
+                ],
             }
             key = display_name.casefold()
             current = channels_by_name.get(key)
@@ -1248,18 +1265,76 @@ class ServiceCommandDispatcher:
                 preferred["dvbstreamerServiceName"] = fallback[
                     "dvbstreamerServiceName"
                 ]
+            if isinstance(preferred.get("sourceVariants"), list) and isinstance(
+                fallback.get("sourceVariants"), list
+            ):
+                seen_variants = {
+                    (
+                        str(item.get("source") or ""),
+                        str(item.get("sourceChannelId") or ""),
+                    )
+                    for item in preferred["sourceVariants"]
+                    if isinstance(item, dict)
+                }
+                for item in fallback["sourceVariants"]:
+                    if not isinstance(item, dict):
+                        continue
+                    variant_key = (
+                        str(item.get("source") or ""),
+                        str(item.get("sourceChannelId") or ""),
+                    )
+                    if variant_key in seen_variants:
+                        continue
+                    preferred["sourceVariants"].append(item)
+                    seen_variants.add(variant_key)
 
             preferred["favoriteChannel"] = merged_favorite
             channels_by_name[key] = preferred
+
+        for channel in channels_by_name.values():
+            override = lineup_overrides.get(str(channel["name"]).casefold())
+            schedules_direct_name: str | None = None
+            variants = channel.get("sourceVariants")
+            if isinstance(variants, list):
+                for item in variants:
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get("source") or "") != "schedules_direct":
+                        continue
+                    candidate = item.get("name")
+                    if isinstance(candidate, str) and candidate.strip():
+                        schedules_direct_name = candidate.strip()
+                        break
+            if isinstance(override, dict):
+                channel["guideName"] = (
+                    str(override.get("guideName") or "").strip() or channel["name"]
+                )
+                channel["guideLogicalChannelNumber"] = (
+                    str(override.get("guideLogicalChannelNumber") or "").strip()
+                    or channel["logicalChannelNumber"]
+                )
+                channel["broadcasterName"] = (
+                    str(override.get("broadcasterName") or "").strip()
+                    or channel["dvbstreamerServiceName"]
+                )
+                channel["schedulesDirectName"] = (
+                    str(override.get("schedulesDirectName") or "").strip()
+                    or schedules_direct_name
+                )
+            else:
+                channel["guideName"] = channel["name"]
+                channel["guideLogicalChannelNumber"] = channel["logicalChannelNumber"]
+                channel["broadcasterName"] = channel["dvbstreamerServiceName"]
+                channel["schedulesDirectName"] = schedules_direct_name
 
         return {
             "channels": sorted(
                 channels_by_name.values(),
                 key=lambda channel: (
                     not bool(channel["favoriteChannel"]),
-                    channel["logicalChannelNumber"] is None,
-                    channel["logicalChannelNumber"] or "",
-                    str(channel["name"]).casefold(),
+                    channel["guideLogicalChannelNumber"] is None,
+                    channel["guideLogicalChannelNumber"] or "",
+                    str(channel["guideName"]).casefold(),
                 ),
             )
         }
@@ -1320,6 +1395,95 @@ class ServiceCommandDispatcher:
             "channelName": channel_name.strip(),
             "favorite": favorite,
             "updatedRows": updated,
+        }
+
+    def _metadata_channels_lineup_set(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        epg_channel_name = payload.get("epgChannelName")
+        if not isinstance(epg_channel_name, str) or not epg_channel_name.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="epgChannelName must be a non-empty string",
+            )
+
+        broadcaster_name = payload.get("broadcasterName")
+        if broadcaster_name is not None and not isinstance(broadcaster_name, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="broadcasterName must be a string or null",
+            )
+
+        schedules_direct_name = payload.get("schedulesDirectName")
+        if schedules_direct_name is not None and not isinstance(
+            schedules_direct_name, str
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="schedulesDirectName must be a string or null",
+            )
+
+        guide_name = payload.get("guideName")
+        if guide_name is not None and not isinstance(guide_name, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="guideName must be a string or null",
+            )
+
+        guide_lcn = payload.get("guideLogicalChannelNumber")
+        if guide_lcn is not None and not isinstance(guide_lcn, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="guideLogicalChannelNumber must be a string or null",
+            )
+
+        exists = self._context.persistence.connection.execute(
+            """
+            SELECT 1
+            FROM epg_channels
+            WHERE lower(trim(display_name)) = lower(trim(?))
+            LIMIT 1
+            """,
+            (epg_channel_name.strip(),),
+        ).fetchone()
+        if exists is None:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=f"no EPG channel found with name: {epg_channel_name.strip()!r}",
+            )
+
+        result = self._context.persistence.set_channel_lineup_override(
+            epg_channel_name=epg_channel_name.strip(),
+            broadcaster_name=broadcaster_name,
+            schedules_direct_name=schedules_direct_name,
+            guide_name=guide_name,
+            guide_logical_channel_number=guide_lcn,
+        )
+        return {
+            "epgChannelName": epg_channel_name.strip(),
+            "broadcasterName": (
+                broadcaster_name.strip()
+                if isinstance(broadcaster_name, str) and broadcaster_name.strip()
+                else None
+            ),
+            "schedulesDirectName": (
+                schedules_direct_name.strip()
+                if isinstance(schedules_direct_name, str)
+                and schedules_direct_name.strip()
+                else None
+            ),
+            "guideName": (
+                guide_name.strip()
+                if isinstance(guide_name, str) and guide_name.strip()
+                else None
+            ),
+            "guideLogicalChannelNumber": (
+                guide_lcn.strip()
+                if isinstance(guide_lcn, str) and guide_lcn.strip()
+                else None
+            ),
+            "action": str(result["action"]),
+            "updatedRows": int(result["updatedRows"]),
         }
 
     def _metadata_channels_service_name_set(
