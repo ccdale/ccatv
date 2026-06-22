@@ -2832,6 +2832,72 @@ def test_dispatch_metadata_ota_sync_maps_epgcapstop_error(monkeypatch) -> None:
     assert "failed to stop OTA capture" in response["error"]["message"]
 
 
+def test_dispatch_metadata_ota_sync_retries_when_epgcap_already_started(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    run_raw_calls: list[str] = []
+    stop_commands: list[str] = []
+
+    monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
+    monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
+    monkeypatch.setattr(
+        context.tvrecorder,
+        "frontend_status",
+        lambda: SimpleNamespace(locked=True),
+    )
+
+    def _run_raw(command: str):
+        run_raw_calls.append(command)
+        if len(run_raw_calls) == 1:
+            raise RuntimeError(
+                "dvbctrl command failed (returncode=255): Already started!"
+            )
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(context.tvrecorder, "run_raw", _run_raw)
+    monkeypatch.setattr(
+        context.dvbctrl,
+        "start_command",
+        lambda _command: _MockPopen("<epg></epg>"),
+    )
+
+    class _StubStopClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def run_command(self, command: str):
+            stop_commands.append(command)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
+        lambda _connection, _raw_text, source, channel_name_map: SimpleNamespace(
+            channels_upserted=1,
+            programs_upserted=1,
+            broadcasts_upserted=1,
+            parsed_events=1,
+            ingest_run_id=1,
+            source=source,
+        ),
+    )
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "grabCommand": "epgdata",
+            "captureSeconds": 0.01,
+        },
+    })
+
+    assert response["ok"] is True
+    assert run_raw_calls == ["epgcapstart", "epgcapstart"]
+    assert stop_commands == ["epgcapstop", "epgcapstop"]
+
+
 def test_dispatch_metadata_ota_sync_maps_nonzero_epgdata_exit(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

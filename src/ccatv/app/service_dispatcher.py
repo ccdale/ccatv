@@ -2602,11 +2602,25 @@ class ServiceCommandDispatcher:
         if tvrecorder is None:
             raise RuntimeError("tvrecorder not available for OTA EPG streaming capture")
 
+        logger = self._context.logger
         proc = None
         capture_started = False
         stop_error: Exception | None = None
         try:
-            tvrecorder.run_raw("epgcapstart")
+            try:
+                tvrecorder.run_raw("epgcapstart")
+            except Exception as exc:
+                if "already started" not in str(exc).casefold():
+                    raise
+                # Stale capture state can survive previous failures; stop then retry once.
+                logger.warning(
+                    "OTA EPG capture already started; forcing epgcapstop before retry"
+                )
+                self._stop_ota_capture_with_separate_client_for(
+                    dvbctrl=dvbctrl,
+                    tvrecorder=tvrecorder,
+                )
+                tvrecorder.run_raw("epgcapstart")
             capture_started = True
 
             proc = dvbctrl.start_command(grab_command)
