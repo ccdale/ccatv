@@ -2593,11 +2593,15 @@ class ServiceCommandDispatcher:
         if tvrecorder is None:
             raise RuntimeError("tvrecorder not available for OTA EPG streaming capture")
 
-        tvrecorder.run_raw("epgcapstart")
-
-        proc = dvbctrl.start_command(grab_command)
+        proc = None
+        capture_started = False
         stop_error: Exception | None = None
         try:
+            tvrecorder.run_raw("epgcapstart")
+            capture_started = True
+
+            proc = dvbctrl.start_command(grab_command)
+
             deadline = time.monotonic() + capture_seconds
             while time.monotonic() < deadline:
                 self._raise_if_stopping()
@@ -2605,17 +2609,22 @@ class ServiceCommandDispatcher:
                 if remaining > 0:
                     time.sleep(min(0.25, remaining))
         finally:
-            try:
-                self._stop_ota_capture_with_separate_client_for(
-                    dvbctrl=dvbctrl,
-                    tvrecorder=tvrecorder,
-                )
-            except Exception as exc:
-                stop_error = exc
-            try:
-                proc.send_signal(_signal.SIGINT)
-            except (ProcessLookupError, OSError):
-                pass
+            if capture_started:
+                try:
+                    self._stop_ota_capture_with_separate_client_for(
+                        dvbctrl=dvbctrl,
+                        tvrecorder=tvrecorder,
+                    )
+                except Exception as exc:
+                    stop_error = exc
+            if proc is not None:
+                try:
+                    proc.send_signal(_signal.SIGINT)
+                except (ProcessLookupError, OSError):
+                    pass
+
+        if proc is None:
+            raise RuntimeError("failed to start OTA EPG grab command")
 
         try:
             stdout, stderr = proc.communicate(timeout=5.0)

@@ -2887,6 +2887,7 @@ def test_dispatch_metadata_ota_sync_maps_nonzero_epgdata_exit(monkeypatch) -> No
 def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
+    stop_commands: list[str] = []
 
     monkeypatch.setattr(context.tvrecorder, "resolve_service_name", lambda name: name)
     monkeypatch.setattr(context.tvrecorder, "select_service", lambda _name: None)
@@ -2911,7 +2912,7 @@ def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
             del args, kwargs
 
         def run_command(self, command: str):
-            del command
+            stop_commands.append(command)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
 
     monkeypatch.setattr("ccatv.app.service_dispatcher.DvbCtrlClient", _StubStopClient)
@@ -2928,6 +2929,7 @@ def test_dispatch_metadata_ota_sync_maps_grab_error(monkeypatch) -> None:
     assert response["ok"] is False
     assert response["error"]["code"] == "OTA_GRAB_FAILED"
     assert response["error"]["retryable"] is True
+    assert stop_commands == ["epgcapstop"]
 
 
 def test_dispatch_metadata_ota_sync_maps_ingest_error(monkeypatch) -> None:
