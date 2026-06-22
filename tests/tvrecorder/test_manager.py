@@ -90,7 +90,6 @@ def test_start_uses_remote_interface_flag_by_default(
     assert status.state == DvbStreamerState.RUNNING
     assert captured["args"] == [
         "dvbstreamer",
-        "-D",
         "-a",
         "0",
         "-i",
