@@ -35,8 +35,8 @@ class DvbStreamerConfig:
     bind_address: str = "127.0.0.1"
     debug_output: bool = False
     executable_path: str = "dvbstreamer"
-    # Enable HTTP remote interface for control (no special flags needed).
-    extra_args: tuple[str, ...] = ()
+    # Start remote interface and disable console shell without daemonizing.
+    extra_args: tuple[str, ...] = ("-D",)
     output_mrl: str = "null://"
 
 
