@@ -958,6 +958,90 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     assert programs[0]["genre"] == "News"
 
 
+def test_dispatch_metadata_guide_list_matches_spacing_variant_channel_name() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("schedules_direct", "sd-1", "Talking Pictures TV", "TALKPIC", "82"),
+            ("dvbstreamer_ota", "ota-1", "TalkingPictures TV", None, None),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            metadata_json
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                "schedules_direct",
+                "sd-p1",
+                "The Mind of Mr. J. G. Reeder",
+                "Classic crime drama.",
+                None,
+            ),
+            (
+                "dvbstreamer_ota",
+                "ota-p1",
+                "The Mind of Mr. J. G. Reeder",
+                "Classic crime drama.",
+                '{"contentRef":"talkingpicturestv.co.uk/6E4000014280","seriesRef":"talkingpicturestv.co.uk/6E400000382113"}',
+            ),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "2026-05-25T21:00:00Z", "2026-05-25T22:00:00Z", 3600),
+            (2, 2, "2026-05-25T21:00:00Z", "2026-05-25T22:00:00Z", 3600),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.guide.list",
+            "payload": {
+                "channel": "Talking Pictures TV",
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 4,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    programs = response["payload"]["programs"]
+    assert len(programs) == 2
+    assert any(
+        program["seriesRef"] == "talkingpicturestv.co.uk/6E400000382113"
+        for program in programs
+    )
+
+
 def test_dispatch_metadata_films_list_returns_duration_filtered_programs() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

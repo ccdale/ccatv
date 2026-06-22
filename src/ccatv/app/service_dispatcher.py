@@ -1408,12 +1408,20 @@ class ServiceCommandDispatcher:
               AND b.stop_utc > ?
               AND (
                 lower(c.display_name) = lower(?)
+                                OR replace(lower(c.display_name), ' ', '') = replace(lower(?), ' ', '')
                 OR lower(COALESCE(c.callsign, '')) = lower(?)
                 OR lower(COALESCE(c.logical_channel_number, '')) = lower(?)
               )
             ORDER BY b.start_utc ASC
             """,
-            (end_utc, start_utc, channel_value, channel_value, channel_value),
+                        (
+                                end_utc,
+                                start_utc,
+                                channel_value,
+                                channel_value,
+                                channel_value,
+                                channel_value,
+                        ),
         ).fetchall()
 
         return {
