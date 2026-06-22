@@ -1113,7 +1113,25 @@ def run_service_daemon(
         )
         return 1
 
+    # Initialize last_daily_sync_date to control when the sync runs:
+    # - If already past sync_time today, initialize to yesterday so sync can run today
+    # - If before sync_time today, initialize to today so sync runs tomorrow
+    # This ensures we run at most once per day at the specified time, not on every restart.
     last_daily_sync_date: str | None = None
+    if enable_daily_metadata_sync:
+        now_local = datetime.now().astimezone()
+        current_hour = now_local.hour
+        current_minute = now_local.minute
+        is_past_sync_time = (
+            current_hour > sync_hour
+            or (current_hour == sync_hour and current_minute >= sync_minute)
+        )
+        if is_past_sync_time:
+            # Already past sync time today; initialize to yesterday so we CAN run today if not already
+            last_daily_sync_date = (now_local - datetime_module.timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            # Before sync time today; initialize to today so we won't run until tomorrow
+            last_daily_sync_date = now_local.strftime("%Y-%m-%d")
     clock_offset_seconds = 0.0
     healthcheck_interval_seconds = max(60.0, poll_interval_seconds)
     last_idle_healthcheck_at = 0.0
