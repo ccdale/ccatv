@@ -3143,6 +3143,51 @@ def test_dispatch_metadata_ota_sync_does_not_start_manager_when_control_ready(
     assert start_calls["count"] == 0
 
 
+def test_dispatch_metadata_ota_sync_non_owner_does_not_start_manager(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    context.settings = SimpleNamespace(
+        database_path=":memory:",
+        ota_epg_channel_name="BBC TWO HD",
+        dvbstreamer_manage_process=False,
+    )
+    start_calls = {"count": 0}
+    context.dvbstreamer = SimpleNamespace(
+        health_check=lambda: SimpleNamespace(state=DvbStreamerState.STOPPED),
+        start=lambda: start_calls.__setitem__("count", start_calls["count"] + 1),
+    )
+
+    def _run_command(_command: str):
+        raise RuntimeError("control unavailable")
+
+    context.dvbctrl = SimpleNamespace(
+        executable_path="dvbctrl",
+        host="localhost",
+        adapter_index=0,
+        timeout_seconds=10.0,
+        transient_retry_count=2,
+        transient_retry_delay_seconds=0.2,
+        run_command=_run_command,
+        start_command=lambda _command: _MockPopen("<epg></epg>"),
+    )
+
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch({
+        "apiVersion": API_VERSION,
+        "command": "metadata.ota.sync.run",
+        "payload": {
+            "captureSeconds": 0.01,
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OTA_GRAB_FAILED"
+    assert "non-owner" in response["error"]["message"]
+    assert start_calls["count"] == 0
+
+
 def test_dispatch_metadata_sd_sync_run_with_full_refresh(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

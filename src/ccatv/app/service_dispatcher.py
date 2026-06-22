@@ -2527,6 +2527,10 @@ class ServiceCommandDispatcher:
 
     def _ensure_ota_control_ready_with_clients(self, *, dvbctrl, manager) -> None:
         logger = self._context.logger
+        settings = getattr(self._context, "settings", None)
+        allow_manager_start = bool(
+            getattr(settings, "dvbstreamer_manage_process", True)
+        )
 
         if dvbctrl is not None:
             try:
@@ -2542,6 +2546,11 @@ class ServiceCommandDispatcher:
             status = manager.health_check()
             state = getattr(status, "state", None)
             if state != DvbStreamerState.RUNNING:
+                if not allow_manager_start:
+                    raise RuntimeError(
+                        "dvbstreamer control endpoint unavailable and this process "
+                        "is configured as non-owner"
+                    )
                 manager.start()
                 logger.info("OTA EPG sync started dvbstreamer manager")
 

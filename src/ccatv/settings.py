@@ -91,6 +91,7 @@ class AppSettings:
     dvbstreamer_host: str = "localhost"
     dvbstreamer_output_mrl: str = "null://"
     dvbstreamer_path: str = "dvbstreamer"
+    dvbstreamer_manage_process: bool = True
     dvbstreamer_debug_output: bool = False
     dvbstreamer_stop_timeout_seconds: float = 5.0
     ota_epg_channel_name: str = "BBC TWO HD"
@@ -136,6 +137,10 @@ class AppSettings:
             ),
             dvbstreamer_output_mrl=os.getenv("CCATV_DVBSTREAMER_OUTPUT_MRL", "null://"),
             dvbstreamer_path=os.getenv("CCATV_DVBSTREAMER_PATH", "dvbstreamer"),
+            dvbstreamer_manage_process=_env_bool(
+                "CCATV_DVBSTREAMER_MANAGE_PROCESS",
+                True,
+            ),
             dvbstreamer_debug_output=_env_bool(
                 "CCATV_DVBSTREAMER_DEBUG_OUTPUT",
                 False,
