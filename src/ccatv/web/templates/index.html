@@ -244,6 +244,7 @@
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let channels = [];
+      let groups = [];
       let favouriteChannels = [];
       let schedules = [];
       let seriesSubscriptions = new Set();
@@ -730,7 +731,7 @@
 
           const label = document.createElement("div");
           label.className = "timeline-channel-label";
-          label.textContent = channel.guideName || channel.name;
+          label.textContent = getChannelDisplayName(channel);
 
           const track = document.createElement("div");
           track.className = "timeline-track";
@@ -839,6 +840,26 @@
           );
         });
         favouriteChannels = channels.filter((channel) => channel.favoriteChannel);
+      }
+
+      async function loadGroups() {
+        try {
+          const payload = await fetchJson("/api/channels/groups");
+          groups = payload.groups || [];
+        } catch {
+          groups = [];
+        }
+      }
+
+      function getChannelDisplayName(channel) {
+        const groupForChannel = groups.find((g) => {
+          if (!Array.isArray(g.members)) return false;
+          return g.members.some((m) => m.displayName === channel.name);
+        });
+        if (groupForChannel) {
+          return groupForChannel.groupName;
+        }
+        return channel.guideName || channel.name;
       }
 
       async function loadSchedules() {
@@ -973,7 +994,7 @@
       }
 
       async function initializeAfterAuth() {
-        await Promise.all([loadChannels(), loadSchedules(), loadSeriesSubscriptions()]);
+        await Promise.all([loadChannels(), loadSchedules(), loadSeriesSubscriptions(), loadGroups()]);
         timelineOriginMs = Date.now();
         timelineStartMs = timelineOriginMs;
         await loadTimeline();
