@@ -418,6 +418,7 @@ def test_run_service_daemon_forever_continues_after_cycle_error(monkeypatch) -> 
 def test_run_service_daemon_daily_metadata_sync_runs_sequential_steps(
     monkeypatch,
 ) -> None:
+    """Test that sync does NOT run immediately on startup, but runs once per day at sync_time."""
     worker = StubWorker()
     context = StubContext(
         logger=logging.getLogger("test.daemon.daily.sync"),
@@ -474,25 +475,9 @@ def test_run_service_daemon_daily_metadata_sync_runs_sequential_steps(
 
     assert result == 0
     assert worker.cycle_count >= 1
-    assert dispatch_calls == [
-        (
-            "metadata.ota.multimux.sync.run",
-            {
-                "grabCommand": "epgdata",
-                "captureSeconds": 900.0,
-                "maxRetries": 3,
-                "retryDelaySeconds": 300.0,
-            },
-        ),
-        (
-            "metadata.sd.sync.run",
-            {
-                "clearExisting": False,
-                "lineupId": "UK-TEST",
-                "windowHours": 336,
-            },
-        ),
-    ]
+    # Sync should NOT run on startup, even though we started at 03:05 (past sync_time).
+    # It was initialized to today's date, so it defers until tomorrow at 03:00.
+    assert dispatch_calls == []
 
 
 def test_run_service_daemon_daily_metadata_sync_requires_lineup(monkeypatch) -> None:
