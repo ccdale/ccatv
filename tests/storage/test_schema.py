@@ -47,6 +47,7 @@ def test_initialize_database_creates_expected_tables(tmp_path: Path) -> None:
     assert "series_recording_subscriptions" in tables
     assert "recorded_content_refs" in tables
     assert "channel_lineup_overrides" in tables
+    assert "channel_groups" in tables
 
 
 def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
@@ -62,7 +63,7 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
 
     assert applied_count == 0
     assert applied_versions is not None
-    assert applied_versions[0] == 9
+    assert applied_versions[0] == 10
 
 
 def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None:
@@ -80,7 +81,7 @@ def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None
         second.close()
 
     assert applied_versions is not None
-    assert applied_versions[0] == 9
+    assert applied_versions[0] == 10
 
 
 def test_migration_v4_adds_dvbstreamer_service_name_column(tmp_path: Path) -> None:

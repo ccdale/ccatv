@@ -680,3 +680,234 @@ class PersistenceStore:
                 ),
             )
             self.connection.commit()
+
+    def list_channel_groups(self) -> list[dict[str, object]]:
+        """List all channel groups with their members."""
+        with self._lock:
+            group_rows = self.connection.execute(
+                """
+                SELECT
+                    group_id,
+                    group_name,
+                    group_logical_channel_number,
+                    preferred_recording_source
+                FROM channel_groups
+                ORDER BY group_logical_channel_number, group_name COLLATE NOCASE
+                """
+            ).fetchall()
+
+            groups = []
+            for group_row in group_rows:
+                group_id = group_row[0]
+                group_name = str(group_row[1]).strip()
+                group_lcn = str(group_row[2]).strip() if group_row[2] is not None else None
+                preferred_source = (
+                    str(group_row[3]).strip() if group_row[3] is not None else None
+                )
+
+                channel_rows = self.connection.execute(
+                    """
+                    SELECT
+                        source,
+                        source_channel_id,
+                        display_name,
+                        callsign,
+                        logical_channel_number,
+                        dvbstreamer_service_name
+                    FROM epg_channels
+                    WHERE channel_group_id = ?
+                    ORDER BY display_name COLLATE NOCASE
+                    """,
+                    (group_id,),
+                ).fetchall()
+
+                members = [
+                    {
+                        "source": str(ch[0]),
+                        "sourceChannelId": str(ch[1]),
+                        "displayName": str(ch[2]).strip(),
+                        "callsign": str(ch[3]).strip() if ch[3] is not None else None,
+                        "logicalChannelNumber": (
+                            str(ch[4]).strip() if ch[4] is not None else None
+                        ),
+                        "dvbstreamerServiceName": (
+                            str(ch[5]).strip() if ch[5] is not None else None
+                        ),
+                    }
+                    for ch in channel_rows
+                ]
+
+                groups.append({
+                    "groupId": int(group_id),
+                    "groupName": group_name,
+                    "groupLogicalChannelNumber": group_lcn,
+                    "preferredRecordingSource": preferred_source,
+                    "members": members,
+                })
+
+            return groups
+
+    def create_channel_group(
+        self,
+        *,
+        group_name: str,
+        group_logical_channel_number: str | None = None,
+        preferred_recording_source: str | None = None,
+        member_channel_names: list[tuple[str, str]] | None = None,
+    ) -> dict[str, object]:
+        """Create a new channel group.
+        
+        Args:
+            group_name: Canonical name for the group
+            group_logical_channel_number: Guide ordering number
+            preferred_recording_source: Preferred EPG source (e.g. 'ota_dvbstreamer')
+            member_channel_names: List of (source, source_channel_id) tuples to include
+        
+        Returns:
+            {groupId: int, action: "created"}
+        """
+        normalized_name = group_name.strip()
+        if not normalized_name:
+            raise ValueError("group_name cannot be empty")
+
+        normalized_lcn = (
+            group_logical_channel_number.strip()
+            if isinstance(group_logical_channel_number, str)
+            else None
+        )
+        normalized_source = (
+            preferred_recording_source.strip()
+            if isinstance(preferred_recording_source, str)
+            else None
+        )
+
+        with self._lock:
+            cursor = self.connection.execute(
+                """
+                INSERT INTO channel_groups(
+                    group_name,
+                    group_logical_channel_number,
+                    preferred_recording_source,
+                    created_at_utc,
+                    updated_at_utc
+                )
+                VALUES(
+                    ?,
+                    ?,
+                    ?,
+                    strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                    strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                )
+                """,
+                (normalized_name, normalized_lcn, normalized_source),
+            )
+            group_id = int(cursor.lastrowid)
+
+            if member_channel_names:
+                for source, source_channel_id in member_channel_names:
+                    self.connection.execute(
+                        """
+                        UPDATE epg_channels
+                        SET channel_group_id = ?
+                        WHERE source = ? AND source_channel_id = ?
+                        """,
+                        (group_id, source.strip(), source_channel_id.strip()),
+                    )
+
+            self.connection.commit()
+            return {"groupId": group_id, "action": "created"}
+
+    def update_channel_group(
+        self,
+        *,
+        group_id: int,
+        group_name: str | None = None,
+        group_logical_channel_number: str | None = None,
+        preferred_recording_source: str | None = None,
+    ) -> dict[str, object]:
+        """Update an existing channel group."""
+        with self._lock:
+            current = self.connection.execute(
+                """
+                SELECT group_name, group_logical_channel_number, preferred_recording_source
+                FROM channel_groups
+                WHERE group_id = ?
+                """,
+                (group_id,),
+            ).fetchone()
+
+            if current is None:
+                raise ValueError(f"Group {group_id} not found")
+
+            updated_name = (
+                group_name.strip() if isinstance(group_name, str) else current[0]
+            )
+            updated_lcn = (
+                group_logical_channel_number.strip()
+                if isinstance(group_logical_channel_number, str)
+                else current[1]
+            )
+            updated_source = (
+                preferred_recording_source.strip()
+                if isinstance(preferred_recording_source, str)
+                else current[2]
+            )
+
+            self.connection.execute(
+                """
+                UPDATE channel_groups
+                SET
+                    group_name = ?,
+                    group_logical_channel_number = ?,
+                    preferred_recording_source = ?,
+                    updated_at_utc = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                WHERE group_id = ?
+                """,
+                (updated_name, updated_lcn, updated_source, group_id),
+            )
+            self.connection.commit()
+            return {"groupId": group_id, "action": "updated"}
+
+    def assign_channel_to_group(
+        self,
+        *,
+        source: str,
+        source_channel_id: str,
+        group_id: int | None,
+    ) -> dict[str, object]:
+        """Assign or unassign a channel to/from a group."""
+        with self._lock:
+            self.connection.execute(
+                """
+                UPDATE epg_channels
+                SET channel_group_id = ?
+                WHERE source = ? AND source_channel_id = ?
+                """,
+                (group_id, source.strip(), source_channel_id.strip()),
+            )
+            self.connection.commit()
+            action = "assigned" if group_id is not None else "unassigned"
+            return {"action": action, "updatedRows": 1}
+
+    def delete_channel_group(self, *, group_id: int) -> dict[str, object]:
+        """Delete a channel group and unassign all member channels."""
+        with self._lock:
+            # Unassign all members
+            self.connection.execute(
+                """
+                UPDATE epg_channels
+                SET channel_group_id = NULL
+                WHERE channel_group_id = ?
+                """,
+                (group_id,),
+            )
+            # Delete group
+            deleted = self.connection.execute(
+                """
+                DELETE FROM channel_groups
+                WHERE group_id = ?
+                """,
+                (group_id,),
+            ).rowcount
+            self.connection.commit()
+            return {"action": "deleted", "deletedRows": int(deleted)}

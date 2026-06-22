@@ -700,4 +700,93 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.get("/api/channels/groups")
+    def api_channel_groups_list():
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.groups.list",
+            {},
+        )
+        return jsonify(response), status_code
+
+    @app.post("/api/channels/groups")
+    def api_channel_groups_create():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "groupName": body.get("groupName"),
+            "groupLogicalChannelNumber": body.get("groupLogicalChannelNumber"),
+            "preferredRecordingSource": body.get("preferredRecordingSource"),
+            "memberChannels": body.get("memberChannels", []),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.groups.create",
+            payload,
+        )
+        return jsonify(response), status_code
+
+    @app.patch("/api/channels/groups/<int:group_id>")
+    def api_channel_groups_update(group_id: int):
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "groupId": group_id,
+            "groupName": body.get("groupName"),
+            "groupLogicalChannelNumber": body.get("groupLogicalChannelNumber"),
+            "preferredRecordingSource": body.get("preferredRecordingSource"),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.groups.update",
+            payload,
+        )
+        return jsonify(response), status_code
+
+    @app.delete("/api/channels/groups/<int:group_id>")
+    def api_channel_groups_delete(group_id: int):
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.groups.delete",
+            {"groupId": group_id},
+        )
+        return jsonify(response), status_code
+
+    @app.post("/api/channels/groups/assign")
+    def api_channel_groups_assign():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "source": body.get("source"),
+            "sourceChannelId": body.get("sourceChannelId"),
+            "groupId": body.get("groupId"),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.channels.groups.assign",
+            payload,
+        )
+        return jsonify(response), status_code
+
     return app

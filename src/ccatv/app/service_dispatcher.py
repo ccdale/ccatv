@@ -83,6 +83,11 @@ SERVICE_COMMANDS = [
     "metadata.channels.favorite.set",
     "metadata.channels.lineup.set",
     "metadata.channels.service-name.set",
+    "metadata.channels.groups.list",
+    "metadata.channels.groups.create",
+    "metadata.channels.groups.update",
+    "metadata.channels.groups.delete",
+    "metadata.channels.groups.assign",
     "metadata.guide.list",
     "metadata.films.list",
     "metadata.series.recording.list",
@@ -225,6 +230,16 @@ class ServiceCommandDispatcher:
             return self._metadata_channels_lineup_set(payload)
         if command == "metadata.channels.service-name.set":
             return self._metadata_channels_service_name_set(payload)
+        if command == "metadata.channels.groups.list":
+            return self._metadata_channels_groups_list(payload)
+        if command == "metadata.channels.groups.create":
+            return self._metadata_channels_groups_create(payload)
+        if command == "metadata.channels.groups.update":
+            return self._metadata_channels_groups_update(payload)
+        if command == "metadata.channels.groups.delete":
+            return self._metadata_channels_groups_delete(payload)
+        if command == "metadata.channels.groups.assign":
+            return self._metadata_channels_groups_assign(payload)
         if command == "metadata.guide.list":
             return self._metadata_guide_list(payload)
         if command == "metadata.films.list":
@@ -1513,6 +1528,144 @@ class ServiceCommandDispatcher:
                 message=f"no EPG channel found with name: {channel_name.strip()!r}",
             )
         return {"channelName": channel_name.strip(), "updatedRows": updated}
+
+    def _metadata_channels_groups_list(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        del payload
+        groups = self._context.persistence.list_channel_groups()
+        return {"groups": groups}
+
+    def _metadata_channels_groups_create(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        group_name = payload.get("groupName")
+        if not isinstance(group_name, str) or not group_name.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="groupName must be a non-empty string",
+            )
+
+        group_lcn = payload.get("groupLogicalChannelNumber")
+        if group_lcn is not None and not isinstance(group_lcn, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="groupLogicalChannelNumber must be a string or null",
+            )
+
+        preferred_source = payload.get("preferredRecordingSource")
+        if preferred_source is not None and not isinstance(preferred_source, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="preferredRecordingSource must be a string or null",
+            )
+
+        member_channels = payload.get("memberChannels", [])
+        if not isinstance(member_channels, list):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="memberChannels must be a list",
+            )
+
+        members = []
+        for member in member_channels:
+            if not isinstance(member, dict):
+                continue
+            source = member.get("source")
+            source_id = member.get("sourceChannelId")
+            if isinstance(source, str) and isinstance(source_id, str):
+                members.append((source, source_id))
+
+        result = self._context.persistence.create_channel_group(
+            group_name=group_name.strip(),
+            group_logical_channel_number=group_lcn,
+            preferred_recording_source=preferred_source,
+            member_channel_names=members if members else None,
+        )
+        return result
+
+    def _metadata_channels_groups_update(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        group_id = payload.get("groupId")
+        if not isinstance(group_id, int):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="groupId must be an integer",
+            )
+
+        group_name = payload.get("groupName")
+        if group_name is not None and not isinstance(group_name, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="groupName must be a string or null",
+            )
+
+        group_lcn = payload.get("groupLogicalChannelNumber")
+        if group_lcn is not None and not isinstance(group_lcn, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="groupLogicalChannelNumber must be a string or null",
+            )
+
+        preferred_source = payload.get("preferredRecordingSource")
+        if preferred_source is not None and not isinstance(preferred_source, str):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="preferredRecordingSource must be a string or null",
+            )
+
+        result = self._context.persistence.update_channel_group(
+            group_id=group_id,
+            group_name=group_name,
+            group_logical_channel_number=group_lcn,
+            preferred_recording_source=preferred_source,
+        )
+        return result
+
+    def _metadata_channels_groups_delete(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        group_id = payload.get("groupId")
+        if not isinstance(group_id, int):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="groupId must be an integer",
+            )
+
+        result = self._context.persistence.delete_channel_group(group_id=group_id)
+        return result
+
+    def _metadata_channels_groups_assign(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        source = payload.get("source")
+        if not isinstance(source, str) or not source.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="source must be a non-empty string",
+            )
+
+        source_channel_id = payload.get("sourceChannelId")
+        if not isinstance(source_channel_id, str) or not source_channel_id.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="sourceChannelId must be a non-empty string",
+            )
+
+        group_id = payload.get("groupId")
+        if group_id is not None and not isinstance(group_id, int):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="groupId must be an integer or null",
+            )
+
+        result = self._context.persistence.assign_channel_to_group(
+            source=source,
+            source_channel_id=source_channel_id,
+            group_id=group_id,
+        )
+        return result
 
     def _metadata_guide_list(self, payload: dict[str, object]) -> dict[str, object]:
         channel = payload.get("channel")

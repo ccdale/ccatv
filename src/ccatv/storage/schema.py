@@ -266,7 +266,58 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=10,
+        name="channel_groups_v10",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS channel_groups (
+                group_id INTEGER PRIMARY KEY,
+                group_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                group_logical_channel_number TEXT,
+                preferred_recording_source TEXT,
+                created_at_utc TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL
+            )
+            """,
+            """
+            ALTER TABLE epg_channels
+            ADD COLUMN channel_group_id INTEGER
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_epg_channels_group_id
+            ON epg_channels(channel_group_id)
+            """,
+        ),
+    ),
 )
+
+
+def normalise_channel_name(name: str) -> str:
+    """Normalise channel name for variant detection.
+    
+    Removes spaces and converts to lowercase to enable matching variants
+    like "BBC One" with "BBC One HD" or "BBC One regional".
+    
+    Example:
+        normalise_channel_name("BBC One HD") == "bbconehd"
+    """
+    return name.replace(" ", "").lower()
+
+
+def find_channel_variants(channel_name: str, all_names: list[str]) -> list[str]:
+    """Find all channels that are variants of the given channel.
+    
+    Uses bidirectional startswith check so "BBC One" matches both
+    "BBC One HD" and vice versa.
+    """
+    normalised = normalise_channel_name(channel_name)
+    variants = []
+    for name in all_names:
+        norm_other = normalise_channel_name(name)
+        if norm_other.startswith(normalised) or normalised.startswith(norm_other):
+            variants.append(name)
+    return variants
 
 
 _ADD_COLUMN_RE = re.compile(
