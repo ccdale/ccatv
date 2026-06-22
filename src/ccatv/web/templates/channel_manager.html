@@ -176,6 +176,82 @@
         padding: 0.45rem 0.55rem;
         background: #fff;
       }
+      .groups-section {
+        margin-top: 1.2rem;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        padding: 1rem 1.2rem;
+      }
+      .groups-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.8rem;
+      }
+      .groups-header h2 {
+        font-size: 1.1rem;
+        margin: 0;
+      }
+      .group-item {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0.8rem 1rem;
+        margin-bottom: 0.6rem;
+        background: #f8fbff;
+      }
+      .group-name {
+        font-weight: 600;
+        color: var(--ink);
+        margin-bottom: 0.3rem;
+      }
+      .group-members {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.4rem;
+      }
+      .member-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.25rem 0.4rem;
+        border-radius: 8px;
+        background: #e9f5ff;
+        border: 1px solid #bde4f8;
+        font-size: 0.8rem;
+      }
+      .variant-suggestions {
+        margin-top: 0.8rem;
+        padding-top: 0.8rem;
+        border-top: 1px solid var(--line);
+      }
+      .variant-suggestions h3 {
+        font-size: 0.95rem;
+        margin: 0 0 0.6rem 0;
+        color: var(--muted);
+      }
+      .suggestion-item {
+        border: 1px solid #fcd9b6;
+        border-radius: 10px;
+        padding: 0.6rem 0.75rem;
+        margin-bottom: 0.5rem;
+        background: #fff7ed;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .suggestion-channels {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+      }
+      .suggestion-channels span {
+        font-size: 0.8rem;
+        padding: 0.15rem 0.35rem;
+        background: #ffecdc;
+        border-radius: 4px;
+      }
       @media (max-width: 760px) {
         main { width: calc(100vw - 1rem); }
         .hero-row { flex-direction: column; align-items: stretch; }
@@ -207,19 +283,29 @@
         </div>
       </div>
 
+      <section class="groups-section">
+        <div class="groups-header">
+          <h2>Channel Groups</h2>
+          <button id="new-group-button" class="secondary" type="button" style="display: none;">Create Group</button>
+        </div>
+        <div id="groups-list"></div>
+        <div id="variant-suggestions" class="variant-suggestions" style="display: none;"></div>
+      </section>
+
       <section class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th style="width: 20%;">EPG Channel</th>
-              <th style="width: 30%;">Linked Names</th>
-              <th style="width: 28%;">Guide Channel List (Custom)</th>
-              <th style="width: 14%;">Probable dvbstreamer Service</th>
-              <th style="width: 8%;">Favourite</th>
+              <th style="width: 18%;">EPG Channel</th>
+              <th style="width: 28%;">Linked Names</th>
+              <th style="width: 26%;">Guide Channel List (Custom)</th>
+              <th style="width: 12%;">Group</th>
+              <th style="width: 10%;">dvbstreamer Service</th>
+              <th style="width: 6%;">Favourite</th>
             </tr>
           </thead>
           <tbody id="channel-table-body">
-            <tr><td class="loading" colspan="5">Sign in to load channels.</td></tr>
+            <tr><td class="loading" colspan="6">Sign in to load channels.</td></tr>
           </tbody>
         </table>
       </section>
@@ -238,6 +324,7 @@
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let channels = [];
       let dvbServices = [];
+      let groups = [];
 
       class ApiError extends Error {
         constructor(message, code = null) {
@@ -295,6 +382,168 @@
 
       function normalizeName(value) {
         return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      }
+
+      function normaliseChannelName(name) {
+        return name.replace(/\s+/g, "").toLowerCase();
+      }
+
+      function findChannelVariants(channelName, allChannels) {
+        const normalised = normaliseChannelName(channelName);
+        return allChannels.filter((ch) => {
+          const normOther = normaliseChannelName(ch.name);
+          return normOther.startsWith(normalised) || normalised.startsWith(normOther);
+        });
+      }
+
+      function detectVariantGroups(allChannels) {
+        const grouped = new Set();
+        const suggestions = [];
+
+        for (const channel of allChannels) {
+          if (grouped.has(channel.name)) continue;
+          const variants = findChannelVariants(channel.name, allChannels);
+          if (variants.length > 1) {
+            suggestions.push({
+              canonical: channel.name,
+              variants: variants.map((v) => v.name),
+            });
+            for (const v of variants) {
+              grouped.add(v.name);
+            }
+          }
+        }
+        return suggestions;
+      }
+
+      async function loadGroups() {
+        try {
+          const payload = await fetchJson("/api/channels/groups");
+          groups = payload.groups || [];
+          renderGroups();
+          renderVariantSuggestions();
+        } catch (error) {
+          groups = [];
+          renderGroups();
+          renderVariantSuggestions();
+        }
+      }
+
+      function renderGroups() {
+        const container = document.getElementById("groups-list");
+        container.replaceChildren();
+
+        if (!groups.length) {
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No channel groups yet.";
+          container.append(empty);
+          return;
+        }
+
+        for (const group of groups) {
+          const item = document.createElement("div");
+          item.className = "group-item";
+
+          const nameDiv = document.createElement("div");
+          nameDiv.className = "group-name";
+          nameDiv.textContent = `${group.groupName}${group.groupLogicalChannelNumber ? ` (LCN ${group.groupLogicalChannelNumber})` : ""}`;
+          item.append(nameDiv);
+
+          if (group.members && group.members.length > 0) {
+            const membersDiv = document.createElement("div");
+            membersDiv.className = "group-members";
+            for (const member of group.members) {
+              const badge = document.createElement("span");
+              badge.className = "member-badge";
+              badge.textContent = `${member.source}: ${member.displayName}`;
+              membersDiv.append(badge);
+            }
+            item.append(membersDiv);
+          }
+
+          container.append(item);
+        }
+      }
+
+      function renderVariantSuggestions() {
+        const container = document.getElementById("variant-suggestions");
+        const suggestions = detectVariantGroups(channels);
+
+        // Filter out already-grouped channels
+        const groupedChannels = new Set();
+        for (const group of groups) {
+          for (const member of group.members || []) {
+            groupedChannels.add(member.displayName);
+          }
+        }
+        const ungroupedSuggestions = suggestions.filter((s) =>
+          !groupedChannels.has(s.canonical) && s.variants.every((v) => !groupedChannels.has(v))
+        );
+
+        if (!ungroupedSuggestions.length) {
+          container.style.display = "none";
+          return;
+        }
+
+        container.style.display = "block";
+        container.replaceChildren();
+
+        const title = document.createElement("h3");
+        title.textContent = "Suggested variant groups (not yet grouped):";
+        container.append(title);
+
+        for (const suggestion of ungroupedSuggestions) {
+          const item = document.createElement("div");
+          item.className = "suggestion-item";
+
+          const channelsDiv = document.createElement("div");
+          channelsDiv.className = "suggestion-channels";
+          for (const name of suggestion.variants) {
+            const span = document.createElement("span");
+            span.textContent = name;
+            channelsDiv.append(span);
+          }
+
+          const button = document.createElement("button");
+          button.className = "secondary";
+          button.type = "button";
+          button.textContent = "Create Group";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+              const groupName = suggestion.canonical;
+              const memberChannels = [];
+              for (const variantName of suggestion.variants) {
+                const ch = channels.find((c) => c.name === variantName);
+                if (ch) {
+                  memberChannels.push({
+                    source: ch.source,
+                    sourceChannelId: ch.sourceChannelId,
+                  });
+                }
+              }
+              await fetchJson("/api/channels/groups", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  groupName,
+                  memberChannels,
+                }),
+              });
+              setStatus(`Created group: ${groupName}`);
+              await loadGroups();
+              renderTable();
+            } catch (error) {
+              setStatus(error.message || "Failed to create group.", "error");
+            } finally {
+              button.disabled = false;
+            }
+          });
+
+          item.append(channelsDiv, button);
+          container.append(item);
+        }
       }
 
       function scoreMatch(epgName, serviceName) {
@@ -516,6 +765,50 @@
         guideLcnRow.append(guideLcnLabel, guideLcnInput, saveGuideButton);
         guideCell.append(guideNameRow, guideLcnRow);
 
+        const groupCell = document.createElement("td");
+        groupCell.className = "cell-stack";
+        const groupInfo = document.createElement("div");
+        groupInfo.className = "muted";
+        
+        const channelGroup = groups.find((g) => {
+          if (!Array.isArray(g.members)) return false;
+          return g.members.some((m) => m.displayName === channel.name);
+        });
+        
+        if (channelGroup) {
+          groupInfo.textContent = `Group: ${channelGroup.groupName}`;
+          const removeButton = document.createElement("button");
+          removeButton.type = "button";
+          removeButton.className = "secondary";
+          removeButton.textContent = "Remove";
+          removeButton.style.marginTop = "0.4rem";
+          removeButton.addEventListener("click", async () => {
+            removeButton.disabled = true;
+            try {
+              await fetchJson("/api/channels/groups/assign", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  source: channel.source,
+                  sourceChannelId: channel.sourceChannelId,
+                  groupId: null,
+                }),
+              });
+              setStatus(`Removed ${channel.name} from group.`);
+              await loadGroups();
+              renderTable();
+            } catch (error) {
+              setStatus(error.message || "Failed to remove from group.", "error");
+            } finally {
+              removeButton.disabled = false;
+            }
+          });
+          groupCell.append(groupInfo, removeButton);
+        } else {
+          groupInfo.textContent = "No group";
+          groupCell.append(groupInfo);
+        }
+
         const mappingCell = document.createElement("td");
         mappingCell.className = "cell-stack";
         const currentMapping = document.createElement("div");
@@ -583,25 +876,25 @@
         });
         favCell.append(favoriteButton);
 
-        row.append(epgCell, linksCell, guideCell, mappingCell, favCell);
+        row.append(epgCell, linksCell, guideCell, groupCell, mappingCell, favCell);
         return row;
       }
 
       function renderTable() {
         tableBody.replaceChildren();
         if (!isAuthenticated) {
-          tableBody.innerHTML = '<tr><td class="loading" colspan="5">Sign in to load channels.</td></tr>';
+          tableBody.innerHTML = '<tr><td class="loading" colspan="6">Sign in to load channels.</td></tr>';
           return;
         }
         if (!channels.length) {
-          tableBody.innerHTML = '<tr><td class="loading" colspan="5">No EPG channels found.</td></tr>';
+          tableBody.innerHTML = '<tr><td class="loading" colspan="6">No EPG channels found.</td></tr>';
           return;
         }
 
         const query = String(filterInput.value || "").trim().toLowerCase();
         const filtered = channels.filter((channel) => matchesFilter(channel, query));
         if (!filtered.length) {
-          tableBody.innerHTML = '<tr><td class="loading" colspan="5">No channels match this filter.</td></tr>';
+          tableBody.innerHTML = '<tr><td class="loading" colspan="6">No channels match this filter.</td></tr>';
           return;
         }
 
@@ -630,12 +923,16 @@
         if (!isAuthenticated) {
           channels = [];
           dvbServices = [];
+          groups = [];
           renderTable();
+          renderGroups();
+          renderVariantSuggestions();
           return;
         }
         const [channelPayload, servicePayload] = await Promise.all([
           fetchJson("/api/channels"),
           fetchJson("/api/dvbservices"),
+          loadGroups(),
         ]);
         channels = (channelPayload.channels || []).slice().sort((left, right) => {
           const [leftType, leftKey] = lcnSortKey(
@@ -659,7 +956,7 @@
         if (!servicePayload.available) {
           setStatus(`Channels loaded. dvbstreamer services unavailable: ${servicePayload.error || "unknown error"}`, "warn");
         } else {
-          setStatus(`Loaded ${channels.length} channels and ${dvbServices.length} dvbstreamer services.`);
+          setStatus(`Loaded ${channels.length} channels, ${dvbServices.length} services, ${groups.length} groups.`);
         }
         renderTable();
       }
@@ -696,6 +993,10 @@
         await refreshSessionStatus();
         await loadTableData();
       }
+
+      const newGroupButton = document.getElementById("new-group-button");
+      const groupsListDiv = document.getElementById("groups-list");
+      const variantSuggestionsDiv = document.getElementById("variant-suggestions");
 
       loginButton.addEventListener("click", async () => {
         try {

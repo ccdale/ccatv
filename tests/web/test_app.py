@@ -258,7 +258,7 @@ def test_channel_manager_route_serves_browser_ui(monkeypatch) -> None:
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     assert "Channel Manager" in body
-    assert "Probable dvbstreamer Service" in body
+    assert "dvbstreamer Service" in body
     assert stub.calls == []
 
 
