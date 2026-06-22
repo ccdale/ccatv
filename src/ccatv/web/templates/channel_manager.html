@@ -475,7 +475,16 @@
         });
         tokenInput.value = "";
         await refreshSessionStatus();
-        await loadTableData();
+        try {
+          await loadTableData();
+        } catch (error) {
+          if (isAuthenticated) {
+            setStatus(`Signed in, but unable to reach ccatv-service API: ${error.message || "unknown error"}`, "warn");
+            return false;
+          }
+          throw error;
+        }
+        return true;
       }
 
       async function logout() {
@@ -486,8 +495,10 @@
 
       loginButton.addEventListener("click", async () => {
         try {
-          await login();
-          setStatus("Signed in.");
+          const loaded = await login();
+          if (loaded) {
+            setStatus("Signed in.");
+          }
         } catch (error) {
           setStatus(error.message || "Sign in failed.", "error");
         }
@@ -516,6 +527,10 @@
           setAuthUiState();
           await loadTableData();
         } catch (error) {
+          if (isAuthenticated) {
+            setStatus(`Signed in, but unable to reach ccatv-service API: ${error.message || "unknown error"}`, "warn");
+            return;
+          }
           setStatus(error.message || "Failed to initialize channel manager.", "error");
         }
       }

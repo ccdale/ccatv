@@ -13,7 +13,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event
 
@@ -820,7 +820,11 @@ def run_http_server(
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                # Client disconnected before reading response; request was already handled.
+                logger.debug("HTTP client disconnected before response was written")
 
         def _is_authorized(self) -> bool:
             header = self.headers.get("Authorization")
@@ -1041,9 +1045,12 @@ def run_http_server(
             # Keep service logs in the app logger instead of stderr spam.
             return
 
-    # Keep request handling on the same thread as the bootstrap-created
-    # sqlite connection to avoid sqlite thread-affinity errors.
-    server = HTTPServer((bind_host, port), _Handler)
+    # Database access is synchronized in PersistenceStore; allow concurrent HTTP
+    # request handling so one slow command does not queue unrelated requests.
+    class _ThreadedServer(ThreadingHTTPServer):
+        daemon_threads = True
+
+    server = _ThreadedServer((bind_host, port), _Handler)
     server.timeout = 0.5
     try:
         logger.info(

@@ -142,6 +142,13 @@ M6. Multi-front-end enablement.
 - inputlirc remote mapping.
 - Jellyfin integration.
 
+## Review Follow-Ups (2026-06-22)
+
+- [ ] CLI routing hardening: default CLI command paths to the running service endpoint (HTTP/Unix socket) and reserve local in-process bootstrap for explicit dev-only mode.
+- [ ] Recorder orchestration resilience: when adapter pool is temporarily full, add bounded wait/backoff before failing a job.
+- [ ] Shutdown hardening: add timeout and escalation around recording-thread join so daemon shutdown cannot block indefinitely.
+- [ ] Process lifecycle verification: add/expand integration coverage for dvbstreamer launch semantics on target hosts to validate manager process tracking behavior.
+
 ## Contributor Notes
 
 - Keep commits small and incremental.

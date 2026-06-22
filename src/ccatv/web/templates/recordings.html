@@ -501,7 +501,16 @@
           await refreshHealthStatus();
           setStatus(`Loaded ${recordings.length} recording(s) and ${schedules.length} upcoming schedule(s).`);
         } catch (error) {
-          setStatus(error.message, "error");
+          if (isAuthenticated) {
+            setHealthPill("red", "Down");
+            recordings = [];
+            schedules = [];
+            renderRecordings();
+            renderUpcomingSchedules();
+            setStatus(`Signed in, but unable to reach ccatv-service API: ${error.message}`, "warn");
+          } else {
+            setStatus(error.message, "error");
+          }
         } finally {
           loginButton.disabled = false;
         }
@@ -558,6 +567,11 @@
         schedules = [];
         renderRecordings();
         renderUpcomingSchedules();
+        if (isAuthenticated) {
+          setHealthPill("red", "Down");
+          setStatus(`Signed in, but unable to reach ccatv-service API: ${error.message}`, "warn");
+          return;
+        }
         setStatus(error.message, "error");
       });
     </script>

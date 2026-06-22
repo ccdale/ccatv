@@ -963,7 +963,13 @@
           await initializeAfterAuth();
           setStatus("Signed in. Session cookie is now active.");
         } catch (error) {
-          setStatus(error.message, "error");
+          if (isAuthenticated) {
+            setHealthPill("red", "Down");
+            resetViews();
+            setStatus(`Signed in, but unable to reach ccatv-service API: ${error.message}`, "warning");
+          } else {
+            setStatus(error.message, "error");
+          }
         } finally {
           loginButton.disabled = false;
         }
@@ -1056,6 +1062,11 @@
       }
       void refreshSession().catch((error) => {
         resetViews();
+        if (isAuthenticated) {
+          setHealthPill("red", "Down");
+          setStatus(`Signed in, but unable to reach ccatv-service API: ${error.message}`, "warning");
+          return;
+        }
         setStatus(error.message, "error");
       });
     </script>

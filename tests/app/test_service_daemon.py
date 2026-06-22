@@ -1218,19 +1218,18 @@ def test_run_http_server_handles_authenticated_command_request(
     assert decoded["payload"]["echoCommand"] == "service.info.get"
 
 
-def test_run_http_server_dispatches_on_single_thread(monkeypatch) -> None:
+def test_run_http_server_dispatches_with_threaded_transport(monkeypatch) -> None:
     context = SimpleNamespace(
         logger=logging.getLogger("test.daemon.http.thread_affinity"),
         worker_cycle_lock=StubLock(),
     )
 
-    class _ThreadAffinityDispatcher:
+    class _ThreadedDispatcher:
         def __init__(self, _context, *, should_stop, worker_cycle_lock) -> None:
-            self._thread_id = threading.get_ident()
+            self._thread_ids: set[int] = set()
 
         def dispatch(self, request):
-            if threading.get_ident() != self._thread_id:
-                raise RuntimeError("dispatch ran on a different thread")
+            self._thread_ids.add(threading.get_ident())
             return {
                 "apiVersion": "v1alpha1",
                 "requestId": request.get("requestId"),
@@ -1240,7 +1239,7 @@ def test_run_http_server_dispatches_on_single_thread(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "ccatv.app.service_daemon.ServiceCommandDispatcher",
-        _ThreadAffinityDispatcher,
+        _ThreadedDispatcher,
     )
 
     thread, http_port = _start_http_server(context)
