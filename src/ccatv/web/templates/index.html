@@ -598,6 +598,12 @@
         const genre = document.createElement("div");
         genre.className = "timeline-hover-meta";
         genre.textContent = `Genre: ${programme.genre || "Unknown"}`;
+        const source = document.createElement("div");
+        source.className = "timeline-hover-meta";
+        source.textContent = `Guide source: ${programme.source || "Unknown"}`;
+        const refs = document.createElement("div");
+        refs.className = "timeline-hover-meta";
+        refs.textContent = `Content ref: ${programme.contentRef || "not provided"} | Series ref: ${programme.seriesRef || "not provided"}`;
         const switchRow = document.createElement("div");
         switchRow.className = "record-toggle-row";
 
@@ -623,7 +629,7 @@
         });
 
         switchRow.append(switchLabel, switchButton);
-        timelineHover.append(title, meta, genre, description, switchRow);
+        timelineHover.append(title, meta, genre, source, refs, description, switchRow);
 
         if (typeof programme.seriesRef === "string" && programme.seriesRef) {
           const seriesEnabled = isSeriesRecordingEnabled(programme.seriesRef);
