@@ -530,6 +530,10 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
 
     print("OTA EPG sync starting...", file=deps.stdout)
 
+    # CLI commands should not attempt to own dvbstreamer; only the scheduler service does.
+    import os
+    os.environ.setdefault("CCATV_DVBSTREAMER_MANAGE_PROCESS", "0")
+
     client = deps.service_client_factory()
     try:
         payload = {
@@ -574,6 +578,10 @@ def run_epg_sync_ota_multimux(args: argparse.Namespace, deps: CliDependencies) -
 
     print("OTA multi-mux EPG sync starting...", file=deps.stdout)
 
+    # CLI commands should not attempt to own dvbstreamer; only the scheduler service does.
+    import os
+    os.environ.setdefault("CCATV_DVBSTREAMER_MANAGE_PROCESS", "0")
+    
     client = deps.service_client_factory()
     try:
         payload: dict[str, object] = {
