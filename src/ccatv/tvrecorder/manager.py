@@ -105,8 +105,13 @@ class DvbStreamerManager:
         self._process = process
         if process.poll() is not None:
             self._state = DvbStreamerState.FAILED
+            try:
+                process.wait(timeout=0)
+            except Exception:
+                pass
             stderr = process.stderr.read().strip() if process.stderr else ""
             self._last_error = stderr or "dvbstreamer exited immediately"
+            self._process = None
             raise DvbStreamerLaunchError(self._last_error)
 
         self._last_error = None
@@ -120,6 +125,10 @@ class DvbStreamerManager:
             return self.status()
 
         if self._process.poll() is not None:
+            try:
+                self._process.wait(timeout=0)
+            except Exception:
+                pass
             self._process = None
             self._state = DvbStreamerState.STOPPED
             return self.status()
@@ -164,6 +173,11 @@ class DvbStreamerManager:
             if self._state != DvbStreamerState.FAILED:
                 self._state = DvbStreamerState.RUNNING
             return self.status()
+
+        try:
+            self._process.wait(timeout=0)
+        except Exception:
+            pass
 
         self._process = None
         if returncode == 0:

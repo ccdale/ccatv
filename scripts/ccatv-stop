@@ -75,11 +75,46 @@ cleanup_dvbstreamer_processes() {
     return 0
   fi
 
-  echo "Stopping stray dvbstreamer processes: ${pids}"
-  pkill -TERM -x dvbstreamer || true
+  local live_pids=""
+  local zombie_pids=""
+  local pid
+  for pid in ${pids}; do
+    local stat
+    stat=$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)
+    if [[ -z "${stat}" ]]; then
+      continue
+    fi
+    if [[ "${stat}" == Z* ]]; then
+      zombie_pids+=" ${pid}"
+    else
+      live_pids+=" ${pid}"
+    fi
+  done
+
+  if [[ -n "${zombie_pids}" ]]; then
+    zombie_pids="${zombie_pids# }"
+    echo "Found zombie dvbstreamer processes (cannot be killed directly): ${zombie_pids}"
+    ps -o pid=,ppid=,stat=,cmd= -p ${zombie_pids} || true
+  fi
+
+  if [[ -z "${live_pids}" ]]; then
+    return 0
+  fi
+
+  live_pids="${live_pids# }"
+  echo "Stopping stray dvbstreamer processes: ${live_pids}"
+  kill -TERM ${live_pids} 2>/dev/null || true
 
   for _ in {1..40}; do
-    if ! pgrep -x dvbstreamer >/dev/null 2>&1; then
+    local remaining_live=""
+    for pid in ${live_pids}; do
+      local stat
+      stat=$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)
+      if [[ -n "${stat}" && "${stat}" != Z* ]]; then
+        remaining_live+=" ${pid}"
+      fi
+    done
+    if [[ -z "${remaining_live}" ]]; then
       echo "Stopped stray dvbstreamer processes"
       return 0
     fi
@@ -87,10 +122,18 @@ cleanup_dvbstreamer_processes() {
   done
 
   local remaining
-  remaining=$(pgrep -x dvbstreamer || true)
+  remaining=""
+  for pid in ${live_pids}; do
+    local stat
+    stat=$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)
+    if [[ -n "${stat}" && "${stat}" != Z* ]]; then
+      remaining+=" ${pid}"
+    fi
+  done
   if [[ -n "${remaining}" ]]; then
+    remaining="${remaining# }"
     echo "Force-stopping remaining dvbstreamer processes: ${remaining}"
-    pkill -KILL -x dvbstreamer || true
+    kill -KILL ${remaining} 2>/dev/null || true
   fi
 }
 
