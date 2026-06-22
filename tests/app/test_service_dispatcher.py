@@ -95,6 +95,7 @@ def _build_context() -> SimpleNamespace:
             info=lambda *args, **kwargs: None,
             error=lambda *args, **kwargs: None,
             warning=lambda *args, **kwargs: None,
+            debug=lambda *args, **kwargs: None,
         ),
         persistence=persistence,
         settings=SimpleNamespace(
@@ -1719,7 +1720,171 @@ def test_dispatch_metadata_series_recording_set_rejects_invalid_payload() -> Non
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_dispatch_metadata_channels_dvbservices_list_returns_sorted_unique_services() -> None:
+def test_parse_ts_id_from_serviceinfo() -> None:
+    raw = (
+        'Name                : "BBC TWO HD"\n'
+        "Type                : Digital TV\n"
+        "ID                  : 233a.4087.4440\n"
+        "Source              : 0x4440\n"
+    )
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    assert dispatcher._parse_ts_id_from_serviceinfo(raw) == "0x4087"
+
+
+def test_parse_ts_id_from_serviceinfo_returns_none_when_absent() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+    assert dispatcher._parse_ts_id_from_serviceinfo("Type: Digital TV\n") is None
+
+
+def test_dispatch_ota_multimux_sync_rejects_invalid_capture_seconds() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.ota.multimux.sync.run",
+            "payload": {"captureSeconds": -1},
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_ota_multimux_sync_returns_stats_per_mux() -> None:
+    """Happy path: two services on different muxes are each captured once."""
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    BBC_INFO = (
+        'Name                : "BBC TWO HD"\n'
+        "Type                : Digital TV\n"
+        "ID                  : 233a.1047.10bf\n"
+        "Video PID           : 0x0203\n"
+        "Audio PID           : 0x0204\n"
+    )
+    TPTV_INFO = (
+        'Name                : "TalkingPictures TV"\n'
+        "Type                : Digital TV\n"
+        "ID                  : 233a.6040.6e40\n"
+        "Video PID           : 0x03fc\n"
+        "Audio PID           : 0x03fd\n"
+    )
+    service_infos = {"BBC TWO HD": BBC_INFO, "TalkingPictures TV": TPTV_INFO}
+
+    captures: list[str] = []
+
+    def _run_serviceinfo(command):
+        name = command.args[0]
+        return SimpleNamespace(stdout=service_infos.get(name, "Type: Unknown\n"))
+
+    def _fake_capture(*, grab_command, capture_seconds):
+        captures.append(grab_command)
+        return SimpleNamespace(stdout="")
+
+    context.tvrecorder = SimpleNamespace(
+        list_services=lambda: ["BBC TWO HD", "TalkingPictures TV"],
+        resolve_service_name=lambda name: name,
+        select_service=lambda _: None,
+        frontend_status=lambda: SimpleNamespace(locked=True),
+        list_service_channel_name_map=lambda: {},
+        run=_run_serviceinfo,
+        run_raw=lambda _: None,
+    )
+    context.dvbctrl = SimpleNamespace(
+        executable_path="dvbctrl",
+        host="localhost",
+        adapter_index=0,
+        timeout_seconds=10.0,
+        transient_retry_count=2,
+        transient_retry_delay_seconds=0.2,
+        run_command=lambda _cmd: SimpleNamespace(stdout="", stderr="", returncode=0),
+        start_command=lambda _cmd: _MockPopen(),
+    )
+    dispatcher._capture_ota_epg_stream = _fake_capture
+    dispatcher._wait_for_frontend_lock = lambda **_kw: None
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.ota.multimux.sync.run",
+            "payload": {
+                "captureSeconds": 1.0,
+                "maxRetries": 0,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    stats = response["payload"]["stats"]
+    assert stats["muxesAttempted"] == 2
+    assert stats["muxesOk"] == 2
+    assert stats["muxesFailed"] == 0
+    assert len(captures) == 2
+
+
+def test_dispatch_ota_multimux_sync_skips_radio_channels() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    TV_INFO = (
+        'Name                : "Channel 4 HD"\n'
+        "Type                : Digital TV\n"
+        "ID                  : 233a.4087.4500\n"
+        "Video PID           : 0x0201\n"
+    )
+    RADIO_INFO = (
+        'Name                : "BBC Radio 4"\n'
+        "Type                : Radio\n"
+        "ID                  : 233a.1047.1b00\n"
+        "Audio PID           : 0x0104\n"
+    )
+
+    captures: list[str] = []
+
+    context.tvrecorder = SimpleNamespace(
+        list_services=lambda: ["BBC Radio 4", "Channel 4 HD"],
+        resolve_service_name=lambda name: name,
+        select_service=lambda _: None,
+        frontend_status=lambda: SimpleNamespace(locked=True),
+        list_service_channel_name_map=lambda: {},
+        run=lambda cmd: SimpleNamespace(
+            stdout=RADIO_INFO if cmd.args[0] == "BBC Radio 4" else TV_INFO
+        ),
+        run_raw=lambda _: None,
+    )
+    context.dvbctrl = SimpleNamespace(
+        executable_path="dvbctrl",
+        host="localhost",
+        adapter_index=0,
+        timeout_seconds=10.0,
+        transient_retry_count=2,
+        transient_retry_delay_seconds=0.2,
+        run_command=lambda _cmd: SimpleNamespace(stdout="", stderr="", returncode=0),
+        start_command=lambda _cmd: _MockPopen(),
+    )
+    dispatcher._capture_ota_epg_stream = lambda **_kw: captures.append("") or SimpleNamespace(stdout="")  # type: ignore[assignment]
+    dispatcher._wait_for_frontend_lock = lambda **_kw: None
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.ota.multimux.sync.run",
+            "payload": {"captureSeconds": 1.0, "maxRetries": 0},
+        }
+    )
+
+    assert response["ok"] is True
+    stats = response["payload"]["stats"]
+    # Radio channel excluded: only 1 mux (Channel 4 HD) should have been attempted
+    assert stats["muxesAttempted"] == 1
+    assert stats["muxesOk"] == 1
+
+
+
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
     context.tvrecorder = SimpleNamespace(

@@ -61,6 +61,7 @@ SERVICE_CAPABILITIES = [
     "metadata.films",
     "metadata.series.recording",
     "metadata.ota.sync",
+    "metadata.ota.multimux.sync",
     "metadata.sd.sync",
     "runtime.setup",
 ]
@@ -87,6 +88,7 @@ SERVICE_COMMANDS = [
     "metadata.series.recording.set",
     "metadata.ota.sync.run",
     "metadata.ota.sync.channel-names.backfill.run",
+    "metadata.ota.multimux.sync.run",
     "metadata.sd.sync.run",
     "metadata.sd.sync.status.get",
     "runtime.setup.save",
@@ -230,6 +232,8 @@ class ServiceCommandDispatcher:
             return self._metadata_series_recording_set(payload)
         if command == "metadata.ota.sync.run":
             return self._metadata_ota_sync_run(payload)
+        if command == "metadata.ota.multimux.sync.run":
+            return self._metadata_ota_multimux_sync_run(payload)
         if command == "metadata.ota.sync.channel-names.backfill.run":
             return self._metadata_ota_channel_names_backfill_run(payload)
         if command == "metadata.sd.sync.run":
@@ -1975,6 +1979,259 @@ class ServiceCommandDispatcher:
                 "staleSchedulesPruned": stats.stale_schedules_pruned,
                 "ingestRunId": stats.ingest_run_id,
                 "fullRefresh": clear_existing,
+                "seriesAutoScheduled": auto_schedule["scheduled"],
+                "seriesAutoSkipped": auto_schedule["skipped"],
+            }
+        }
+
+    @staticmethod
+    def _parse_ts_id_from_serviceinfo(raw: str) -> str | None:
+        """Extract transport-stream ID from dvbctrl serviceinfo output.
+
+        The ``ID`` line looks like ``233a.6040.6e40``; we return the middle
+        component formatted as ``0x6040``.
+        """
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("ID"):
+                continue
+            if ":" not in stripped:
+                continue
+            value = stripped.split(":", 1)[1].strip()
+            parts = value.split(".")
+            if len(parts) >= 3:
+                return "0x" + parts[1].lower()
+        return None
+
+    def _metadata_ota_multimux_sync_run(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Capture OTA EPG from one representative TV channel per DVB mux.
+
+        For each distinct transport stream discovered via dvbctrl lsservices /
+        serviceinfo, picks the first non-radio, video-capable service, then
+        runs a timed epgdata capture.  Retries each mux if dvbstreamer is
+        transiently busy (e.g. a recording is in progress).
+        """
+        capture_seconds = payload.get("captureSeconds", 900.0)
+        if not isinstance(capture_seconds, int | float) or capture_seconds <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="captureSeconds must be greater than 0",
+            )
+
+        grab_command = payload.get("grabCommand", "epgdata")
+        if not isinstance(grab_command, str) or not grab_command.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="grabCommand must be a non-empty string when provided",
+            )
+
+        max_retries = payload.get("maxRetries", 3)
+        if not isinstance(max_retries, int) or max_retries < 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="maxRetries must be a non-negative integer",
+            )
+
+        retry_delay_seconds = payload.get("retryDelaySeconds", 300.0)
+        if not isinstance(retry_delay_seconds, int | float) or retry_delay_seconds < 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="retryDelaySeconds must be a non-negative number",
+            )
+
+        frontend_lock_timeout_seconds = payload.get("frontendLockTimeoutSeconds", 15.0)
+        if (
+            not isinstance(frontend_lock_timeout_seconds, int | float)
+            or frontend_lock_timeout_seconds <= 0
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="frontendLockTimeoutSeconds must be greater than 0",
+            )
+
+        database_path = payload.get("databasePath")
+        if database_path is not None and (
+            not isinstance(database_path, str) or not database_path.strip()
+        ):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="databasePath must be a non-empty string when provided",
+            )
+
+        source = payload.get("source", "dvbstreamer_ota")
+        if not isinstance(source, str) or not source.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="source must be a non-empty string when provided",
+            )
+
+        logger = self._context.logger
+        self._raise_if_stopping()
+        self._ensure_ota_control_ready()
+
+        # ------------------------------------------------------------------ #
+        # 1.  Discover one representative TV service per transport stream.     #
+        # ------------------------------------------------------------------ #
+        try:
+            all_services = self._context.tvrecorder.list_services()
+        except Exception as exc:
+            raise ServiceCommandError(
+                code="OTA_GRAB_FAILED",
+                message=f"failed to list dvbstreamer services: {exc}",
+                retryable=True,
+            ) from exc
+
+        mux_representative: dict[str, str] = {}  # ts_id -> service_name
+        for svc in all_services:
+            self._raise_if_stopping()
+            ts_id = None
+            try:
+                info = self._context.tvrecorder.run(serviceinfo_command(svc)).stdout
+                if self._serviceinfo_is_radio(info):
+                    continue
+                if not self._serviceinfo_has_media_pid(info):
+                    continue
+                ts_id = self._parse_ts_id_from_serviceinfo(info)
+            except Exception as exc:
+                logger.debug("serviceinfo failed for %r: %s", svc, exc)
+                continue
+            if ts_id and ts_id not in mux_representative:
+                mux_representative[ts_id] = svc
+                logger.debug("selected %r as representative for mux %s", svc, ts_id)
+
+        if not mux_representative:
+            raise ServiceCommandError(
+                code="OTA_GRAB_FAILED",
+                message="no eligible TV services found to use as mux representatives",
+                retryable=True,
+            )
+
+        logger.info(
+            "OTA multi-mux sync: found %d distinct muxes to capture",
+            len(mux_representative),
+        )
+
+        # ------------------------------------------------------------------ #
+        # 2.  Capture EPG from each mux with per-mux retry.                  #
+        # ------------------------------------------------------------------ #
+        target_connection = self._context.persistence.connection
+        close_after = False
+        if database_path is not None:
+            target_connection = initialize_database(Path(database_path.strip()))
+            close_after = True
+
+        total_channels = 0
+        total_programs = 0
+        total_broadcasts = 0
+        muxes_ok: list[str] = []
+        muxes_failed: list[str] = []
+
+        try:
+            for ts_id, svc in mux_representative.items():
+                self._raise_if_stopping()
+                last_exc: Exception | None = None
+
+                for attempt in range(max_retries + 1):
+                    self._raise_if_stopping()
+                    if attempt > 0:
+                        logger.info(
+                            "OTA multi-mux sync: retrying mux %s (attempt %d/%d) "
+                            "after %.0fs delay",
+                            ts_id,
+                            attempt + 1,
+                            max_retries + 1,
+                            retry_delay_seconds,
+                        )
+                        deadline = time.monotonic() + float(retry_delay_seconds)
+                        while time.monotonic() < deadline:
+                            self._raise_if_stopping()
+                            time.sleep(min(5.0, deadline - time.monotonic()))
+
+                    try:
+                        resolved = self._context.tvrecorder.resolve_service_name(svc)
+                        self._context.tvrecorder.select_service(resolved)
+                        self._wait_for_frontend_lock(
+                            timeout_seconds=float(frontend_lock_timeout_seconds),
+                        )
+                        try:
+                            channel_name_map = (
+                                self._context.tvrecorder.list_service_channel_name_map()
+                            )
+                        except Exception as map_exc:
+                            logger.warning(
+                                "failed to resolve channel name map for mux %s: %s",
+                                ts_id,
+                                map_exc,
+                            )
+                            channel_name_map = {}
+
+                        grab_result = self._capture_ota_epg_stream(
+                            grab_command=grab_command.strip(),
+                            capture_seconds=float(capture_seconds),
+                        )
+                        stats = ingest_dvbstreamer_epg(
+                            target_connection,
+                            grab_result.stdout,
+                            channel_name_map=channel_name_map,
+                            source=source.strip(),
+                        )
+                        total_channels += stats.channels_upserted
+                        total_programs += stats.programs_upserted
+                        total_broadcasts += stats.broadcasts_upserted
+                        muxes_ok.append(ts_id)
+                        logger.info(
+                            "OTA multi-mux sync: mux %s ok "
+                            "(service=%r channels=%d programs=%d broadcasts=%d)",
+                            ts_id,
+                            svc,
+                            stats.channels_upserted,
+                            stats.programs_upserted,
+                            stats.broadcasts_upserted,
+                        )
+                        last_exc = None
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        logger.warning(
+                            "OTA multi-mux sync: mux %s attempt %d failed: %s",
+                            ts_id,
+                            attempt + 1,
+                            exc,
+                        )
+
+                if last_exc is not None:
+                    muxes_failed.append(ts_id)
+                    logger.error(
+                        "OTA multi-mux sync: mux %s failed after %d attempt(s), skipping",
+                        ts_id,
+                        max_retries + 1,
+                    )
+        finally:
+            if close_after:
+                target_connection.close()
+
+        auto_schedule = self._auto_schedule_series_recordings()
+
+        logger.info(
+            "OTA multi-mux sync complete "
+            "(muxes_ok=%d muxes_failed=%d channels=%d programs=%d broadcasts=%d)",
+            len(muxes_ok),
+            len(muxes_failed),
+            total_channels,
+            total_programs,
+            total_broadcasts,
+        )
+
+        return {
+            "stats": {
+                "muxesAttempted": len(mux_representative),
+                "muxesOk": len(muxes_ok),
+                "muxesFailed": len(muxes_failed),
+                "channelsUpserted": total_channels,
+                "programsUpserted": total_programs,
+                "broadcastsUpserted": total_broadcasts,
                 "seriesAutoScheduled": auto_schedule["scheduled"],
                 "seriesAutoSkipped": auto_schedule["skipped"],
             }

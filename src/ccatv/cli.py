@@ -139,6 +139,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ota_sync_parser.set_defaults(handler=run_epg_sync_ota)
 
+    ota_multimux_parser = subparsers.add_parser(
+        "epg-sync-ota-multimux",
+        help="Grab OTA EPG from one representative TV channel per DVB mux",
+    )
+    ota_multimux_parser.add_argument(
+        "--grab-command",
+        default="epgdata",
+        help="raw dvbctrl command used to fetch EPG payload (default: epgdata)",
+    )
+    ota_multimux_parser.add_argument(
+        "--capture-seconds",
+        type=float,
+        default=900.0,
+        help="seconds to capture epgdata per mux (default: 900)",
+    )
+    ota_multimux_parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="retry attempts per mux if dvbstreamer is busy (default: 3)",
+    )
+    ota_multimux_parser.add_argument(
+        "--retry-delay-seconds",
+        type=float,
+        default=300.0,
+        help="seconds to wait between retries (default: 300)",
+    )
+    ota_multimux_parser.add_argument(
+        "--database-path",
+        default=None,
+        help="override sqlite database path",
+    )
+    ota_multimux_parser.set_defaults(handler=run_epg_sync_ota_multimux)
+
     ota_backfill_parser = subparsers.add_parser(
         "epg-ota-backfill-channel-names",
         help="Backfill OTA channel display names from dvbstreamer serviceinfo",
@@ -527,6 +561,53 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
             f"broadcasts={stats.get('broadcastsUpserted')}, "
             f"parsed_events={stats.get('parsedEvents')}, "
             f"run_id={stats.get('ingestRunId')})"
+        ),
+        file=deps.stdout,
+    )
+    return 0
+
+
+def run_epg_sync_ota_multimux(args: argparse.Namespace, deps: CliDependencies) -> int:
+    if args.capture_seconds <= 0:
+        print("--capture-seconds must be greater than 0", file=deps.stderr)
+        return 2
+
+    print("OTA multi-mux EPG sync starting...", file=deps.stdout)
+
+    client = deps.service_client_factory()
+    try:
+        payload: dict[str, object] = {
+            "grabCommand": args.grab_command,
+            "captureSeconds": float(args.capture_seconds),
+            "maxRetries": int(args.max_retries),
+            "retryDelaySeconds": float(args.retry_delay_seconds),
+        }
+        if args.database_path:
+            payload["databasePath"] = str(args.database_path)
+
+        result = client.execute("metadata.ota.multimux.sync.run", payload)
+        stats = result.get("stats")
+        if not isinstance(stats, dict):
+            raise RuntimeError(
+                "metadata.ota.multimux.sync.run returned malformed stats payload"
+            )
+    except ServiceClientError as exc:
+        print(f"OTA multi-mux EPG sync failed: {exc.message}", file=deps.stderr)
+        return 2
+    except Exception as exc:
+        print(f"OTA multi-mux EPG sync failed: {exc}", file=deps.stderr)
+        return 2
+    finally:
+        client.close()
+
+    print(
+        (
+            "OTA multi-mux EPG sync complete "
+            f"(muxes_ok={stats.get('muxesOk')}, "
+            f"muxes_failed={stats.get('muxesFailed')}, "
+            f"channels={stats.get('channelsUpserted')}, "
+            f"programs={stats.get('programsUpserted')}, "
+            f"broadcasts={stats.get('broadcastsUpserted')})"
         ),
         file=deps.stdout,
     )

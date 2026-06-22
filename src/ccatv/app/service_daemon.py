@@ -1234,10 +1234,12 @@ def run_service_daemon(
                 ota_response = dispatcher.dispatch(
                     {
                         "apiVersion": "v1alpha1",
-                        "command": "metadata.ota.sync.run",
+                        "command": "metadata.ota.multimux.sync.run",
                         "payload": {
-                            "channelName": context.settings.ota_epg_channel_name,
                             "grabCommand": "epgdata",
+                            "captureSeconds": 900.0,
+                            "maxRetries": 3,
+                            "retryDelaySeconds": 300.0,
                         },
                     }
                 )

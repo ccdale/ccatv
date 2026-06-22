@@ -476,10 +476,12 @@ def test_run_service_daemon_daily_metadata_sync_runs_sequential_steps(
     assert worker.cycle_count >= 1
     assert dispatch_calls == [
         (
-            "metadata.ota.sync.run",
+            "metadata.ota.multimux.sync.run",
             {
                 "grabCommand": "epgdata",
-                "channelName": "BBC ONE East",
+                "captureSeconds": 900.0,
+                "maxRetries": 3,
+                "retryDelaySeconds": 300.0,
             },
         ),
         (
