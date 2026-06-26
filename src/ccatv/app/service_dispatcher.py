@@ -2844,7 +2844,7 @@ class ServiceCommandDispatcher:
                 message="channelName must be a non-empty string when provided",
             )
 
-        frontend_lock_timeout_seconds = payload.get("frontendLockTimeoutSeconds", 15.0)
+        frontend_lock_timeout_seconds = payload.get("frontendLockTimeoutSeconds", 30.0)
         if (
             not isinstance(frontend_lock_timeout_seconds, int | float)
             or frontend_lock_timeout_seconds <= 0

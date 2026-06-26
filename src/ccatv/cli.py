@@ -133,6 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds to capture OTA epgdata stream before stopping (default: 10)",
     )
     ota_sync_parser.add_argument(
+        "--frontend-lock-timeout-seconds",
+        type=float,
+        default=30.0,
+        help="seconds to wait for tuner lock after service select (default: 30)",
+    )
+    ota_sync_parser.add_argument(
         "--database-path",
         default=None,
         help="override sqlite database path",
@@ -531,6 +537,9 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
     if args.capture_seconds <= 0:
         print("--capture-seconds must be greater than 0", file=deps.stderr)
         return 2
+    if args.frontend_lock_timeout_seconds <= 0:
+        print("--frontend-lock-timeout-seconds must be greater than 0", file=deps.stderr)
+        return 2
 
     channel_name = _resolve_ota_epg_channel_name(args.channel_name, deps.runtime_store)
 
@@ -546,6 +555,7 @@ def run_epg_sync_ota(args: argparse.Namespace, deps: CliDependencies) -> int:
             "grabCommand": args.grab_command,
             "channelName": channel_name,
             "captureSeconds": float(args.capture_seconds),
+            "frontendLockTimeoutSeconds": float(args.frontend_lock_timeout_seconds),
         }
         if args.database_path:
             payload["databasePath"] = str(args.database_path)
