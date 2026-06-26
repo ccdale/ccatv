@@ -1242,7 +1242,7 @@ def test_dispatch_metadata_films_list_favourites_scope_filters_channels() -> Non
     assert films[0]["channelName"] == "Film4"
 
 
-def test_dispatch_metadata_films_list_excludes_radio_and_no_pid_channels() -> None:
+def test_dispatch_metadata_films_list_excludes_radio_and_no_pid_channels(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
 
@@ -1296,23 +1296,17 @@ def test_dispatch_metadata_films_list_excludes_radio_and_no_pid_channels() -> No
     )
     context.persistence.connection.commit()
 
-    def _run_serviceinfo(command) -> SimpleNamespace:
-        service_name = command.args[0]
-        if service_name == "Film4":
-            return SimpleNamespace(
-                stdout="Type: TV\nVideo PID: 0x0078\nAudio PID: 0x0082\n"
-            )
-        if service_name == "BBC Radio 4":
-            return SimpleNamespace(
-                stdout="Type: Radio\nAudio PID: 0x0140\n"
-            )
-        return SimpleNamespace(
-            stdout="Type: TV\nVideo PID: none\nAudio PID: none\n"
-        )
+    context.tvrecorder = SimpleNamespace(resolve_service_name=lambda name: name)
 
-    context.tvrecorder = SimpleNamespace(
-        resolve_service_name=lambda name: name,
-        run=_run_serviceinfo,
+    adapter_flags = {
+        "Film4": (True, False),
+        "BBC Radio 4": (False, True),
+        "Web Movie Channel": (False, False),
+    }
+    monkeypatch.setattr(
+        dispatcher,
+        "_load_service_flags_from_adapter_db",
+        lambda service_name: adapter_flags.get(service_name),
     )
 
     response = dispatcher.dispatch(
@@ -1416,6 +1410,94 @@ def test_dispatch_metadata_films_list_uses_cached_serviceinfo_when_live_lookup_f
     assert response["ok"] is True
     films = response["payload"]["films"]
     assert films == []
+
+
+def test_dispatch_metadata_films_list_uses_channel_radio_flag_and_backfills_new_channel(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            is_radio_channel
+        ) VALUES(?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "200", "Known Radio", 1),
+            ("dvbstreamer_ota", "201", "New Service", None),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "p1", "Known Radio Feature", "Feature", "Movie"),
+            ("dvbstreamer_ota", "p2", "New Service Feature", "Feature", "Movie"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "2026-05-25T21:30:00Z", "2026-05-25T23:30:00Z", 7200),
+            (2, 2, "2026-05-25T21:30:00Z", "2026-05-25T23:30:00Z", 7200),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(resolve_service_name=lambda name: name)
+
+    adapter_flags = {
+        "New Service": (True, False),
+    }
+    monkeypatch.setattr(
+        dispatcher,
+        "_load_service_flags_from_adapter_db",
+        lambda service_name: adapter_flags.get(service_name),
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 8,
+                "channelScope": "all",
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    films = response["payload"]["films"]
+    assert len(films) == 1
+    assert films[0]["channelName"] == "New Service"
+
+    stored_flag = context.persistence.connection.execute(
+        "SELECT is_radio_channel FROM epg_channels WHERE display_name = ?",
+        ("New Service",),
+    ).fetchone()
+    assert stored_flag is not None
+    assert stored_flag[0] == 0
 
 
 def test_auto_schedule_series_recordings_skips_recorded_content_ref() -> None:

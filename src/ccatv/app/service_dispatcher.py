@@ -50,6 +50,7 @@ from ccatv.tvrecorder.commands import serviceinfo_command
 API_VERSION = "v1alpha1"
 MIN_RECORDING_SECONDS = 30
 SERVICEINFO_CACHE_MAX_AGE_DAYS = 7
+VIDEO_PID_STREAM_TYPES = {1, 2, 16, 27, 36}
 
 SERVICE_CAPABILITIES = [
     "service.health",
@@ -2227,8 +2228,14 @@ class ServiceCommandDispatcher:
         if key in cache:
             return cache[key]
 
+        known_radio_flag = self._get_channel_radio_flag(channel_name)
+        if known_radio_flag is True:
+            cache[key] = False
+            return False
+
         # Default to include when control-plane inspection is unavailable.
         eligible = True
+        resolved_name = None
         try:
             resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
             cached = self._get_cached_serviceinfo_flags(
@@ -2237,39 +2244,125 @@ class ServiceCommandDispatcher:
             )
             if cached is not None:
                 has_pid, is_radio = cached
-                eligible = has_pid and not is_radio
+                if known_radio_flag is None:
+                    self._set_channel_radio_flag(channel_name, is_radio=is_radio)
+                    known_radio_flag = is_radio
+                del is_radio
+                eligible = has_pid
+                if known_radio_flag is True:
+                    eligible = False
                 cache[key] = eligible
                 return eligible
 
-            serviceinfo = self._context.tvrecorder.run(
-                serviceinfo_command(resolved_name)
-            ).stdout
-            has_pid = self._serviceinfo_has_media_pid(serviceinfo)
-            is_radio = self._serviceinfo_is_radio(serviceinfo)
-            self._upsert_serviceinfo_cache(
-                resolved_name,
-                raw_output=serviceinfo,
-                has_media_pid=has_pid,
-                is_radio=is_radio,
-            )
-            eligible = has_pid and not is_radio
+            adapter_flags = self._load_service_flags_from_adapter_db(resolved_name)
+            if adapter_flags is not None:
+                has_pid, is_radio = adapter_flags
+                if known_radio_flag is None:
+                    self._set_channel_radio_flag(channel_name, is_radio=is_radio)
+                    known_radio_flag = is_radio
+                self._upsert_serviceinfo_cache(
+                    resolved_name,
+                    raw_output="adapter-db",
+                    has_media_pid=has_pid,
+                    is_radio=is_radio,
+                )
+                del is_radio
+                eligible = has_pid
+                if known_radio_flag is True:
+                    eligible = False
         except Exception:
             try:
-                resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
+                if resolved_name is None:
+                    resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
                 cached = self._get_cached_serviceinfo_flags(
                     resolved_name,
                     max_age_days=None,
                 )
                 if cached is not None:
                     has_pid, is_radio = cached
-                    eligible = has_pid and not is_radio
+                    if known_radio_flag is None:
+                        self._set_channel_radio_flag(channel_name, is_radio=is_radio)
+                        known_radio_flag = is_radio
+                    del is_radio
+                    eligible = has_pid
+                    if known_radio_flag is True:
+                        eligible = False
                 else:
-                    eligible = True
+                    eligible = known_radio_flag is not True
             except Exception:
-                eligible = True
+                eligible = known_radio_flag is not True
 
         cache[key] = eligible
         return eligible
+
+    def _get_channel_radio_flag(self, channel_name: str) -> bool | None:
+        rows = self._context.persistence.connection.execute(
+            """
+            SELECT is_radio_channel
+            FROM epg_channels
+            WHERE lower(display_name) = lower(?)
+            """,
+            (channel_name,),
+        ).fetchall()
+        if not rows:
+            return None
+
+        values = [row[0] for row in rows if row[0] is not None]
+        if not values:
+            return None
+        if any(int(value) == 1 for value in values):
+            return True
+        return False
+
+    def _set_channel_radio_flag(self, channel_name: str, *, is_radio: bool) -> None:
+        self._context.persistence.connection.execute(
+            """
+            UPDATE epg_channels
+            SET is_radio_channel = ?
+            WHERE lower(display_name) = lower(?)
+            """,
+            (int(is_radio), channel_name),
+        )
+        self._context.persistence.connection.commit()
+
+    def _load_service_flags_from_adapter_db(
+        self,
+        service_name: str,
+    ) -> tuple[bool, bool] | None:
+        dvbctrl = getattr(self._context, "dvbctrl", None)
+        adapter_index = int(getattr(dvbctrl, "adapter_index", 0))
+        database_path = Path.home() / ".dvbstreamer" / f"adapter{adapter_index}.db"
+        if not database_path.exists():
+            return None
+
+        connection = sqlite3.connect(database_path)
+        try:
+            rows = connection.execute(
+                """
+                SELECT s.type, p.type
+                FROM Services AS s
+                LEFT JOIN PIDs AS p
+                  ON p.mplexuid = s.mplexuid
+                 AND p.serviceid = s.id
+                WHERE lower(s.name) = lower(?)
+                """,
+                (service_name,),
+            ).fetchall()
+        finally:
+            connection.close()
+
+        if not rows:
+            return None
+
+        has_video_pid = False
+        radio_only = True
+        for service_type, pid_type in rows:
+            if service_type is not None and int(service_type) != 1:
+                radio_only = False
+            if pid_type is not None and int(pid_type) in VIDEO_PID_STREAM_TYPES:
+                has_video_pid = True
+
+        return (has_video_pid, radio_only)
 
     def _get_cached_serviceinfo_flags(
         self,

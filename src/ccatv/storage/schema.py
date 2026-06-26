@@ -309,6 +309,20 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=12,
+        name="epg_channel_radio_flag_v12",
+        statements=(
+            """
+            ALTER TABLE epg_channels
+            ADD COLUMN is_radio_channel INTEGER
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_epg_channels_is_radio_channel
+            ON epg_channels(is_radio_channel)
+            """,
+        ),
+    ),
 )
 
 
