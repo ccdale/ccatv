@@ -972,6 +972,17 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     assert programs[0]["episodeIdOnscreen"] == "S03E07"
     assert programs[0]["originalAirDate"] == "2026-05-20"
     assert programs[0]["releaseYear"] == 2026
+    assert programs[0]["episodeMetadata"] == {
+        "seasonNumber": 3,
+        "episodeNumber": 7,
+        "episodeIdOnscreen": "S03E07",
+        "originalAirDate": "2026-05-20",
+        "releaseYear": 2026,
+    }
+    assert programs[0]["broadcasterRefs"] == {
+        "contentRef": None,
+        "seriesRef": None,
+    }
 
 
 def test_dispatch_metadata_guide_list_matches_spacing_variant_channel_name() -> None:
@@ -1149,6 +1160,17 @@ def test_dispatch_metadata_films_list_returns_duration_filtered_programs() -> No
     assert films[0]["source"] == "dvbstreamer_ota"
     assert films[0]["contentRef"] == "example.org/content-1"
     assert films[0]["seriesRef"] == "example.org/series-1"
+    assert films[0]["broadcasterRefs"] == {
+        "contentRef": "example.org/content-1",
+        "seriesRef": "example.org/series-1",
+    }
+    assert films[0]["episodeMetadata"] == {
+        "seasonNumber": None,
+        "episodeNumber": None,
+        "episodeIdOnscreen": None,
+        "originalAirDate": None,
+        "releaseYear": None,
+    }
 
 
 def test_dispatch_metadata_films_list_favourites_scope_filters_channels() -> None:
@@ -2140,6 +2162,17 @@ def test_dispatch_metadata_guide_audit_list_paginates_results() -> None:
     }
     assert len(payload["items"]) == 1
     assert payload["items"][0]["title"] == "Show 2"
+    assert payload["items"][0]["stored"]["episodeMetadata"] == {
+        "seasonNumber": 1,
+        "episodeNumber": 2,
+        "episodeIdOnscreen": None,
+        "originalAirDate": None,
+        "releaseYear": 2020,
+    }
+    assert payload["items"][0]["stored"]["broadcasterRefs"] == {
+        "contentRef": None,
+        "seriesRef": None,
+    }
 
 
 def test_dispatch_metadata_sd_sync_status_get_empty() -> None:

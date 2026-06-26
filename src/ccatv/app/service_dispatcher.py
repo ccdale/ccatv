@@ -191,6 +191,34 @@ class ServiceCommandDispatcher:
                 },
             }
 
+    def _build_broadcaster_refs(
+        self,
+        *,
+        content_ref: str | None,
+        series_ref: str | None,
+    ) -> dict[str, str | None]:
+        return {
+            "contentRef": content_ref,
+            "seriesRef": series_ref,
+        }
+
+    def _build_episode_metadata(
+        self,
+        *,
+        season_number: int | None,
+        episode_number: int | None,
+        episode_id_onscreen: str | None,
+        original_air_date: str | None,
+        release_year: int | None,
+    ) -> dict[str, object]:
+        return {
+            "seasonNumber": season_number,
+            "episodeNumber": episode_number,
+            "episodeIdOnscreen": episode_id_onscreen,
+            "originalAirDate": original_air_date,
+            "releaseYear": release_year,
+        }
+
     def _dispatch_command(
         self, command: str, payload: dict[str, object]
     ) -> dict[str, object]:
@@ -1776,13 +1804,26 @@ class ServiceCommandDispatcher:
                     "genre": str(row[10]) if row[10] is not None else None,
                     "seasonNumber": int(row[11]) if row[11] is not None else None,
                     "episodeNumber": int(row[12]) if row[12] is not None else None,
-                    "episodeIdOnscreen": (
-                        str(row[13]) if row[13] is not None else None
-                    ),
+                    "episodeIdOnscreen": str(row[13]) if row[13] is not None else None,
                     "originalAirDate": str(row[14]) if row[14] is not None else None,
                     "contentRef": str(row[15]) if row[15] is not None else None,
                     "seriesRef": str(row[16]) if row[16] is not None else None,
                     "releaseYear": int(row[17]) if row[17] is not None else None,
+                    "episodeMetadata": self._build_episode_metadata(
+                        season_number=int(row[11]) if row[11] is not None else None,
+                        episode_number=int(row[12]) if row[12] is not None else None,
+                        episode_id_onscreen=(
+                            str(row[13]) if row[13] is not None else None
+                        ),
+                        original_air_date=(
+                            str(row[14]) if row[14] is not None else None
+                        ),
+                        release_year=int(row[17]) if row[17] is not None else None,
+                    ),
+                    "broadcasterRefs": self._build_broadcaster_refs(
+                        content_ref=str(row[15]) if row[15] is not None else None,
+                        series_ref=str(row[16]) if row[16] is not None else None,
+                    ),
                 }
                 for row in rows
             ],
@@ -1948,6 +1989,17 @@ class ServiceCommandDispatcher:
                 "contentRef": str(row[15]) if row[15] is not None else None,
                 "seriesRef": str(row[16]) if row[16] is not None else None,
                 "releaseYear": int(row[17]) if row[17] is not None else None,
+                "episodeMetadata": self._build_episode_metadata(
+                    season_number=int(row[11]) if row[11] is not None else None,
+                    episode_number=int(row[12]) if row[12] is not None else None,
+                    episode_id_onscreen=str(row[13]) if row[13] is not None else None,
+                    original_air_date=str(row[14]) if row[14] is not None else None,
+                    release_year=int(row[17]) if row[17] is not None else None,
+                ),
+                "broadcasterRefs": self._build_broadcaster_refs(
+                    content_ref=str(row[15]) if row[15] is not None else None,
+                    series_ref=str(row[16]) if row[16] is not None else None,
+                ),
             }
 
             current = films_by_slot.get(dedupe_key)
@@ -2129,6 +2181,21 @@ class ServiceCommandDispatcher:
                         "releaseYear": int(row[12]) if row[12] is not None else None,
                         "contentRef": str(row[13]) if row[13] is not None else None,
                         "seriesRef": str(row[14]) if row[14] is not None else None,
+                        "episodeMetadata": self._build_episode_metadata(
+                            season_number=int(row[8]) if row[8] is not None else None,
+                            episode_number=int(row[9]) if row[9] is not None else None,
+                            episode_id_onscreen=(
+                                str(row[10]) if row[10] is not None else None
+                            ),
+                            original_air_date=(
+                                str(row[11]) if row[11] is not None else None
+                            ),
+                            release_year=int(row[12]) if row[12] is not None else None,
+                        ),
+                        "broadcasterRefs": self._build_broadcaster_refs(
+                            content_ref=str(row[13]) if row[13] is not None else None,
+                            series_ref=str(row[14]) if row[14] is not None else None,
+                        ),
                     },
                     "parsedFromDescription": parsed,
                 }

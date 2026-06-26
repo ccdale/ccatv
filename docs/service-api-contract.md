@@ -205,6 +205,8 @@ Notes:
 - `startAtUtc` is optional; when omitted, current UTC time is used.
 - `windowHours` is optional, defaults to `6`, and must be greater than 0.
 - In each `programs` entry, `callsign`, `logicalChannelNumber`, `stopAtUtc`, and `description` may be `null` when upstream source data does not provide values.
+- Broadcaster identity refs (`contentRef`, `seriesRef`) are independent from episode metadata (`seasonNumber`, `episodeNumber`, `episodeIdOnscreen`, `originalAirDate`, `releaseYear`).
+- `broadcasterRefs` and `episodeMetadata` are explicit grouped views of those same values to avoid semantic confusion in clients.
 
 Response payload:
 
@@ -226,7 +228,25 @@ Response payload:
       "stopAtUtc": "2026-05-24T20:00:00Z",
       "durationSeconds": 3600,
       "title": "Newsnight",
-      "description": "Late-night news and analysis"
+      "description": "Late-night news and analysis",
+      "seasonNumber": 3,
+      "episodeNumber": 7,
+      "episodeIdOnscreen": "S03E07",
+      "originalAirDate": "2026-05-20",
+      "releaseYear": 2026,
+      "contentRef": "example.org/content-1",
+      "seriesRef": "example.org/series-1",
+      "episodeMetadata": {
+        "seasonNumber": 3,
+        "episodeNumber": 7,
+        "episodeIdOnscreen": "S03E07",
+        "originalAirDate": "2026-05-20",
+        "releaseYear": 2026
+      },
+      "broadcasterRefs": {
+        "contentRef": "example.org/content-1",
+        "seriesRef": "example.org/series-1"
+      }
     }
   ]
 }
