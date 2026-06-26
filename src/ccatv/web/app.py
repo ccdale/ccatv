@@ -410,6 +410,15 @@ def create_app(
 
     @app.get("/api/guide")
     def api_guide_list():
+        """Return channel guide rows with explicit identity-vs-metadata semantics.
+
+        Response entries expose both legacy top-level fields and grouped fields:
+        - broadcasterRefs: stable broadcaster identity refs (contentRef, seriesRef)
+        - episodeMetadata: descriptive organization metadata
+          (season/episode/onscreen id/original air date/release year)
+
+        These are intentionally separate concepts and should not be conflated.
+        """
         channel = request.args.get("channel", default=None, type=str)
         if channel is None or not channel.strip():
             response, status_code = _json_error(
@@ -589,6 +598,12 @@ def create_app(
 
     @app.get("/api/guide/audit")
     def api_guide_audit():
+        """Return audit rows for stored metadata vs description-parsed metadata.
+
+        Stored values include grouped fields mirroring `/api/guide` semantics:
+        - stored.broadcasterRefs for broadcaster identity refs
+        - stored.episodeMetadata for descriptive episode/year metadata
+        """
         channel = request.args.get("channel", default=None, type=str)
         if channel is None or not channel.strip():
             response, status_code = _json_error(
@@ -672,6 +687,11 @@ def create_app(
 
     @app.get("/api/upcoming-films")
     def api_upcoming_films():
+        """Return upcoming films with separate broadcaster refs and episode metadata.
+
+        Broadcaster refs drive identity/dedupe workflows; episode metadata is for
+        descriptive organization in downstream libraries.
+        """
         payload: dict[str, object] = {}
 
         channel_scope = request.args.get("channelScope", default="favourites", type=str)
