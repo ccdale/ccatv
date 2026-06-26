@@ -35,4 +35,4 @@ echo "--- installing local scripts ---"
 "${REPO_DIR}/scripts/install-local-scripts.sh"
 
 echo "--- starting ccatv ---"
-CCATV_API_START_DELAY_SECONDS="${CCATV_API_START_DELAY_SECONDS:-8}" ccatv-start "$@"
+ccatv-start "$@"
