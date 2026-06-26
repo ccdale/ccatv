@@ -323,6 +323,24 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=13,
+        name="epg_channel_hd_flag_and_service_cache_hd_v13",
+        statements=(
+            """
+            ALTER TABLE epg_channels
+            ADD COLUMN is_hd_channel INTEGER
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_epg_channels_is_hd_channel
+            ON epg_channels(is_hd_channel)
+            """,
+            """
+            ALTER TABLE serviceinfo_cache
+            ADD COLUMN is_hd_channel INTEGER
+            """,
+        ),
+    ),
 )
 
 

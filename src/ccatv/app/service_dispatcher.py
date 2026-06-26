@@ -51,6 +51,7 @@ API_VERSION = "v1alpha1"
 MIN_RECORDING_SECONDS = 30
 SERVICEINFO_CACHE_MAX_AGE_DAYS = 7
 VIDEO_PID_STREAM_TYPES = {1, 2, 16, 27, 36}
+HD_VIDEO_PID_STREAM_TYPES = {27, 36}
 
 SERVICE_CAPABILITIES = [
     "service.health",
@@ -2228,13 +2229,10 @@ class ServiceCommandDispatcher:
         if key in cache:
             return cache[key]
 
-        known_radio_flag = self._get_channel_radio_flag(channel_name)
-        if known_radio_flag is True:
-            cache[key] = False
-            return False
+        known_radio_flag, _known_hd_flag = self._get_channel_tech_flags(channel_name)
 
         # Default to include when control-plane inspection is unavailable.
-        eligible = True
+        eligible = known_radio_flag is not True
         resolved_name = None
         try:
             resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
@@ -2243,33 +2241,38 @@ class ServiceCommandDispatcher:
                 max_age_days=SERVICEINFO_CACHE_MAX_AGE_DAYS,
             )
             if cached is not None:
-                has_pid, is_radio = cached
-                if known_radio_flag is None:
-                    self._set_channel_radio_flag(channel_name, is_radio=is_radio)
-                    known_radio_flag = is_radio
-                del is_radio
-                eligible = has_pid
-                if known_radio_flag is True:
-                    eligible = False
+                has_pid, is_radio, is_hd = cached
+                self._set_channel_tech_flags(
+                    channel_name,
+                    is_radio=is_radio,
+                    is_hd=is_hd,
+                )
+                known_radio_flag = is_radio
+                eligible = has_pid and not known_radio_flag
                 cache[key] = eligible
                 return eligible
 
             adapter_flags = self._load_service_flags_from_adapter_db(resolved_name)
             if adapter_flags is not None:
-                has_pid, is_radio = adapter_flags
-                if known_radio_flag is None:
-                    self._set_channel_radio_flag(channel_name, is_radio=is_radio)
-                    known_radio_flag = is_radio
+                if len(adapter_flags) == 2:
+                    has_pid, is_radio = adapter_flags
+                    is_hd = None
+                else:
+                    has_pid, is_radio, is_hd = adapter_flags
+                self._set_channel_tech_flags(
+                    channel_name,
+                    is_radio=is_radio,
+                    is_hd=is_hd,
+                )
+                known_radio_flag = is_radio
                 self._upsert_serviceinfo_cache(
                     resolved_name,
                     raw_output="adapter-db",
                     has_media_pid=has_pid,
                     is_radio=is_radio,
+                    is_hd=is_hd,
                 )
-                del is_radio
-                eligible = has_pid
-                if known_radio_flag is True:
-                    eligible = False
+                eligible = has_pid and not known_radio_flag
         except Exception:
             try:
                 if resolved_name is None:
@@ -2279,14 +2282,14 @@ class ServiceCommandDispatcher:
                     max_age_days=None,
                 )
                 if cached is not None:
-                    has_pid, is_radio = cached
-                    if known_radio_flag is None:
-                        self._set_channel_radio_flag(channel_name, is_radio=is_radio)
-                        known_radio_flag = is_radio
-                    del is_radio
-                    eligible = has_pid
-                    if known_radio_flag is True:
-                        eligible = False
+                    has_pid, is_radio, is_hd = cached
+                    self._set_channel_tech_flags(
+                        channel_name,
+                        is_radio=is_radio,
+                        is_hd=is_hd,
+                    )
+                    known_radio_flag = is_radio
+                    eligible = has_pid and not known_radio_flag
                 else:
                     eligible = known_radio_flag is not True
             except Exception:
@@ -2295,40 +2298,71 @@ class ServiceCommandDispatcher:
         cache[key] = eligible
         return eligible
 
-    def _get_channel_radio_flag(self, channel_name: str) -> bool | None:
+    def _get_channel_tech_flags(self, channel_name: str) -> tuple[bool | None, bool | None]:
         rows = self._context.persistence.connection.execute(
             """
-            SELECT is_radio_channel
+            SELECT is_radio_channel, is_hd_channel
             FROM epg_channels
             WHERE lower(display_name) = lower(?)
             """,
             (channel_name,),
         ).fetchall()
         if not rows:
-            return None
+            return (None, None)
 
-        values = [row[0] for row in rows if row[0] is not None]
-        if not values:
-            return None
-        if any(int(value) == 1 for value in values):
-            return True
-        return False
+        radio_values = [row[0] for row in rows if row[0] is not None]
+        hd_values = [row[1] for row in rows if row[1] is not None]
 
-    def _set_channel_radio_flag(self, channel_name: str, *, is_radio: bool) -> None:
-        self._context.persistence.connection.execute(
-            """
-            UPDATE epg_channels
-            SET is_radio_channel = ?
-            WHERE lower(display_name) = lower(?)
-            """,
-            (int(is_radio), channel_name),
-        )
+        known_radio: bool | None
+        if not radio_values:
+            known_radio = None
+        elif any(int(value) == 1 for value in radio_values):
+            known_radio = True
+        else:
+            known_radio = False
+
+        known_hd: bool | None
+        if not hd_values:
+            known_hd = None
+        elif any(int(value) == 1 for value in hd_values):
+            known_hd = True
+        else:
+            known_hd = False
+
+        return (known_radio, known_hd)
+
+    def _set_channel_tech_flags(
+        self,
+        channel_name: str,
+        *,
+        is_radio: bool,
+        is_hd: bool | None,
+    ) -> None:
+        if is_hd is None:
+            self._context.persistence.connection.execute(
+                """
+                UPDATE epg_channels
+                SET is_radio_channel = ?
+                WHERE lower(display_name) = lower(?)
+                """,
+                (int(is_radio), channel_name),
+            )
+        else:
+            self._context.persistence.connection.execute(
+                """
+                UPDATE epg_channels
+                SET is_radio_channel = ?,
+                    is_hd_channel = ?
+                WHERE lower(display_name) = lower(?)
+                """,
+                (int(is_radio), int(is_hd), channel_name),
+            )
         self._context.persistence.connection.commit()
 
     def _load_service_flags_from_adapter_db(
         self,
         service_name: str,
-    ) -> tuple[bool, bool] | None:
+    ) -> tuple[bool, bool, bool | None] | tuple[bool, bool] | None:
         dvbctrl = getattr(self._context, "dvbctrl", None)
         adapter_index = int(getattr(dvbctrl, "adapter_index", 0))
         database_path = Path.home() / ".dvbstreamer" / f"adapter{adapter_index}.db"
@@ -2356,23 +2390,27 @@ class ServiceCommandDispatcher:
 
         has_video_pid = False
         radio_only = True
+        has_hd_video_pid = False
         for service_type, pid_type in rows:
             if service_type is not None and int(service_type) != 1:
                 radio_only = False
             if pid_type is not None and int(pid_type) in VIDEO_PID_STREAM_TYPES:
                 has_video_pid = True
+            if pid_type is not None and int(pid_type) in HD_VIDEO_PID_STREAM_TYPES:
+                has_hd_video_pid = True
 
-        return (has_video_pid, radio_only)
+        is_hd: bool | None = has_hd_video_pid if has_video_pid else None
+        return (has_video_pid, radio_only, is_hd)
 
     def _get_cached_serviceinfo_flags(
         self,
         service_name: str,
         *,
         max_age_days: int | None,
-    ) -> tuple[bool, bool] | None:
+    ) -> tuple[bool, bool, bool | None] | None:
         row = self._context.persistence.connection.execute(
             """
-            SELECT has_media_pid, is_radio, fetched_at_utc
+            SELECT has_media_pid, is_radio, is_hd_channel, fetched_at_utc
             FROM serviceinfo_cache
             WHERE service_name = ?
             """,
@@ -2382,7 +2420,7 @@ class ServiceCommandDispatcher:
             return None
 
         if max_age_days is not None:
-            fetched_at_utc = str(row[2])
+            fetched_at_utc = str(row[3])
             try:
                 fetched = datetime.strptime(fetched_at_utc, "%Y-%m-%dT%H:%M:%SZ")
                 fetched = fetched.replace(tzinfo=timezone.utc)
@@ -2392,7 +2430,8 @@ class ServiceCommandDispatcher:
             if age > timedelta(days=max_age_days):
                 return None
 
-        return (bool(row[0]), bool(row[1]))
+        is_hd = None if row[2] is None else bool(row[2])
+        return (bool(row[0]), bool(row[1]), is_hd)
 
     def _upsert_serviceinfo_cache(
         self,
@@ -2401,6 +2440,7 @@ class ServiceCommandDispatcher:
         raw_output: str,
         has_media_pid: bool,
         is_radio: bool,
+        is_hd: bool | None,
     ) -> None:
         fetched_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._context.persistence.connection.execute(
@@ -2410,14 +2450,16 @@ class ServiceCommandDispatcher:
                 raw_output,
                 has_media_pid,
                 is_radio,
+                is_hd_channel,
                 fetched_at_utc
             )
-            VALUES(?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?)
             ON CONFLICT(service_name)
             DO UPDATE SET
                 raw_output = excluded.raw_output,
                 has_media_pid = excluded.has_media_pid,
                 is_radio = excluded.is_radio,
+                is_hd_channel = excluded.is_hd_channel,
                 fetched_at_utc = excluded.fetched_at_utc
             """,
             (
@@ -2425,6 +2467,7 @@ class ServiceCommandDispatcher:
                 raw_output,
                 int(has_media_pid),
                 int(is_radio),
+                None if is_hd is None else int(is_hd),
                 fetched_at_utc,
             ),
         )

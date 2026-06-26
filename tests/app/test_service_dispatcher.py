@@ -1299,9 +1299,9 @@ def test_dispatch_metadata_films_list_excludes_radio_and_no_pid_channels(monkeyp
     context.tvrecorder = SimpleNamespace(resolve_service_name=lambda name: name)
 
     adapter_flags = {
-        "Film4": (True, False),
-        "BBC Radio 4": (False, True),
-        "Web Movie Channel": (False, False),
+        "Film4": (True, False, False),
+        "BBC Radio 4": (False, True, None),
+        "Web Movie Channel": (False, False, None),
     }
     monkeypatch.setattr(
         dispatcher,
@@ -1374,14 +1374,16 @@ def test_dispatch_metadata_films_list_uses_cached_serviceinfo_when_live_lookup_f
             raw_output,
             has_media_pid,
             is_radio,
+            is_hd_channel,
             fetched_at_utc
-        ) VALUES(?, ?, ?, ?, ?)
+        ) VALUES(?, ?, ?, ?, ?, ?)
         """,
         (
             "BBC Radio 4",
             "Type: Radio\\nAudio PID: 0x0140",
             0,
             1,
+            None,
             "2026-05-25T20:00:00Z",
         ),
     )
@@ -1467,7 +1469,7 @@ def test_dispatch_metadata_films_list_uses_channel_radio_flag_and_backfills_new_
     context.tvrecorder = SimpleNamespace(resolve_service_name=lambda name: name)
 
     adapter_flags = {
-        "New Service": (True, False),
+        "New Service": (True, False, True),
     }
     monkeypatch.setattr(
         dispatcher,
@@ -1493,11 +1495,12 @@ def test_dispatch_metadata_films_list_uses_channel_radio_flag_and_backfills_new_
     assert films[0]["channelName"] == "New Service"
 
     stored_flag = context.persistence.connection.execute(
-        "SELECT is_radio_channel FROM epg_channels WHERE display_name = ?",
+        "SELECT is_radio_channel, is_hd_channel FROM epg_channels WHERE display_name = ?",
         ("New Service",),
     ).fetchone()
     assert stored_flag is not None
     assert stored_flag[0] == 0
+    assert stored_flag[1] == 1
 
 
 def test_auto_schedule_series_recordings_skips_recorded_content_ref() -> None:
