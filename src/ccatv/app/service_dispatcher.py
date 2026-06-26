@@ -1720,8 +1720,13 @@ class ServiceCommandDispatcher:
                 p.title,
                 p.description_long,
                 p.genre_primary,
+                p.season_number,
+                p.episode_number,
+                p.episode_id_onscreen,
+                p.original_air_date,
                 json_extract(p.metadata_json, '$.contentRef') AS content_ref,
-                json_extract(p.metadata_json, '$.seriesRef') AS series_ref
+                json_extract(p.metadata_json, '$.seriesRef') AS series_ref,
+                json_extract(p.metadata_json, '$.releaseYear') AS release_year
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
@@ -1766,8 +1771,15 @@ class ServiceCommandDispatcher:
                     "title": str(row[8]),
                     "description": str(row[9]) if row[9] is not None else None,
                     "genre": str(row[10]) if row[10] is not None else None,
-                    "contentRef": str(row[11]) if row[11] is not None else None,
-                    "seriesRef": str(row[12]) if row[12] is not None else None,
+                    "seasonNumber": int(row[11]) if row[11] is not None else None,
+                    "episodeNumber": int(row[12]) if row[12] is not None else None,
+                    "episodeIdOnscreen": (
+                        str(row[13]) if row[13] is not None else None
+                    ),
+                    "originalAirDate": str(row[14]) if row[14] is not None else None,
+                    "contentRef": str(row[15]) if row[15] is not None else None,
+                    "seriesRef": str(row[16]) if row[16] is not None else None,
+                    "releaseYear": int(row[17]) if row[17] is not None else None,
                 }
                 for row in rows
             ],
@@ -1853,8 +1865,13 @@ class ServiceCommandDispatcher:
                 p.title,
                 p.description_long,
                 p.genre_primary,
+                p.season_number,
+                p.episode_number,
+                p.episode_id_onscreen,
+                p.original_air_date,
                 json_extract(p.metadata_json, '$.contentRef') AS content_ref,
-                json_extract(p.metadata_json, '$.seriesRef') AS series_ref
+                json_extract(p.metadata_json, '$.seriesRef') AS series_ref,
+                json_extract(p.metadata_json, '$.releaseYear') AS release_year
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
@@ -1921,8 +1938,13 @@ class ServiceCommandDispatcher:
                 "title": title,
                 "description": str(row[9]) if row[9] is not None else None,
                 "genre": str(row[10]) if row[10] is not None else None,
-                "contentRef": str(row[11]) if row[11] is not None else None,
-                "seriesRef": str(row[12]) if row[12] is not None else None,
+                "seasonNumber": int(row[11]) if row[11] is not None else None,
+                "episodeNumber": int(row[12]) if row[12] is not None else None,
+                "episodeIdOnscreen": str(row[13]) if row[13] is not None else None,
+                "originalAirDate": str(row[14]) if row[14] is not None else None,
+                "contentRef": str(row[15]) if row[15] is not None else None,
+                "seriesRef": str(row[16]) if row[16] is not None else None,
+                "releaseYear": int(row[17]) if row[17] is not None else None,
             }
 
             current = films_by_slot.get(dedupe_key)

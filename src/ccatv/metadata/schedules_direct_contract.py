@@ -94,6 +94,9 @@ class SDProgram:
     episode_title: str | None = None
     description: str | None = None
     original_air_date: date | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
+    episode_id_onscreen: str | None = None
     genres: tuple[str, ...] = ()
     artwork_urls: tuple[str, ...] = ()
 

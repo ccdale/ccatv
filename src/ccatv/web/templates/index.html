@@ -602,6 +602,22 @@
         const source = document.createElement("div");
         source.className = "timeline-hover-meta";
         source.textContent = `Guide source: ${programme.source || "Unknown"}`;
+        const episodeMeta = document.createElement("div");
+        episodeMeta.className = "timeline-hover-meta";
+        const episodeParts = [];
+        if (Number.isInteger(programme.seasonNumber) && Number.isInteger(programme.episodeNumber)) {
+          episodeParts.push(`S${String(programme.seasonNumber).padStart(2, "0")}E${String(programme.episodeNumber).padStart(2, "0")}`);
+        } else if (typeof programme.episodeIdOnscreen === "string" && programme.episodeIdOnscreen) {
+          episodeParts.push(programme.episodeIdOnscreen);
+        }
+        if (typeof programme.releaseYear === "number") {
+          episodeParts.push(`Release year: ${programme.releaseYear}`);
+        } else if (typeof programme.originalAirDate === "string" && programme.originalAirDate.length >= 4) {
+          episodeParts.push(`Original air date: ${programme.originalAirDate}`);
+        }
+        episodeMeta.textContent = episodeParts.length
+          ? `Episode info: ${episodeParts.join(" | ")}`
+          : "Episode info: not provided";
         const refs = document.createElement("div");
         refs.className = "timeline-hover-meta";
         refs.textContent = `Content ref: ${programme.contentRef || "not provided"} | Series ref: ${programme.seriesRef || "not provided"}`;
@@ -630,7 +646,7 @@
         });
 
         switchRow.append(switchLabel, switchButton);
-        timelineHover.append(title, meta, genre, source, refs, description, switchRow);
+        timelineHover.append(title, meta, genre, source, episodeMeta, refs, description, switchRow);
 
         if (typeof programme.seriesRef === "string" && programme.seriesRef) {
           const seriesEnabled = isSeriesRecordingEnabled(programme.seriesRef);

@@ -194,6 +194,9 @@ class SqliteGuideRepository(GuideRepository):
                     subtitle = ?,
                     description_long = ?,
                     original_air_date = ?,
+                    season_number = ?,
+                    episode_number = ?,
+                    episode_id_onscreen = ?,
                     genre_primary = ?,
                     metadata_json = ?
                 WHERE source = ? AND source_program_id = ?
@@ -205,6 +208,9 @@ class SqliteGuideRepository(GuideRepository):
                     program.original_air_date.isoformat()
                     if program.original_air_date is not None
                     else None,
+                    program.season_number,
+                    program.episode_number,
+                    program.episode_id_onscreen,
                     program.genres[0] if program.genres else None,
                     metadata,
                     source.value,
@@ -223,10 +229,13 @@ class SqliteGuideRepository(GuideRepository):
                     subtitle,
                     description_long,
                     original_air_date,
+                    season_number,
+                    episode_number,
+                    episode_id_onscreen,
                     genre_primary,
                     metadata_json
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source.value,
@@ -237,6 +246,9 @@ class SqliteGuideRepository(GuideRepository):
                     program.original_air_date.isoformat()
                     if program.original_air_date is not None
                     else None,
+                    program.season_number,
+                    program.episode_number,
+                    program.episode_id_onscreen,
                     program.genres[0] if program.genres else None,
                     metadata,
                 ),

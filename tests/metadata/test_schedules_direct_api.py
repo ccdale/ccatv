@@ -270,6 +270,14 @@ def test_get_programs_parses_program_metadata() -> None:
                     "programID": "EP0001",
                     "titles": [{"title120": "Morning News"}],
                     "episodeTitle150": "Top Headlines",
+                    "metadata": {
+                        "Gracenote": [
+                            {
+                                "season": 2,
+                                "episode": 5,
+                            }
+                        ]
+                    },
                     "descriptions": {
                         "description1000": [
                             {
@@ -303,6 +311,9 @@ def test_get_programs_parses_program_metadata() -> None:
     assert programs[0].title == "Morning News"
     assert programs[0].episode_title == "Top Headlines"
     assert programs[0].description == "Latest national and global updates."
+    assert programs[0].season_number == 2
+    assert programs[0].episode_number == 5
+    assert programs[0].episode_id_onscreen == "S02E05"
     assert programs[0].genres == ("News",)
     assert programs[0].artwork_urls == ("https://img.example/episode.jpg",)
 

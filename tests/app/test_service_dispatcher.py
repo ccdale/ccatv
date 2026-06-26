@@ -910,9 +910,14 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
             source_program_id,
             title,
             description_long,
-            genre_primary
+            genre_primary,
+            season_number,
+            episode_number,
+            episode_id_onscreen,
+            original_air_date,
+            metadata_json
         )
-        VALUES(?, ?, ?, ?, ?)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "schedules_direct",
@@ -920,6 +925,11 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
             "Newsnight",
             "Late-night news and analysis",
             "News",
+            3,
+            7,
+            "S03E07",
+            "2026-05-20",
+            '{"releaseYear":"2026"}',
         ),
     )
     context.persistence.connection.execute(
@@ -957,6 +967,11 @@ def test_dispatch_metadata_guide_list_returns_programs_for_channel() -> None:
     assert programs[0]["channelName"] == "BBC TWO HD"
     assert programs[0]["startAtUtc"] == "2026-05-25T21:00:00Z"
     assert programs[0]["genre"] == "News"
+    assert programs[0]["seasonNumber"] == 3
+    assert programs[0]["episodeNumber"] == 7
+    assert programs[0]["episodeIdOnscreen"] == "S03E07"
+    assert programs[0]["originalAirDate"] == "2026-05-20"
+    assert programs[0]["releaseYear"] == 2026
 
 
 def test_dispatch_metadata_guide_list_matches_spacing_variant_channel_name() -> None:

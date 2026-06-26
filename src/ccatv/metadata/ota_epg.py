@@ -13,6 +13,19 @@ EVENT_OPEN_RE = re.compile(r"^<event\s+([^>]+)>$")
 NEW_RE = re.compile(r"^<new\s+([^>]+)/>$")
 DETAIL_RE = re.compile(r"^<detail\s+([^>]+)>(.*)</detail>$")
 ATTR_RE = re.compile(r"(\w+)=[\"']([^\"']*)[\"']")
+_SEASON_EPISODE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\bS(?:eries)?\s*(?P<season>\d{1,2})\s*"
+        r"(?:E|Ep|Episode)\s*(?P<episode>\d{1,3})(?:\s*/\s*\d{1,3})?\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bSeries\s*(?P<season>\d{1,2})\s*,?\s*"
+        r"Episode\s*(?P<episode>\d{1,3})(?:\s*/\s*\d{1,3})?\b",
+        flags=re.IGNORECASE,
+    ),
+)
+_RELEASE_YEAR_PAREN_RE = re.compile(r"\((19\d{2}|20\d{2})\)")
 
 LOGGER = logging.getLogger(__name__)
 
@@ -97,6 +110,35 @@ def _select_detail(aggregate: _EventAggregate, name: str) -> str | None:
     if not any_candidates:
         return None
     return max(any_candidates, key=len)
+
+
+def _extract_episode_fields(
+    description: str | None,
+) -> tuple[int | None, int | None, str | None]:
+    if not isinstance(description, str) or not description.strip():
+        return (None, None, None)
+
+    normalized = " ".join(description.split())
+    for pattern in _SEASON_EPISODE_PATTERNS:
+        match = pattern.search(normalized)
+        if match is None:
+            continue
+        season_number = int(match.group("season"))
+        episode_number = int(match.group("episode"))
+        return (season_number, episode_number, f"S{season_number:02d}E{episode_number:02d}")
+
+    return (None, None, None)
+
+
+def _extract_release_year(description: str | None) -> int | None:
+    if not isinstance(description, str) or not description.strip():
+        return None
+
+    matches = _RELEASE_YEAR_PAREN_RE.findall(description)
+    if not matches:
+        return None
+
+    return int(matches[-1])
 
 
 def parse_dvbstreamer_epg(raw_text: str) -> list[OtaEpgEvent]:
@@ -262,24 +304,42 @@ def _upsert_channel(
 def _upsert_program(
     connection: sqlite3.Connection, source: str, event: OtaEpgEvent
 ) -> tuple[int, bool]:
+    season_number, episode_number, episode_id_onscreen = _extract_episode_fields(
+        event.description
+    )
+    release_year = _extract_release_year(event.description)
+    release_date = f"{release_year:04d}-01-01" if release_year is not None else None
+
     program_metadata: str | None = None
-    if event.content_ref or event.series_ref:
+    if event.content_ref or event.series_ref or release_year is not None:
         metadata_payload: dict[str, str] = {}
         if event.content_ref:
             metadata_payload["contentRef"] = event.content_ref
         if event.series_ref:
             metadata_payload["seriesRef"] = event.series_ref
+        if release_year is not None:
+            metadata_payload["releaseYear"] = str(release_year)
         program_metadata = json.dumps(metadata_payload, sort_keys=True)
 
     update_result = connection.execute(
         """
         UPDATE epg_programs
-        SET title = ?, description_long = ?, metadata_json = ?
+        SET title = ?,
+            description_long = ?,
+            season_number = ?,
+            episode_number = ?,
+            episode_id_onscreen = ?,
+            original_air_date = ?,
+            metadata_json = ?
         WHERE source = ? AND source_program_id = ?
         """,
         (
             event.title,
             event.description,
+            season_number,
+            episode_number,
+            episode_id_onscreen,
+            release_date,
             program_metadata,
             source,
             event.event_source_id,
@@ -293,15 +353,23 @@ def _upsert_program(
                 source_program_id,
                 title,
                 description_long,
+                season_number,
+                episode_number,
+                episode_id_onscreen,
+                original_air_date,
                 metadata_json
             )
-            VALUES(?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 source,
                 event.event_source_id,
                 event.title,
                 event.description,
+                season_number,
+                episode_number,
+                episode_id_onscreen,
+                release_date,
                 program_metadata,
             ),
         )

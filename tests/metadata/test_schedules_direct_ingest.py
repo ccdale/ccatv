@@ -88,6 +88,9 @@ def test_sync_incremental_writes_epg_rows(tmp_path) -> None:
             SDProgram(
                 program_id="EP0001",
                 title="Morning News",
+                season_number=4,
+                episode_number=12,
+                episode_id_onscreen="S04E12",
                 genres=("News",),
             )
         ],
@@ -109,6 +112,14 @@ def test_sync_incremental_writes_epg_rows(tmp_path) -> None:
     broadcast_count = connection.execute(
         "SELECT COUNT(*) FROM epg_broadcasts"
     ).fetchone()
+    program_row = connection.execute(
+        """
+        SELECT season_number, episode_number, episode_id_onscreen
+        FROM epg_programs
+        WHERE source = ? AND source_program_id = ?
+        """,
+        ("schedules_direct", "EP0001"),
+    ).fetchone()
     run_row = connection.execute(
         """
         SELECT status, stats_json
@@ -124,6 +135,10 @@ def test_sync_incremental_writes_epg_rows(tmp_path) -> None:
     assert channel_count[0] == 1
     assert program_count[0] == 1
     assert broadcast_count[0] == 1
+    assert program_row is not None
+    assert program_row[0] == 4
+    assert program_row[1] == 12
+    assert program_row[2] == "S04E12"
     assert stats.channels_upserted == 1
     assert stats.programs_upserted == 1
     assert stats.schedules_upserted == 1

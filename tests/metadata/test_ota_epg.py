@@ -120,6 +120,66 @@ def test_ingest_persists_content_and_series_metadata(tmp_path: Path) -> None:
         connection.close()
 
 
+def test_ingest_extracts_episode_and_release_year_from_description(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    raw_text = "\n".join(
+        [
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00001001">',
+            '<new start="2026-06-06 17:30:00" end="2026-06-06 18:00:00" ca="no"/>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00001001">',
+            '<detail lang="eng" name="title">Gardener\'s World</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1600" event="0x00001001">',
+            '<detail lang="eng" name="description">Inspired by nature. [S] S3 Ep1</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1700" event="0x00001002">',
+            '<new start="2026-06-06 19:00:00" end="2026-06-06 21:00:00" ca="no"/>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1700" event="0x00001002">',
+            '<detail lang="eng" name="title">The Prisoner of Zenda</detail>',
+            "</event>",
+            '<event net="0x233a" ts="0x1047" source="0x1700" event="0x00001002">',
+            '<detail lang="eng" name="description">Classic swashbuckling adventure. (1937)</detail>',
+            "</event>",
+        ]
+    )
+
+    try:
+        stats = ingest_dvbstreamer_epg(connection, raw_text)
+        assert stats.parsed_events == 2
+
+        tv_row = connection.execute(
+            """
+            SELECT season_number, episode_number, episode_id_onscreen
+            FROM epg_programs
+            WHERE source = ? AND source_program_id = ?
+            """,
+            ("dvbstreamer_ota", "0x233a:0x1047:0x1600:0x00001001"),
+        ).fetchone()
+        assert tv_row is not None
+        assert tv_row[0] == 3
+        assert tv_row[1] == 1
+        assert tv_row[2] == "S03E01"
+
+        film_row = connection.execute(
+            """
+            SELECT original_air_date, metadata_json
+            FROM epg_programs
+            WHERE source = ? AND source_program_id = ?
+            """,
+            ("dvbstreamer_ota", "0x233a:0x1047:0x1700:0x00001002"),
+        ).fetchone()
+        assert film_row is not None
+        assert film_row[0] == "1937-01-01"
+        assert film_row[1] is not None
+        metadata = json.loads(film_row[1])
+        assert metadata["releaseYear"] == "1937"
+    finally:
+        connection.close()
+
+
 def test_ingest_fixture_populates_v2_tables(tmp_path: Path) -> None:
     db_path = tmp_path / "ccatv.sqlite3"
     connection = initialize_database(db_path)

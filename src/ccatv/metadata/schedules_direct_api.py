@@ -597,6 +597,9 @@ def _parse_program(item: dict[str, object]) -> SDProgram | None:
         episode_title=_extract_program_episode_title(item),
         description=_extract_program_description(item),
         original_air_date=_parse_optional_date(_pick_str(item, "originalAirDate")),
+        season_number=_extract_program_season_number(item),
+        episode_number=_extract_program_episode_number(item),
+        episode_id_onscreen=_extract_program_episode_id_onscreen(item),
         genres=_pick_str_sequence(item, "genres"),
         artwork_urls=_extract_artwork_urls(item),
     )
@@ -666,6 +669,53 @@ def _extract_artwork_urls(item: dict[str, object]) -> tuple[str, ...]:
 
     # Keep insertion order but drop duplicates.
     return tuple(dict.fromkeys(urls))
+
+
+def _extract_program_season_number(item: dict[str, object]) -> int | None:
+    direct = _pick_int(item, "season", "seasonNumber", "seasonNum")
+    if direct is not None:
+        return direct
+    return _pick_int_from_metadata(item, "season", "seasonNumber", "seasonNum")
+
+
+def _extract_program_episode_number(item: dict[str, object]) -> int | None:
+    direct = _pick_int(item, "episode", "episodeNumber", "episodeNum")
+    if direct is not None:
+        return direct
+    return _pick_int_from_metadata(item, "episode", "episodeNumber", "episodeNum")
+
+
+def _extract_program_episode_id_onscreen(item: dict[str, object]) -> str | None:
+    explicit = _pick_str(item, "syndicatedEpisodeNumber", "episodeID", "episodeId")
+    if explicit:
+        return explicit
+
+    season_number = _extract_program_season_number(item)
+    episode_number = _extract_program_episode_number(item)
+    if season_number is not None and episode_number is not None:
+        return f"S{season_number:02d}E{episode_number:02d}"
+    return None
+
+
+def _pick_int_from_metadata(payload: dict[str, object], *keys: str) -> int | None:
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+
+    for value in metadata.values():
+        if isinstance(value, dict):
+            picked = _pick_int(value, *keys)
+            if picked is not None:
+                return picked
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            picked = _pick_int(item, *keys)
+            if picked is not None:
+                return picked
+    return None
 
 
 def _pick_bool(payload: dict[str, object], *keys: str) -> bool | None:
