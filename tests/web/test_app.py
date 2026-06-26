@@ -912,6 +912,62 @@ def test_guide_list_rejects_non_numeric_window_hours(monkeypatch) -> None:
     assert stub.calls == []
 
 
+def test_guide_audit_forwards_query_params(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get(
+        "/api/guide/audit?channel=BBC%20TWO%20HD&startAtUtc=2026-05-25T20:00:00Z&windowHours=2&limit=25&offset=50"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        (
+            "metadata.guide.audit.list",
+            {
+                "channel": "BBC TWO HD",
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 2.0,
+                "limit": 25,
+                "offset": 50,
+            },
+        )
+    ]
+
+
+def test_guide_audit_rejects_invalid_limit(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/guide/audit?channel=BBC%20TWO%20HD&limit=bad")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
 def test_upcoming_films_forwards_query_params(monkeypatch) -> None:
     stub = _StubServiceClient()
     monkeypatch.setattr(

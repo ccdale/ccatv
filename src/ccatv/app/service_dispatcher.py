@@ -20,7 +20,7 @@ from ccatv.app.bootstrap import AppContext
 from ccatv.app.recorder_worker import create_scheduler_worker
 from ccatv.metadata import SchedulesDirectHttpClient
 from ccatv.metadata.guide_preference import source_priority
-from ccatv.metadata.ota_epg import ingest_dvbstreamer_epg
+from ccatv.metadata.ota_epg import extract_description_metadata, ingest_dvbstreamer_epg
 from ccatv.metadata.schedules_direct_contract import (
     GuideSyncWindow,
     SchedulesDirectApiError,
@@ -89,6 +89,7 @@ SERVICE_COMMANDS = [
     "metadata.channels.groups.delete",
     "metadata.channels.groups.assign",
     "metadata.guide.list",
+    "metadata.guide.audit.list",
     "metadata.films.list",
     "metadata.series.recording.list",
     "metadata.series.recording.set",
@@ -242,6 +243,8 @@ class ServiceCommandDispatcher:
             return self._metadata_channels_groups_assign(payload)
         if command == "metadata.guide.list":
             return self._metadata_guide_list(payload)
+        if command == "metadata.guide.audit.list":
+            return self._metadata_guide_audit_list(payload)
         if command == "metadata.films.list":
             return self._metadata_films_list(payload)
         if command == "metadata.series.recording.list":
@@ -1973,6 +1976,177 @@ class ServiceCommandDispatcher:
                 "maxDurationHours": float(max_duration_hours),
             },
             "films": films,
+        }
+
+    def _metadata_guide_audit_list(self, payload: dict[str, object]) -> dict[str, object]:
+        channel = payload.get("channel")
+        if not isinstance(channel, str) or not channel.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="channel must be a non-empty string",
+            )
+
+        window_hours = payload.get("windowHours", 6)
+        if not isinstance(window_hours, int | float) or window_hours <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="windowHours must be greater than 0",
+            )
+
+        limit_value = payload.get("limit", 100)
+        if not isinstance(limit_value, int) or limit_value <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="limit must be a positive integer",
+            )
+        if limit_value > 500:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="limit must be less than or equal to 500",
+            )
+
+        offset_value = payload.get("offset", 0)
+        if not isinstance(offset_value, int) or offset_value < 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="offset must be a non-negative integer",
+            )
+
+        start_at_utc = payload.get("startAtUtc")
+        if start_at_utc is None:
+            start = datetime.now(timezone.utc)
+        elif isinstance(start_at_utc, str) and start_at_utc.strip():
+            try:
+                start = datetime.strptime(start_at_utc.strip(), "%Y-%m-%dT%H:%M:%SZ")
+                start = start.replace(tzinfo=timezone.utc)
+            except ValueError as exc:
+                raise ServiceCommandError(
+                    code="VALIDATION_ERROR",
+                    message="startAtUtc must be an ISO-8601 UTC timestamp string",
+                ) from exc
+        else:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="startAtUtc must be a non-empty string when provided",
+            )
+
+        channel_value = channel.strip()
+        start_utc = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_utc = (start + timedelta(hours=float(window_hours))).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+        total_row = self._context.persistence.connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM epg_broadcasts AS b
+            JOIN epg_channels AS c ON c.id = b.channel_id
+            WHERE b.start_utc <= ?
+              AND b.stop_utc > ?
+              AND (
+                lower(c.display_name) = lower(?)
+                OR replace(lower(c.display_name), ' ', '') = replace(lower(?), ' ', '')
+                OR lower(COALESCE(c.callsign, '')) = lower(?)
+                OR lower(COALESCE(c.logical_channel_number, '')) = lower(?)
+              )
+            """,
+            (
+                end_utc,
+                start_utc,
+                channel_value,
+                channel_value,
+                channel_value,
+                channel_value,
+            ),
+        ).fetchone()
+        total_count = int(total_row[0]) if total_row is not None else 0
+
+        rows = self._context.persistence.connection.execute(
+            """
+            SELECT
+                c.source,
+                c.source_channel_id,
+                c.display_name,
+                b.start_utc,
+                b.stop_utc,
+                p.source_program_id,
+                p.title,
+                p.description_long,
+                p.season_number,
+                p.episode_number,
+                p.episode_id_onscreen,
+                p.original_air_date,
+                json_extract(p.metadata_json, '$.releaseYear') AS release_year,
+                json_extract(p.metadata_json, '$.contentRef') AS content_ref,
+                json_extract(p.metadata_json, '$.seriesRef') AS series_ref
+            FROM epg_broadcasts AS b
+            JOIN epg_channels AS c ON c.id = b.channel_id
+            JOIN epg_programs AS p ON p.id = b.program_id
+            WHERE b.start_utc <= ?
+              AND b.stop_utc > ?
+              AND (
+                lower(c.display_name) = lower(?)
+                OR replace(lower(c.display_name), ' ', '') = replace(lower(?), ' ', '')
+                OR lower(COALESCE(c.callsign, '')) = lower(?)
+                OR lower(COALESCE(c.logical_channel_number, '')) = lower(?)
+              )
+            ORDER BY b.start_utc ASC
+                        LIMIT ? OFFSET ?
+            """,
+            (
+                end_utc,
+                start_utc,
+                channel_value,
+                channel_value,
+                channel_value,
+                channel_value,
+                                limit_value,
+                                offset_value,
+            ),
+        ).fetchall()
+
+        items: list[dict[str, object]] = []
+        for row in rows:
+            description = str(row[7]) if row[7] is not None else None
+            parsed = extract_description_metadata(description)
+            items.append(
+                {
+                    "source": str(row[0]),
+                    "sourceChannelId": str(row[1]),
+                    "channelName": str(row[2]),
+                    "startAtUtc": str(row[3]),
+                    "stopAtUtc": str(row[4]) if row[4] is not None else None,
+                    "sourceProgramId": str(row[5]) if row[5] is not None else None,
+                    "title": str(row[6]),
+                    "rawDescription": description,
+                    "stored": {
+                        "seasonNumber": int(row[8]) if row[8] is not None else None,
+                        "episodeNumber": int(row[9]) if row[9] is not None else None,
+                        "episodeIdOnscreen": (
+                            str(row[10]) if row[10] is not None else None
+                        ),
+                        "originalAirDate": str(row[11]) if row[11] is not None else None,
+                        "releaseYear": int(row[12]) if row[12] is not None else None,
+                        "contentRef": str(row[13]) if row[13] is not None else None,
+                        "seriesRef": str(row[14]) if row[14] is not None else None,
+                    },
+                    "parsedFromDescription": parsed,
+                }
+            )
+
+        return {
+            "channel": channel_value,
+            "window": {
+                "startAtUtc": start_utc,
+                "endAtUtc": end_utc,
+            },
+            "pagination": {
+                "limit": limit_value,
+                "offset": offset_value,
+                "returned": len(items),
+                "total": total_count,
+            },
+            "items": items,
         }
 
     def _channel_is_eligible_for_films(

@@ -2040,6 +2040,108 @@ def test_dispatch_metadata_guide_list_validates_start_at_utc() -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_dispatch_metadata_guide_audit_list_paginates_results() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "ch-1", "BBC TWO HD", "BBC2", "2"),
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            season_number,
+            episode_number,
+            metadata_json
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                "dvbstreamer_ota",
+                "p1",
+                "Show 1",
+                "(S1 Ep1)",
+                1,
+                1,
+                '{"releaseYear":"2020"}',
+            ),
+            (
+                "dvbstreamer_ota",
+                "p2",
+                "Show 2",
+                "(S1 Ep2)",
+                1,
+                2,
+                '{"releaseYear":"2020"}',
+            ),
+            (
+                "dvbstreamer_ota",
+                "p3",
+                "Show 3",
+                "(S1 Ep3)",
+                1,
+                3,
+                '{"releaseYear":"2020"}',
+            ),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(1, ?, ?, ?, 3600)
+        """,
+        [
+            (1, "2026-05-25T20:00:00Z", "2026-05-25T21:00:00Z"),
+            (2, "2026-05-25T21:00:00Z", "2026-05-25T22:00:00Z"),
+            (3, "2026-05-25T22:00:00Z", "2026-05-25T23:00:00Z"),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.guide.audit.list",
+            "payload": {
+                "channel": "BBC TWO HD",
+                "startAtUtc": "2026-05-25T19:00:00Z",
+                "windowHours": 6,
+                "limit": 1,
+                "offset": 1,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["pagination"] == {
+        "limit": 1,
+        "offset": 1,
+        "returned": 1,
+        "total": 3,
+    }
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["title"] == "Show 2"
+
+
 def test_dispatch_metadata_sd_sync_status_get_empty() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

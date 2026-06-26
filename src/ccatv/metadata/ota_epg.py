@@ -141,6 +141,19 @@ def _extract_release_year(description: str | None) -> int | None:
     return int(matches[-1])
 
 
+def extract_description_metadata(description: str | None) -> dict[str, object]:
+    season_number, episode_number, episode_id_onscreen = _extract_episode_fields(
+        description
+    )
+    release_year = _extract_release_year(description)
+    return {
+        "seasonNumber": season_number,
+        "episodeNumber": episode_number,
+        "episodeIdOnscreen": episode_id_onscreen,
+        "releaseYear": release_year,
+    }
+
+
 def parse_dvbstreamer_epg(raw_text: str) -> list[OtaEpgEvent]:
     aggregates: dict[tuple[str, str], _EventAggregate] = {}
     current_event_attrs: dict[str, str] | None = None
@@ -667,6 +680,7 @@ def ingest_dvbstreamer_epg_file(
 __all__ = [
     "OtaEpgEvent",
     "OtaEpgIngestStats",
+    "extract_description_metadata",
     "ingest_dvbstreamer_epg",
     "ingest_dvbstreamer_epg_file",
     "parse_dvbstreamer_epg",

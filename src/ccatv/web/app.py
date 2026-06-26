@@ -587,6 +587,89 @@ def create_app(
             }
         )
 
+    @app.get("/api/guide/audit")
+    def api_guide_audit():
+        channel = request.args.get("channel", default=None, type=str)
+        if channel is None or not channel.strip():
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="query parameter 'channel' is required",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload: dict[str, object] = {"channel": channel.strip()}
+
+        start_at_utc = request.args.get("startAtUtc", default=None, type=str)
+        if start_at_utc is not None:
+            if not start_at_utc.strip():
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'startAtUtc' cannot be empty",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            payload["startAtUtc"] = start_at_utc.strip()
+
+        window_hours = request.args.get("windowHours", default=None, type=str)
+        if window_hours is not None:
+            try:
+                payload["windowHours"] = float(window_hours)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'windowHours' must be numeric",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+
+        limit_value = request.args.get("limit", default=None, type=str)
+        if limit_value is not None:
+            try:
+                parsed_limit = int(limit_value)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'limit' must be an integer",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            if parsed_limit <= 0:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'limit' must be greater than 0",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            payload["limit"] = parsed_limit
+
+        offset_value = request.args.get("offset", default=None, type=str)
+        if offset_value is not None:
+            try:
+                parsed_offset = int(offset_value)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'offset' must be an integer",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            if parsed_offset < 0:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'offset' must be non-negative",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            payload["offset"] = parsed_offset
+
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.guide.audit.list",
+            payload,
+        )
+        return jsonify(response), status_code
+
     @app.get("/api/upcoming-films")
     def api_upcoming_films():
         payload: dict[str, object] = {}
