@@ -1333,6 +1333,91 @@ def test_dispatch_metadata_films_list_excludes_radio_and_no_pid_channels() -> No
     assert films[0]["channelName"] == "Film4"
 
 
+def test_dispatch_metadata_films_list_uses_cached_serviceinfo_when_live_lookup_fails() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "BBC Radio 4", "RADIO4", "704"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "p1", "Radio Feature", "Feature", "Movie"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(1, 1, ?, ?, ?)
+        """,
+        ("2026-05-25T21:30:00Z", "2026-05-25T23:30:00Z", 7200),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO serviceinfo_cache(
+            service_name,
+            raw_output,
+            has_media_pid,
+            is_radio,
+            fetched_at_utc
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        (
+            "BBC Radio 4",
+            "Type: Radio\\nAudio PID: 0x0140",
+            0,
+            1,
+            "2026-05-25T20:00:00Z",
+        ),
+    )
+    context.persistence.connection.commit()
+
+    def _run_serviceinfo(_command) -> SimpleNamespace:
+        raise RuntimeError("serviceinfo unavailable")
+
+    context.tvrecorder = SimpleNamespace(
+        resolve_service_name=lambda name: name,
+        run=_run_serviceinfo,
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 8,
+                "channelScope": "all",
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    films = response["payload"]["films"]
+    assert films == []
+
+
 def test_auto_schedule_series_recordings_skips_recorded_content_ref() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

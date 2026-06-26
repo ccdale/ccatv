@@ -290,6 +290,25 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=11,
+        name="serviceinfo_cache_v11",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS serviceinfo_cache (
+                service_name TEXT PRIMARY KEY,
+                raw_output TEXT NOT NULL,
+                has_media_pid INTEGER NOT NULL,
+                is_radio INTEGER NOT NULL,
+                fetched_at_utc TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_serviceinfo_cache_fetched_at_utc
+            ON serviceinfo_cache(fetched_at_utc)
+            """,
+        ),
+    ),
 )
 
 

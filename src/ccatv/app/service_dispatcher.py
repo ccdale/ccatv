@@ -49,6 +49,7 @@ from ccatv.tvrecorder.commands import serviceinfo_command
 
 API_VERSION = "v1alpha1"
 MIN_RECORDING_SECONDS = 30
+SERVICEINFO_CACHE_MAX_AGE_DAYS = 7
 
 SERVICE_CAPABILITIES = [
     "service.health",
@@ -2230,17 +2231,111 @@ class ServiceCommandDispatcher:
         eligible = True
         try:
             resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
+            cached = self._get_cached_serviceinfo_flags(
+                resolved_name,
+                max_age_days=SERVICEINFO_CACHE_MAX_AGE_DAYS,
+            )
+            if cached is not None:
+                has_pid, is_radio = cached
+                eligible = has_pid and not is_radio
+                cache[key] = eligible
+                return eligible
+
             serviceinfo = self._context.tvrecorder.run(
                 serviceinfo_command(resolved_name)
             ).stdout
             has_pid = self._serviceinfo_has_media_pid(serviceinfo)
             is_radio = self._serviceinfo_is_radio(serviceinfo)
+            self._upsert_serviceinfo_cache(
+                resolved_name,
+                raw_output=serviceinfo,
+                has_media_pid=has_pid,
+                is_radio=is_radio,
+            )
             eligible = has_pid and not is_radio
         except Exception:
-            eligible = True
+            try:
+                resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
+                cached = self._get_cached_serviceinfo_flags(
+                    resolved_name,
+                    max_age_days=None,
+                )
+                if cached is not None:
+                    has_pid, is_radio = cached
+                    eligible = has_pid and not is_radio
+                else:
+                    eligible = True
+            except Exception:
+                eligible = True
 
         cache[key] = eligible
         return eligible
+
+    def _get_cached_serviceinfo_flags(
+        self,
+        service_name: str,
+        *,
+        max_age_days: int | None,
+    ) -> tuple[bool, bool] | None:
+        row = self._context.persistence.connection.execute(
+            """
+            SELECT has_media_pid, is_radio, fetched_at_utc
+            FROM serviceinfo_cache
+            WHERE service_name = ?
+            """,
+            (service_name,),
+        ).fetchone()
+        if row is None:
+            return None
+
+        if max_age_days is not None:
+            fetched_at_utc = str(row[2])
+            try:
+                fetched = datetime.strptime(fetched_at_utc, "%Y-%m-%dT%H:%M:%SZ")
+                fetched = fetched.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+            age = datetime.now(timezone.utc) - fetched
+            if age > timedelta(days=max_age_days):
+                return None
+
+        return (bool(row[0]), bool(row[1]))
+
+    def _upsert_serviceinfo_cache(
+        self,
+        service_name: str,
+        *,
+        raw_output: str,
+        has_media_pid: bool,
+        is_radio: bool,
+    ) -> None:
+        fetched_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._context.persistence.connection.execute(
+            """
+            INSERT INTO serviceinfo_cache(
+                service_name,
+                raw_output,
+                has_media_pid,
+                is_radio,
+                fetched_at_utc
+            )
+            VALUES(?, ?, ?, ?, ?)
+            ON CONFLICT(service_name)
+            DO UPDATE SET
+                raw_output = excluded.raw_output,
+                has_media_pid = excluded.has_media_pid,
+                is_radio = excluded.is_radio,
+                fetched_at_utc = excluded.fetched_at_utc
+            """,
+            (
+                service_name,
+                raw_output,
+                int(has_media_pid),
+                int(is_radio),
+                fetched_at_utc,
+            ),
+        )
+        self._context.persistence.connection.commit()
 
     def _serviceinfo_has_media_pid(self, raw: str) -> bool:
         for line in raw.splitlines():
