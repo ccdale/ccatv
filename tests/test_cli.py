@@ -582,6 +582,99 @@ def test_epg_sync_ota_rejects_non_positive_capture_seconds() -> None:
     assert "--capture-seconds must be greater than 0" in stderr.getvalue()
 
 
+def test_epg_sync_ota_multimux_command_runs_once(tmp_path: Path) -> None:
+    class _StubServiceClient:
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, dict[str, object]]] = []
+            self.closed = False
+
+        def execute(
+            self, command: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.executed.append((command, payload))
+            return {
+                "stats": {
+                    "muxesAttempted": 2,
+                    "muxesOk": 2,
+                    "muxesFailed": 0,
+                    "channelsUpserted": 5,
+                    "programsUpserted": 42,
+                    "broadcastsUpserted": 96,
+                }
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    stub_client = _StubServiceClient()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(
+        stdout=stdout,
+        stderr=stderr,
+        service_client_factory=lambda: stub_client,
+    )
+
+    exit_code = main(
+        [
+            "epg-sync-ota-multimux",
+            "--grab-command",
+            "epgdata",
+            "--capture-seconds",
+            "5",
+            "--max-retries",
+            "1",
+            "--retry-delay-seconds",
+            "10",
+            "--frontend-lock-timeout-seconds",
+            "45",
+            "--database-path",
+            str(tmp_path / "ccatv.sqlite3"),
+        ],
+        deps=deps,
+    )
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert "OTA multi-mux EPG sync starting..." in stdout.getvalue()
+    assert "OTA multi-mux EPG sync complete" in stdout.getvalue()
+    assert stub_client.closed is True
+    assert stub_client.executed == [
+        (
+            "metadata.ota.multimux.sync.run",
+            {
+                "grabCommand": "epgdata",
+                "captureSeconds": 5.0,
+                "maxRetries": 1,
+                "retryDelaySeconds": 10.0,
+                "frontendLockTimeoutSeconds": 45.0,
+                "databasePath": str(tmp_path / "ccatv.sqlite3"),
+            },
+        )
+    ]
+
+
+def test_epg_sync_ota_multimux_rejects_non_positive_frontend_lock_timeout() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    deps = CliDependencies(stdout=stdout, stderr=stderr)
+
+    exit_code = main(
+        [
+            "epg-sync-ota-multimux",
+            "--frontend-lock-timeout-seconds",
+            "0",
+        ],
+        deps=deps,
+    )
+
+    assert exit_code == 2
+    assert (
+        "--frontend-lock-timeout-seconds must be greater than 0"
+        in stderr.getvalue()
+    )
+
+
 def test_epg_ota_backfill_channel_names_command_runs_once(tmp_path: Path) -> None:
     class _StubServiceClient:
         def __init__(self) -> None:

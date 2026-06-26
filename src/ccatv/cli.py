@@ -167,6 +167,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds to wait between retries (default: 300)",
     )
     ota_multimux_parser.add_argument(
+        "--frontend-lock-timeout-seconds",
+        type=float,
+        default=30.0,
+        help="seconds to wait for tuner lock after service select (default: 30)",
+    )
+    ota_multimux_parser.add_argument(
         "--database-path",
         default=None,
         help="override sqlite database path",
@@ -575,6 +581,9 @@ def run_epg_sync_ota_multimux(args: argparse.Namespace, deps: CliDependencies) -
     if args.capture_seconds <= 0:
         print("--capture-seconds must be greater than 0", file=deps.stderr)
         return 2
+    if args.frontend_lock_timeout_seconds <= 0:
+        print("--frontend-lock-timeout-seconds must be greater than 0", file=deps.stderr)
+        return 2
 
     print("OTA multi-mux EPG sync starting...", file=deps.stdout)
 
@@ -589,6 +598,7 @@ def run_epg_sync_ota_multimux(args: argparse.Namespace, deps: CliDependencies) -
             "captureSeconds": float(args.capture_seconds),
             "maxRetries": int(args.max_retries),
             "retryDelaySeconds": float(args.retry_delay_seconds),
+            "frontendLockTimeoutSeconds": float(args.frontend_lock_timeout_seconds),
         }
         if args.database_path:
             payload["databasePath"] = str(args.database_path)

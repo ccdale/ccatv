@@ -2554,7 +2554,7 @@ class ServiceCommandDispatcher:
                 message="retryDelaySeconds must be a non-negative number",
             )
 
-        frontend_lock_timeout_seconds = payload.get("frontendLockTimeoutSeconds", 15.0)
+        frontend_lock_timeout_seconds = payload.get("frontendLockTimeoutSeconds", 30.0)
         if (
             not isinstance(frontend_lock_timeout_seconds, int | float)
             or frontend_lock_timeout_seconds <= 0
@@ -3053,7 +3053,7 @@ class ServiceCommandDispatcher:
                 pass
 
         if manager is None:
-            return
+            raise RuntimeError("dvbstreamer manager not available for control readiness check")
 
         try:
             status = manager.health_check()
@@ -3067,7 +3067,12 @@ class ServiceCommandDispatcher:
                 manager.start()
                 logger.info("OTA EPG sync started dvbstreamer manager")
 
-            deadline = time.monotonic() + 5.0
+            control_ready_timeout_seconds = 5.0
+            if dvbctrl is not None:
+                timeout_seconds = float(getattr(dvbctrl, "timeout_seconds", 0.0))
+                control_ready_timeout_seconds = max(5.0, timeout_seconds + 2.0)
+
+            deadline = time.monotonic() + control_ready_timeout_seconds
             last_error: Exception | None = None
             while time.monotonic() < deadline:
                 self._raise_if_stopping()
@@ -3087,10 +3092,21 @@ class ServiceCommandDispatcher:
                 )
             raise RuntimeError("dvbctrl control endpoint did not become ready")
         except Exception as exc:
-            logger.error("OTA EPG sync failed starting dvbstreamer: %s", exc)
+            if allow_manager_start:
+                logger.error("OTA EPG sync control endpoint unavailable: %s", exc)
+                message = f"dvbstreamer control endpoint unavailable: {exc}"
+            else:
+                logger.warning(
+                    "OTA EPG sync control endpoint unavailable in non-owner mode: %s",
+                    exc,
+                )
+                message = (
+                    "dvbstreamer control endpoint unavailable in non-owner mode: "
+                    f"{exc}"
+                )
             raise ServiceCommandError(
                 code="OTA_GRAB_FAILED",
-                message=f"failed to start dvbstreamer: {exc}",
+                message=message,
                 retryable=True,
             ) from exc
 
