@@ -81,6 +81,11 @@
       .guide-search-result-title { font-weight: 700; }
       .guide-search-result-meta { color: var(--muted); font-size: 0.86rem; }
       .guide-search-result-description { font-size: 0.9rem; }
+      .guide-audit-row { margin-top: 0.65rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto auto; gap: 0.55rem; align-items: center; }
+      .guide-audit-input { width: 100%; }
+      .guide-audit-select { min-width: 90px; padding: 0.8rem 0.9rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.82); }
+      .guide-audit-meta { margin-top: 0.4rem; color: var(--muted); font-size: 0.84rem; }
+      .guide-audit-results { margin-top: 0.65rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.66); max-height: 16rem; overflow: auto; }
       .panel-body { padding: 1rem; }
       .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.92rem; }
@@ -186,6 +191,19 @@
               <button id="guide-search-clear" class="secondary" type="button">Clear</button>
             </div>
             <div id="guide-search-meta" class="guide-search-meta">Searches the full 7-day guide database.</div>
+            <div class="guide-audit-row">
+              <input id="guide-audit-channel" class="guide-audit-input" type="text" placeholder="Audit channel (defaults to selected/favourite)">
+              <select id="guide-audit-limit" class="guide-audit-select" aria-label="Guide audit page size">
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+              <button id="guide-audit-load" type="button">Audit</button>
+              <button id="guide-audit-prev" class="secondary" type="button">Prev</button>
+              <button id="guide-audit-next" class="secondary" type="button">Next</button>
+              <button id="guide-audit-clear" class="secondary" type="button">Clear</button>
+            </div>
+            <div id="guide-audit-meta" class="guide-audit-meta">Audit extraction for a channel without dumping all rows at once.</div>
           </div>
           <div class="panel-body">
             <div class="timeline-shell">
@@ -200,6 +218,9 @@
             </div>
             <div id="guide-search-results" class="guide-search-results">
               <div class="guide-search-results-empty">No search results yet. Enter a query and run a search.</div>
+            </div>
+            <div id="guide-audit-results" class="guide-audit-results">
+              <div class="guide-search-results-empty">No audit results yet. Choose a channel and click Audit.</div>
             </div>
           </div>
         </div>
@@ -225,6 +246,14 @@
       const guideSearchClearButton = document.getElementById("guide-search-clear");
       const guideSearchMeta = document.getElementById("guide-search-meta");
       const guideSearchResults = document.getElementById("guide-search-results");
+      const guideAuditChannelInput = document.getElementById("guide-audit-channel");
+      const guideAuditLimitSelect = document.getElementById("guide-audit-limit");
+      const guideAuditLoadButton = document.getElementById("guide-audit-load");
+      const guideAuditPrevButton = document.getElementById("guide-audit-prev");
+      const guideAuditNextButton = document.getElementById("guide-audit-next");
+      const guideAuditClearButton = document.getElementById("guide-audit-clear");
+      const guideAuditMeta = document.getElementById("guide-audit-meta");
+      const guideAuditResults = document.getElementById("guide-audit-results");
       const statusNode = document.getElementById("status");
       const headerStatusInline = document.getElementById("header-status-inline");
       const headerExpandBtn = document.getElementById("header-expand-btn");
@@ -254,6 +283,11 @@
       let selectedProgrammeKey = null;
       let guideSearchResultsData = [];
       let guideSearchLastQuery = "";
+      let guideAuditItems = [];
+      let guideAuditOffset = 0;
+      let guideAuditLimit = 25;
+      let guideAuditTotal = 0;
+      let guideAuditChannel = "";
 
       const GENRE_STYLES = {
         movie: { border: "rgba(124, 58, 237, 0.52)", top: "rgba(124, 58, 237, 0.20)", bottom: "rgba(124, 58, 237, 0.30)" },
@@ -316,6 +350,12 @@
         guideSearchScope.disabled = !isAuthenticated;
         guideSearchButton.disabled = !isAuthenticated;
         guideSearchClearButton.disabled = !isAuthenticated;
+        guideAuditChannelInput.disabled = !isAuthenticated;
+        guideAuditLimitSelect.disabled = !isAuthenticated;
+        guideAuditLoadButton.disabled = !isAuthenticated;
+        guideAuditPrevButton.disabled = !isAuthenticated;
+        guideAuditNextButton.disabled = !isAuthenticated;
+        guideAuditClearButton.disabled = !isAuthenticated;
       }
 
       function resetViews() {
@@ -332,7 +372,16 @@
         guideSearchInput.value = "";
         guideSearchScope.value = "favourites";
         guideSearchMeta.textContent = "Searches the full 7-day guide database.";
+        guideAuditItems = [];
+        guideAuditOffset = 0;
+        guideAuditLimit = 25;
+        guideAuditTotal = 0;
+        guideAuditChannel = "";
+        guideAuditChannelInput.value = "";
+        guideAuditLimitSelect.value = "25";
+        guideAuditMeta.textContent = "Audit extraction for a channel without dumping all rows at once.";
         renderGuideSearchResults();
+        renderGuideAuditResults();
         renderTimeline();
         renderTimelineHover(null, null);
         guideTitle.textContent = "7-day timeline guide";
@@ -582,6 +631,153 @@
         renderGuideSearchResults();
       }
 
+      function defaultAuditChannel() {
+        if (guideAuditChannelInput.value.trim()) {
+          return guideAuditChannelInput.value.trim();
+        }
+        if (selectedProgrammeKey && selectedProgrammeKey.includes("\u0000")) {
+          const channelName = selectedProgrammeKey.split("\u0000", 1)[0];
+          if (channelName) {
+            return channelName;
+          }
+        }
+        if (favouriteChannels.length) {
+          const channel = favouriteChannels[0];
+          return channel.epgName || channel.name || "";
+        }
+        return "";
+      }
+
+      function renderGuideAuditResults() {
+        guideAuditResults.replaceChildren();
+
+        if (!isAuthenticated) {
+          const empty = document.createElement("div");
+          empty.className = "guide-search-results-empty";
+          empty.textContent = "Sign in to view guide audit data.";
+          guideAuditResults.append(empty);
+          return;
+        }
+
+        if (!guideAuditChannel) {
+          const empty = document.createElement("div");
+          empty.className = "guide-search-results-empty";
+          empty.textContent = "No audit results yet. Choose a channel and click Audit.";
+          guideAuditResults.append(empty);
+          guideAuditPrevButton.disabled = true;
+          guideAuditNextButton.disabled = true;
+          return;
+        }
+
+        if (!guideAuditItems.length) {
+          const empty = document.createElement("div");
+          empty.className = "guide-search-results-empty";
+          empty.textContent = "No audit rows found for this page.";
+          guideAuditResults.append(empty);
+        } else {
+          for (const item of guideAuditItems) {
+            const row = document.createElement("div");
+            row.className = "guide-search-result";
+
+            const heading = document.createElement("div");
+            heading.className = "guide-search-result-title";
+            heading.textContent = `${item.title || "Untitled"} | ${formatLongDateTime(item.startAtUtc)}`;
+
+            const meta = document.createElement("div");
+            meta.className = "guide-search-result-meta";
+            const stored = item.stored || {};
+            const parsed = item.parsedFromDescription || {};
+            meta.textContent = [
+              `Stored: ${stored.episodeIdOnscreen || "-"}`,
+              `Stored year: ${stored.releaseYear || "-"}`,
+              `Parsed: ${parsed.episodeIdOnscreen || "-"}`,
+              `Parsed year: ${parsed.releaseYear || "-"}`,
+            ].join(" | ");
+
+            const description = document.createElement("div");
+            description.className = "guide-search-result-description";
+            description.textContent = item.rawDescription || "No description available.";
+
+            row.append(heading, meta, description);
+            guideAuditResults.append(row);
+          }
+        }
+
+        const hasPrev = guideAuditOffset > 0;
+        const hasNext = guideAuditOffset + guideAuditItems.length < guideAuditTotal;
+        guideAuditPrevButton.disabled = !isAuthenticated || !hasPrev;
+        guideAuditNextButton.disabled = !isAuthenticated || !hasNext;
+      }
+
+      async function runGuideAudit({ resetOffset = true } = {}) {
+        const channel = defaultAuditChannel();
+        if (!channel) {
+          guideAuditMeta.textContent = "Audit requires a channel. Select a programme or enter a channel name.";
+          guideAuditItems = [];
+          guideAuditChannel = "";
+          guideAuditTotal = 0;
+          renderGuideAuditResults();
+          return;
+        }
+
+        const parsedLimit = Number.parseInt(guideAuditLimitSelect.value, 10);
+        guideAuditLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 25;
+        if (resetOffset) {
+          guideAuditOffset = 0;
+        }
+        guideAuditChannel = channel;
+        guideAuditChannelInput.value = channel;
+
+        const startAt = timelineOriginMs ? new Date(timelineOriginMs) : new Date();
+        const queryParams = new URLSearchParams({
+          channel: channel,
+          startAtUtc: toUtcNoMillis(startAt),
+          windowHours: String(TIMELINE_RANGE_DAYS * 24),
+          limit: String(guideAuditLimit),
+          offset: String(guideAuditOffset),
+        });
+
+        guideAuditLoadButton.disabled = true;
+        guideAuditPrevButton.disabled = true;
+        guideAuditNextButton.disabled = true;
+        try {
+          const payload = await fetchJson(`/api/guide/audit?${queryParams.toString()}`);
+          guideAuditItems = Array.isArray(payload.items) ? payload.items : [];
+          const pagination = payload.pagination || {};
+          guideAuditTotal = Number.isInteger(pagination.total) ? pagination.total : guideAuditItems.length;
+          const returned = Number.isInteger(pagination.returned) ? pagination.returned : guideAuditItems.length;
+          const from = guideAuditTotal === 0 ? 0 : guideAuditOffset + 1;
+          const to = guideAuditOffset + returned;
+          guideAuditMeta.textContent = `Audit ${from}-${to} of ${guideAuditTotal} for ${guideAuditChannel}.`;
+          renderGuideAuditResults();
+        } catch (error) {
+          guideAuditItems = [];
+          guideAuditTotal = 0;
+          guideAuditMeta.textContent = `Guide audit failed: ${error.message}`;
+          renderGuideAuditResults();
+        } finally {
+          guideAuditLoadButton.disabled = !isAuthenticated;
+        }
+      }
+
+      async function pageGuideAudit(direction) {
+        const nextOffset = guideAuditOffset + (direction * guideAuditLimit);
+        if (nextOffset < 0) {
+          return;
+        }
+        guideAuditOffset = nextOffset;
+        await runGuideAudit({ resetOffset: false });
+      }
+
+      function clearGuideAudit() {
+        guideAuditChannel = "";
+        guideAuditItems = [];
+        guideAuditOffset = 0;
+        guideAuditTotal = 0;
+        guideAuditMeta.textContent = "Audit extraction for a channel without dumping all rows at once.";
+        renderGuideAuditResults();
+      }
+
       function renderTimelineHover(programme, matchingJob) {
         timelineHover.replaceChildren();
         const title = document.createElement("strong");
@@ -647,6 +843,10 @@
 
         switchRow.append(switchLabel, switchButton);
         timelineHover.append(title, meta, genre, source, episodeMeta, refs, description, switchRow);
+
+        if (!guideAuditChannelInput.value.trim()) {
+          guideAuditChannelInput.value = programme.channelName || "";
+        }
 
         if (typeof programme.seriesRef === "string" && programme.seriesRef) {
           const seriesEnabled = isSeriesRecordingEnabled(programme.seriesRef);
@@ -1094,6 +1294,27 @@
       });
       guideSearchClearButton.addEventListener("click", () => {
         clearGuideSearch();
+      });
+      guideAuditLoadButton.addEventListener("click", () => {
+        void runGuideAudit({ resetOffset: true });
+      });
+      guideAuditPrevButton.addEventListener("click", () => {
+        void pageGuideAudit(-1);
+      });
+      guideAuditNextButton.addEventListener("click", () => {
+        void pageGuideAudit(1);
+      });
+      guideAuditClearButton.addEventListener("click", () => {
+        clearGuideAudit();
+      });
+      guideAuditChannelInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void runGuideAudit({ resetOffset: true });
+        }
+      });
+      guideAuditLimitSelect.addEventListener("change", () => {
+        void runGuideAudit({ resetOffset: true });
       });
       headerExpandBtn.addEventListener("click", () => { setHeaderDrawerOpen(!headerDrawerOpen); });
       window.addEventListener("resize", () => {
