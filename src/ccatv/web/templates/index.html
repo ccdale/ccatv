@@ -86,6 +86,10 @@
       .guide-audit-select { min-width: 90px; padding: 0.8rem 0.9rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.82); }
       .guide-audit-meta { margin-top: 0.4rem; color: var(--muted); font-size: 0.84rem; }
       .guide-audit-results { margin-top: 0.65rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.66); max-height: 16rem; overflow: auto; }
+      .guide-audit-diff-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+      .guide-audit-chip { display: inline-flex; align-items: center; padding: 0.2rem 0.55rem; border-radius: 999px; border: 1px solid var(--line); font-size: 0.78rem; }
+      .guide-audit-chip.match { background: rgba(22, 101, 52, 0.12); border-color: rgba(22, 101, 52, 0.25); color: #166534; }
+      .guide-audit-chip.mismatch { background: rgba(180, 35, 24, 0.12); border-color: rgba(180, 35, 24, 0.24); color: #b42318; }
       .panel-body { padding: 1rem; }
       .empty, .inline-message { color: var(--muted); font-size: 0.95rem; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.92rem; }
@@ -675,6 +679,7 @@
           empty.textContent = "No audit rows found for this page.";
           guideAuditResults.append(empty);
         } else {
+          let mismatchCount = 0;
           for (const item of guideAuditItems) {
             const row = document.createElement("div");
             row.className = "guide-search-result";
@@ -694,13 +699,47 @@
               `Parsed year: ${parsed.releaseYear || "-"}`,
             ].join(" | ");
 
+            const diffs = [];
+            const storedEpisode = stored.episodeIdOnscreen || "-";
+            const parsedEpisode = parsed.episodeIdOnscreen || "-";
+            if (storedEpisode !== parsedEpisode) {
+              diffs.push(`Episode stored ${storedEpisode} != parsed ${parsedEpisode}`);
+            }
+
+            const storedYear = stored.releaseYear || "-";
+            const parsedYear = parsed.releaseYear || "-";
+            if (String(storedYear) !== String(parsedYear)) {
+              diffs.push(`Year stored ${storedYear} != parsed ${parsedYear}`);
+            }
+
+            const diffRow = document.createElement("div");
+            diffRow.className = "guide-audit-diff-row";
+            if (diffs.length) {
+              mismatchCount += 1;
+              for (const diff of diffs) {
+                const chip = document.createElement("span");
+                chip.className = "guide-audit-chip mismatch";
+                chip.textContent = diff;
+                diffRow.append(chip);
+              }
+            } else {
+              const chip = document.createElement("span");
+              chip.className = "guide-audit-chip match";
+              chip.textContent = "No differences";
+              diffRow.append(chip);
+            }
+
             const description = document.createElement("div");
             description.className = "guide-search-result-description";
             description.textContent = item.rawDescription || "No description available.";
 
-            row.append(heading, meta, description);
+            row.append(heading, diffRow, meta, description);
             guideAuditResults.append(row);
           }
+
+          const from = guideAuditTotal === 0 ? 0 : guideAuditOffset + 1;
+          const to = guideAuditOffset + guideAuditItems.length;
+          guideAuditMeta.textContent = `Audit ${from}-${to} of ${guideAuditTotal} for ${guideAuditChannel}. ${mismatchCount} row${mismatchCount === 1 ? "" : "s"} with differences.`;
         }
 
         const hasPrev = guideAuditOffset > 0;
@@ -745,10 +784,6 @@
           guideAuditItems = Array.isArray(payload.items) ? payload.items : [];
           const pagination = payload.pagination || {};
           guideAuditTotal = Number.isInteger(pagination.total) ? pagination.total : guideAuditItems.length;
-          const returned = Number.isInteger(pagination.returned) ? pagination.returned : guideAuditItems.length;
-          const from = guideAuditTotal === 0 ? 0 : guideAuditOffset + 1;
-          const to = guideAuditOffset + returned;
-          guideAuditMeta.textContent = `Audit ${from}-${to} of ${guideAuditTotal} for ${guideAuditChannel}.`;
           renderGuideAuditResults();
         } catch (error) {
           guideAuditItems = [];
