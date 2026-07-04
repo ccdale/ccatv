@@ -381,6 +381,15 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.post("/api/recordings/clean-completed")
+    def api_recordings_clean_completed():
+        response, status_code = _with_client(
+            _client_factory,
+            "recording.clean.completed",
+            {},
+        )
+        return jsonify(response), status_code
+
     @app.delete("/api/recordings/<int:recording_id>")
     def api_recording_delete(recording_id: int):
         payload = {

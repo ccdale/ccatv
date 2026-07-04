@@ -98,7 +98,10 @@
 
       <div class="toolbar">
         <div class="subtitle">Refresh to reload the recording history from the backend.</div>
-        <button id="refresh-button" class="ghost" type="button">Refresh recordings</button>
+        <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+          <button id="clean-completed-button" class="secondary" type="button">Clean list</button>
+          <button id="refresh-button" class="ghost" type="button">Refresh recordings</button>
+        </div>
       </div>
 
       <section class="upcoming-wrap">
@@ -140,6 +143,7 @@
       const tokenInput = document.getElementById("token-input");
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
+      const cleanCompletedButton = document.getElementById("clean-completed-button");
       const refreshButton = document.getElementById("refresh-button");
       const statusNode = document.getElementById("status");
       const upcomingList = document.getElementById("upcoming-list");
@@ -198,6 +202,7 @@
         tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
         loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
         logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
+        cleanCompletedButton.disabled = !isAuthenticated;
         tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
       }
 
@@ -444,6 +449,29 @@
         }
       }
 
+      async function cleanCompletedRecordings() {
+        if (!isAuthenticated) {
+          setStatus("Sign in to clean the recordings list.", "error");
+          return;
+        }
+        if (!window.confirm("Remove all successfully finished recordings from the list? Failed and active recordings will be kept.")) {
+          return;
+        }
+        cleanCompletedButton.disabled = true;
+        try {
+          const payload = await fetchJson("/api/recordings/clean-completed", {
+            method: "POST",
+          });
+          await loadRecordings();
+          const deletedCount = Number(payload.deletedCount || 0);
+          setStatus(`Cleaned list: removed ${deletedCount} completed recording(s).`);
+        } catch (error) {
+          setStatus(error.message, "error");
+        } finally {
+          cleanCompletedButton.disabled = !isAuthenticated;
+        }
+      }
+
       async function loadRecordings() {
         const payload = await fetchJson("/api/recordings");
         recordings = payload.recordings || [];
@@ -532,6 +560,9 @@
 
       loginButton.addEventListener("click", () => { void login(); });
       logoutButton.addEventListener("click", () => { void logout(); });
+      cleanCompletedButton.addEventListener("click", () => {
+        void cleanCompletedRecordings();
+      });
       refreshButton.addEventListener("click", () => {
         if (!isAuthenticated) {
           setStatus("Sign in to refresh recordings.", "error");

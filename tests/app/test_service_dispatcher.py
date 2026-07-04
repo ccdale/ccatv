@@ -537,6 +537,56 @@ def test_dispatch_recording_delete_not_found_returns_not_found() -> None:
     assert response["error"]["code"] == "NOT_FOUND"
 
 
+def test_dispatch_recording_clean_completed_keeps_failed_and_active() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    failed = context.persistence.create_recording(
+        channel_name="BBC TWO HD",
+        output_path="/tmp/failed.ts",
+        state="failed",
+    )
+    active_recording = context.persistence.create_recording(
+        channel_name="BBC ONE HD",
+        output_path="/tmp/active.ts",
+        state="recording",
+    )
+    active_processing = context.persistence.create_recording(
+        channel_name="ITV1 HD",
+        output_path="/tmp/processing.ts",
+        state="post_processing",
+    )
+    completed_ready = context.persistence.create_recording(
+        channel_name="C4 HD",
+        output_path="/tmp/ready.ts",
+        state="ready",
+    )
+    completed_capture = context.persistence.create_recording(
+        channel_name="Film4",
+        output_path="/tmp/capture-completed.ts",
+        state="capture_completed",
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.clean.completed",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["deletedCount"] == 2
+    assert sorted(payload["deletedIds"]) == sorted([completed_ready.id, completed_capture.id])
+    assert payload["keptCount"] == 3
+    assert sorted(payload["keptIds"]) == sorted([failed.id, active_recording.id, active_processing.id])
+
+    remaining = context.persistence.list_recordings()
+    remaining_ids = [recording.id for recording in remaining]
+    assert sorted(remaining_ids) == sorted([failed.id, active_recording.id, active_processing.id])
+
+
 def test_dispatch_recording_metadata_backfill_uses_epg_match() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

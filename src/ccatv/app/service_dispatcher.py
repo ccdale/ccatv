@@ -73,6 +73,7 @@ SERVICE_COMMANDS = [
     "service.health.get",
     "service.info.get",
     "recording.list",
+    "recording.clean.completed",
     "recording.delete",
     "recording.stop",
     "recording.schedule.create",
@@ -236,6 +237,8 @@ class ServiceCommandDispatcher:
             return self._service_info_get()
         if command == "recording.list":
             return self._recording_list(payload)
+        if command == "recording.clean.completed":
+            return self._recording_clean_completed(payload)
         if command == "recording.delete":
             return self._recording_delete(payload)
         if command == "recording.stop":
@@ -555,6 +558,29 @@ class ServiceCommandDispatcher:
         recordings = self._context.persistence.list_recordings()
         return {
             "recordings": [self._recording_summary_payload(recording) for recording in recordings]
+        }
+
+    def _recording_clean_completed(self, payload: dict[str, object]) -> dict[str, object]:
+        del payload
+
+        active_states = {"recording", "running", "post_processing"}
+        keep_states = active_states | {"failed"}
+        deleted_ids: list[int] = []
+        kept_ids: list[int] = []
+
+        for recording in self._context.persistence.list_recordings():
+            state = str(recording.state).strip().lower()
+            if state in keep_states:
+                kept_ids.append(recording.id)
+                continue
+            self._context.persistence.delete_recording(recording.id)
+            deleted_ids.append(recording.id)
+
+        return {
+            "deletedCount": len(deleted_ids),
+            "deletedIds": deleted_ids,
+            "keptCount": len(kept_ids),
+            "keptIds": kept_ids,
         }
 
     def _recording_delete(self, payload: dict[str, object]) -> dict[str, object]:

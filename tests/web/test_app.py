@@ -107,6 +107,13 @@ class _StubServiceClient:
                     }
                 ]
             }
+        if command == "recording.clean.completed":
+            return {
+                "deletedCount": 2,
+                "deletedIds": [3, 4],
+                "keptCount": 2,
+                "keptIds": [1, 2],
+            }
         if command == "recording.delete":
             return {
                 "id": int(payload.get("id", 0)),
@@ -283,6 +290,7 @@ def test_recordings_page_serves_browser_ui(monkeypatch) -> None:
     body = response.get_data(as_text=True)
     assert "Recordings" in body
     assert "Upcoming recordings" in body
+    assert "Clean list" in body
     assert "Back to Guide" in body
     assert "Upcoming Films" in body
     assert "health-pill" in body
@@ -527,6 +535,31 @@ def test_recordings_delete_route_ignores_json_body(monkeypatch) -> None:
     assert stub.calls == [(
         "recording.delete",
         {"id": 7, "deleteFiles": False},
+    )]
+
+
+def test_recordings_clean_completed_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post("/api/recordings/clean-completed")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert response.get_json()["payload"]["deletedCount"] == 2
+    assert stub.calls == [(
+        "recording.clean.completed",
+        {},
     )]
 
 
