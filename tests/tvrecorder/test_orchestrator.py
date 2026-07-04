@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -81,6 +83,84 @@ class StubServiceFilterService:
         self.calls.append(("remove", (filter_name,)))
         if self.fail_on_remove:
             raise RuntimeError(self.remove_error_message)
+
+
+@dataclass(slots=True)
+class StubAdapterDvbStreamer:
+    state: str = "running"
+    pid: int | None = None
+    started: int = 0
+    stopped: int = 0
+    fail_start: bool = False
+
+    def status(self):
+        return SimpleNamespace(state=self.state, pid=self.pid)
+
+    def start(self):
+        self.started += 1
+        if self.fail_start:
+            raise RuntimeError("start failed")
+        self.state = "running"
+        if self.pid is None:
+            self.pid = 4242
+        return SimpleNamespace(state=self.state, pid=self.pid)
+
+    def stop(self, *, force_kill: bool = True):
+        del force_kill
+        self.stopped += 1
+        self.state = "stopped"
+        self.pid = None
+        return SimpleNamespace(state=self.state, pid=self.pid)
+
+
+@dataclass(slots=True)
+class StubAdapterProbeService:
+    stats_ok: bool = True
+    festatus_ok: bool = True
+    stats_calls: int = 0
+    festatus_calls: int = 0
+
+    def stats_snapshot(self):
+        self.stats_calls += 1
+        if not self.stats_ok:
+            raise RuntimeError("stats failed")
+        return SimpleNamespace(metrics={"Packets": 1})
+
+    def frontend_status(self):
+        self.festatus_calls += 1
+        if not self.festatus_ok:
+            raise RuntimeError("festatus failed")
+        return SimpleNamespace(locked=True, signal=90, snr=50, ber=0)
+
+
+@dataclass(slots=True)
+class StubAdapterCaptureController:
+    service: StubAdapterProbeService
+
+
+@dataclass(slots=True)
+class StubAdapterPool:
+    slot: object | None
+    capacity: int = 1
+    in_use_count: int = 0
+    available_count: int = 1
+    released: int = 0
+
+    def acquire(self):
+        if self.slot is None:
+            self.available_count = 0
+            self.in_use_count = self.capacity
+            return None
+        acquired = self.slot
+        self.slot = None
+        self.available_count = 0
+        self.in_use_count = self.capacity
+        return acquired
+
+    def release(self, _slot):
+        self.released += 1
+        self.available_count = self.capacity
+        self.in_use_count = 0
 
 
 @dataclass(slots=True)
@@ -365,6 +445,89 @@ def test_orchestrator_run_due_jobs_filters_scheduled_due_items(
         )
     finally:
         connection.close()
+
+
+def test_orchestrator_thread_preflight_restarts_dead_adapter_before_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    orchestrator = RecorderOrchestrator(
+        service=SimpleNamespace(mark_scheduler_job_failed=lambda _job_id: None),
+        persistence=SimpleNamespace(),
+        logger=logging.getLogger("test.orchestrator.preflight.restart"),
+    )
+    probe_service = StubAdapterProbeService(stats_ok=True, festatus_ok=True)
+    manager = StubAdapterDvbStreamer(state="stopped", pid=None)
+    slot = SimpleNamespace(
+        adapter_index=2,
+        dvbstreamer=manager,
+        capture_controller=StubAdapterCaptureController(service=probe_service),
+    )
+    pool = StubAdapterPool(slot=slot)
+    orchestrator.adapter_pool = pool
+
+    called: dict[str, object] = {}
+
+    def _run_job(_self, *, job_id: int, output_path: str, capture_controller):
+        called["job_id"] = job_id
+        called["output_path"] = output_path
+        called["capture_controller"] = capture_controller
+        return SimpleNamespace(
+            job_id=job_id,
+            scheduler_state="completed",
+            recording_id=91,
+            recording_state="ready",
+            error=None,
+        )
+
+    monkeypatch.setattr(RecorderOrchestrator, "run_job", _run_job)
+
+    results: list[object] = []
+    orchestrator._run_job_in_thread(11, "/tmp/out.ts", results)  # noqa: SLF001
+
+    assert len(results) == 1
+    assert getattr(results[0], "scheduler_state") == "completed"
+    assert called["job_id"] == 11
+    assert called["output_path"] == "/tmp/out.ts"
+    assert called["capture_controller"] is slot.capture_controller
+    assert manager.stopped == 1
+    assert manager.started == 1
+    assert pool.released == 1
+
+
+def test_orchestrator_thread_preflight_fails_when_adapter_not_working(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_calls: list[int] = []
+    orchestrator = RecorderOrchestrator(
+        service=SimpleNamespace(mark_scheduler_job_failed=lambda job_id: failed_calls.append(job_id)),
+        persistence=SimpleNamespace(),
+        logger=logging.getLogger("test.orchestrator.preflight.fail"),
+    )
+    probe_service = StubAdapterProbeService(stats_ok=True, festatus_ok=False)
+    manager = StubAdapterDvbStreamer(state="running", pid=None)
+    slot = SimpleNamespace(
+        adapter_index=1,
+        dvbstreamer=manager,
+        capture_controller=StubAdapterCaptureController(service=probe_service),
+    )
+    pool = StubAdapterPool(slot=slot)
+    orchestrator.adapter_pool = pool
+
+    def _run_job(_self, *, job_id: int, output_path: str, capture_controller):
+        raise AssertionError("run_job should not be called when preflight fails")
+
+    monkeypatch.setattr(RecorderOrchestrator, "run_job", _run_job)
+
+    results: list[object] = []
+    orchestrator._run_job_in_thread(23, "/tmp/out.ts", results)  # noqa: SLF001
+
+    assert len(results) == 1
+    assert getattr(results[0], "scheduler_state") == "failed"
+    assert getattr(results[0], "recording_id") is None
+    assert "preflight failed before recording" in str(getattr(results[0], "error"))
+    assert failed_calls == [23]
+    assert manager.started == 0
+    assert pool.released == 1
 
 
 def test_orchestrator_start_capture_failure_marks_job_and_recording_failed(

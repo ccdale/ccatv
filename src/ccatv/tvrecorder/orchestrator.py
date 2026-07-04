@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import logging
 import re
 import shlex
@@ -354,24 +355,67 @@ class RecorderOrchestrator:
                     )
                 )
                 return
-            # Ensure the slot's dvbstreamer is running before we try to record
-            slot_state = getattr(slot.dvbstreamer.status(), "state", None)
-            from ccatv.tvrecorder.manager import DvbStreamerState
-            if slot_state != DvbStreamerState.RUNNING:
+            self.logger.info(
+                "recording slot preflight: job_id=%s slot_available=yes adapter=%s pool_capacity=%s in_use=%s available=%s",
+                job_id,
+                getattr(slot, "adapter_index", None),
+                getattr(pool, "capacity", "?"),
+                getattr(pool, "in_use_count", "?"),
+                getattr(pool, "available_count", "?"),
+            )
+
+            slot_service = getattr(getattr(slot, "capture_controller", None), "service", None)
+            probe = _collect_adapter_probe(slot=slot, service=slot_service)
+            self.logger.info(
+                "recording slot preflight probe: job_id=%s adapter=%s manager_state=%s manager_pid=%s process_alive=%s dvbctrl_stats_ok=%s dvbctrl_festatus_ok=%s frontend_locked=%s signal=%s snr=%s ber=%s stats_metrics=%s stats_error=%s festatus_error=%s",
+                job_id,
+                getattr(slot, "adapter_index", None),
+                probe["manager_state"],
+                probe["manager_pid"],
+                probe["process_alive"],
+                probe["stats_ok"],
+                probe["festatus_ok"],
+                probe["frontend_locked"],
+                probe["frontend_signal"],
+                probe["frontend_snr"],
+                probe["frontend_ber"],
+                probe["stats_metrics"],
+                probe["stats_error"],
+                probe["festatus_error"],
+            )
+
+            if probe["dead"]:
+                self.logger.warning(
+                    "recording slot preflight detected dead dvbstreamer: job_id=%s adapter=%s manager_state=%s manager_pid=%s process_alive=%s stats_ok=%s action=restart",
+                    job_id,
+                    getattr(slot, "adapter_index", None),
+                    probe["manager_state"],
+                    probe["manager_pid"],
+                    probe["process_alive"],
+                    probe["stats_ok"],
+                )
                 try:
-                    slot.dvbstreamer.start()
-                    self.logger.info(
-                        "adapter %s dvbstreamer started for job_id=%s",
-                        slot.adapter_index,
+                    slot.dvbstreamer.stop(force_kill=True)
+                except Exception as exc:
+                    self.logger.warning(
+                        "recording slot preflight restart stop failed: job_id=%s adapter=%s error=%s",
                         job_id,
+                        getattr(slot, "adapter_index", None),
+                        exc,
                     )
+                try:
+                    restart_status = slot.dvbstreamer.start()
                 except Exception as exc:
                     self.logger.error(
-                        "adapter %s dvbstreamer failed to start for job_id=%s: %s",
-                        slot.adapter_index,
+                        "recording slot preflight restart failed: adapter=%s job_id=%s error=%s",
+                        getattr(slot, "adapter_index", None),
                         job_id,
                         exc,
                     )
+                    try:
+                        self.service.mark_scheduler_job_failed(job_id)
+                    except Exception:
+                        pass
                     pool.release(slot)
                     result_holder.append(
                         OrchestratorResult(
@@ -379,10 +423,99 @@ class RecorderOrchestrator:
                             scheduler_state="failed",
                             recording_id=None,
                             recording_state=None,
-                            error=f"adapter {slot.adapter_index} dvbstreamer failed to start: {exc}",
+                            error=(
+                                f"adapter {getattr(slot, 'adapter_index', None)} "
+                                f"dvbstreamer failed to restart before recording: {exc}"
+                            ),
                         )
                     )
                     return
+
+                ready_error = _wait_for_service_stats_ready(
+                    service=slot_service,
+                    timeout_seconds=5.0,
+                )
+                self.logger.info(
+                    "recording slot preflight restart completed: job_id=%s adapter=%s state=%s pid=%s stats_ready=%s ready_error=%s",
+                    job_id,
+                    getattr(slot, "adapter_index", None),
+                    getattr(restart_status, "state", None),
+                    getattr(restart_status, "pid", None),
+                    ready_error is None,
+                    ready_error,
+                )
+                if ready_error is not None:
+                    try:
+                        self.service.mark_scheduler_job_failed(job_id)
+                    except Exception:
+                        pass
+                    pool.release(slot)
+                    result_holder.append(
+                        OrchestratorResult(
+                            job_id=job_id,
+                            scheduler_state="failed",
+                            recording_id=None,
+                            recording_state=None,
+                            error=(
+                                f"adapter {getattr(slot, 'adapter_index', None)} "
+                                f"dvbstreamer restart did not become ready before recording: {ready_error}"
+                            ),
+                        )
+                    )
+                    return
+
+                probe = _collect_adapter_probe(slot=slot, service=slot_service)
+                self.logger.info(
+                    "recording slot preflight probe after restart: job_id=%s adapter=%s manager_state=%s manager_pid=%s process_alive=%s dvbctrl_stats_ok=%s dvbctrl_festatus_ok=%s frontend_locked=%s signal=%s snr=%s ber=%s stats_metrics=%s stats_error=%s festatus_error=%s",
+                    job_id,
+                    getattr(slot, "adapter_index", None),
+                    probe["manager_state"],
+                    probe["manager_pid"],
+                    probe["process_alive"],
+                    probe["stats_ok"],
+                    probe["festatus_ok"],
+                    probe["frontend_locked"],
+                    probe["frontend_signal"],
+                    probe["frontend_snr"],
+                    probe["frontend_ber"],
+                    probe["stats_metrics"],
+                    probe["stats_error"],
+                    probe["festatus_error"],
+                )
+
+            if not probe["working"]:
+                self.logger.error(
+                    "recording slot preflight failed: job_id=%s adapter=%s dead=%s working=%s manager_state=%s manager_pid=%s process_alive=%s stats_ok=%s festatus_ok=%s stats_error=%s festatus_error=%s",
+                    job_id,
+                    getattr(slot, "adapter_index", None),
+                    probe["dead"],
+                    probe["working"],
+                    probe["manager_state"],
+                    probe["manager_pid"],
+                    probe["process_alive"],
+                    probe["stats_ok"],
+                    probe["festatus_ok"],
+                    probe["stats_error"],
+                    probe["festatus_error"],
+                )
+                try:
+                    self.service.mark_scheduler_job_failed(job_id)
+                except Exception:
+                    pass
+                pool.release(slot)
+                result_holder.append(
+                    OrchestratorResult(
+                        job_id=job_id,
+                        scheduler_state="failed",
+                        recording_id=None,
+                        recording_state=None,
+                        error=(
+                            f"adapter {getattr(slot, 'adapter_index', None)} "
+                            "preflight failed before recording"
+                        ),
+                    )
+                )
+                return
 
         capture_override = slot.capture_controller if slot is not None else None
         try:
@@ -781,6 +914,126 @@ def _resolve_service_name(service: TvRecorderService, *, channel_name: str) -> s
         return service.resolve_service_name(channel_name)
     except Exception:
         return channel_name
+
+
+def _collect_adapter_probe(*, slot: object, service: object) -> dict[str, object]:
+    manager_status = _adapter_manager_status(slot)
+    manager_state = manager_status["state"]
+    manager_pid = manager_status["pid"]
+    process_alive = _pid_is_alive(manager_pid)
+    manager_running = str(manager_state).casefold().endswith("running")
+
+    stats_ok = False
+    stats_metrics: dict[str, object] | None = None
+    stats_error: str | None = None
+    stats_snapshot_fn = getattr(service, "stats_snapshot", None)
+    if callable(stats_snapshot_fn):
+        try:
+            snapshot = stats_snapshot_fn()
+            stats_ok = True
+            stats_metrics = getattr(snapshot, "metrics", None)
+        except Exception as exc:
+            stats_error = str(exc)
+    else:
+        stats_error = "stats snapshot unavailable"
+
+    festatus_ok = False
+    frontend_locked: bool | None = None
+    frontend_signal: int | None = None
+    frontend_snr: int | None = None
+    frontend_ber: int | None = None
+    festatus_error: str | None = None
+    frontend_status_fn = getattr(service, "frontend_status", None)
+    if callable(frontend_status_fn):
+        try:
+            frontend = frontend_status_fn()
+            festatus_ok = True
+            frontend_locked = getattr(frontend, "locked", None)
+            frontend_signal = getattr(frontend, "signal", None)
+            frontend_snr = getattr(frontend, "snr", None)
+            frontend_ber = getattr(frontend, "ber", None)
+        except Exception as exc:
+            festatus_error = str(exc)
+    else:
+        festatus_error = "festatus unavailable"
+
+    dead = (not manager_running) or process_alive is False or not stats_ok
+    working = stats_ok and festatus_ok
+    return {
+        "manager_state": manager_state,
+        "manager_pid": manager_pid,
+        "process_alive": process_alive,
+        "stats_ok": stats_ok,
+        "stats_metrics": stats_metrics,
+        "stats_error": stats_error,
+        "festatus_ok": festatus_ok,
+        "frontend_locked": frontend_locked,
+        "frontend_signal": frontend_signal,
+        "frontend_snr": frontend_snr,
+        "frontend_ber": frontend_ber,
+        "festatus_error": festatus_error,
+        "dead": dead,
+        "working": working,
+    }
+
+
+def _adapter_manager_status(slot: object) -> dict[str, object]:
+    manager = getattr(slot, "dvbstreamer", None)
+    if manager is None:
+        return {"state": None, "pid": None}
+
+    health_check_fn = getattr(manager, "health_check", None)
+    status_fn = getattr(manager, "status", None)
+    status = None
+    if callable(health_check_fn):
+        try:
+            status = health_check_fn()
+        except Exception:
+            status = None
+    if status is None and callable(status_fn):
+        try:
+            status = status_fn()
+        except Exception:
+            status = None
+
+    return {
+        "state": getattr(status, "state", None),
+        "pid": getattr(status, "pid", None),
+    }
+
+
+def _pid_is_alive(pid: object) -> bool | None:
+    if not isinstance(pid, int):
+        return None
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _wait_for_service_stats_ready(*, service: object, timeout_seconds: float) -> str | None:
+    stats_snapshot_fn = getattr(service, "stats_snapshot", None)
+    if not callable(stats_snapshot_fn):
+        return "stats snapshot unavailable"
+
+    deadline = time.time() + timeout_seconds
+    last_error: str | None = None
+    while True:
+        try:
+            stats_snapshot_fn()
+            return None
+        except Exception as exc:
+            last_error = str(exc)
+            if time.time() >= deadline:
+                return last_error
+            time.sleep(0.25)
 
 
 _MIN_RECORDING_SECONDS = 30
