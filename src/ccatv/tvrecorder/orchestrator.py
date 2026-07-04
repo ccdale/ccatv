@@ -103,6 +103,7 @@ class ServiceFilterCaptureController:
     ) -> None:
         logger = logging.getLogger("ccatv")
         resolved_service_name = self.service.resolve_service_name(channel_name)
+        mux_name = _resolve_mux_name(self.service, resolved_service_name)
         # Ensure the adapter is tuned on the target service before
         # service-filter capture starts, especially on newly started slots.
         self.service.select_service(resolved_service_name)
@@ -111,8 +112,9 @@ class ServiceFilterCaptureController:
             output_path=output_path,
         )
         logger.debug(
-            "service-filter capture start: adapter=%s channel=%s resolved_service=%s filter=%s output=%s",
+            "service-filter capture start: adapter=%s mux=%s channel=%s resolved_service=%s filter=%s output=%s",
             _service_adapter_index(self.service),
+            mux_name,
             channel_name,
             resolved_service_name,
             filter_name,
@@ -427,6 +429,18 @@ class RecorderOrchestrator:
         recording: RecordingStateRecord | None = None
         capture_started = False
         cleanup_stop_error: str | None = None
+        capture_service = _capture_service(effective_capture, fallback=self.service)
+        adapter_index = _service_adapter_index(capture_service)
+        service_filter_name = _capture_filter_name(
+            capture_controller=effective_capture,
+            channel_name=job.channel_name,
+            output_path=output_path,
+        )
+        resolved_service_name = _resolve_service_name(
+            capture_service,
+            channel_name=job.channel_name,
+        )
+        mux_name = _resolve_mux_name(capture_service, resolved_service_name)
         effective_duration_seconds = _effective_recording_duration_seconds(
             job=job,
             started_at_timestamp=now_timestamp,
@@ -467,8 +481,12 @@ class RecorderOrchestrator:
                 program_series_ref=job.program_series_ref,
             )
             self.logger.info(
-                "recording started: job_id=%s channel=%s program=%s duration=%s seconds output=%s",
+                "recording started: job_id=%s adapter=%s mux=%s service_filter=%s resolved_service=%s channel=%s program=%s duration=%s seconds output=%s",
                 job.id,
+                adapter_index,
+                mux_name,
+                service_filter_name,
+                resolved_service_name,
                 job.channel_name,
                 job.program_title,
                 effective_duration_seconds,
@@ -551,8 +569,12 @@ class RecorderOrchestrator:
 
             scheduler = self.service.mark_scheduler_job_completed(job.id)
             self.logger.info(
-                "recording completed successfully: job_id=%s channel=%s program=%s recording_id=%s",
+                "recording completed successfully: job_id=%s adapter=%s mux=%s service_filter=%s resolved_service=%s channel=%s program=%s recording_id=%s",
                 job.id,
+                adapter_index,
+                mux_name,
+                service_filter_name,
+                resolved_service_name,
                 job.channel_name,
                 job.program_title,
                 final.id,
@@ -612,6 +634,18 @@ class RecorderOrchestrator:
             error_message = str(exc)
             if cleanup_stop_error:
                 error_message = f"{error_message}; {cleanup_stop_error}"
+            self.logger.error(
+                "recording failed: job_id=%s adapter=%s mux=%s service_filter=%s resolved_service=%s channel=%s program=%s recording_id=%s error=%s",
+                job.id,
+                adapter_index,
+                mux_name,
+                service_filter_name,
+                resolved_service_name,
+                job.channel_name,
+                job.program_title,
+                recording_id,
+                error_message,
+            )
             return OrchestratorResult(
                 job_id=job.id,
                 scheduler_state=scheduler_state,
@@ -715,6 +749,38 @@ def _service_adapter_index(service: object) -> int | None:
     if isinstance(adapter_index, int):
         return adapter_index
     return None
+
+
+def _capture_service(capture_controller: object, *, fallback: TvRecorderService) -> TvRecorderService:
+    service = getattr(capture_controller, "service", None)
+    if isinstance(service, TvRecorderService):
+        return service
+    return fallback
+
+
+def _capture_filter_name(
+    *,
+    capture_controller: object,
+    channel_name: str,
+    output_path: str,
+) -> str:
+    if isinstance(capture_controller, ServiceFilterCaptureController):
+        return _build_service_filter_name(channel_name=channel_name, output_path=output_path)
+    return "<Primary>"
+
+
+def _resolve_mux_name(service: TvRecorderService, resolved_service_name: str) -> str | None:
+    try:
+        return service.get_service_multiplex(resolved_service_name)
+    except Exception:
+        return None
+
+
+def _resolve_service_name(service: TvRecorderService, *, channel_name: str) -> str:
+    try:
+        return service.resolve_service_name(channel_name)
+    except Exception:
+        return channel_name
 
 
 _MIN_RECORDING_SECONDS = 30

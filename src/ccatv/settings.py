@@ -100,8 +100,8 @@ class AppSettings:
     dvbctrl_timeout_seconds: float = 10.0
     recording_pre_start_seconds: int = 120
     recording_post_finish_seconds: int = 900
-    recording_early_growth_checks: int = 3
-    recording_early_growth_interval_seconds: float = 2.0
+    recording_early_growth_checks: int = 6
+    recording_early_growth_interval_seconds: float = 10.0
     recording_periodic_growth_checks: int = 1
     recording_periodic_growth_interval_seconds: float = 30.0
     recording_growth_min_bytes: int = 1
@@ -166,11 +166,11 @@ class AppSettings:
             ),
             recording_early_growth_checks=_env_positive_int(
                 "CCATV_RECORDING_EARLY_GROWTH_CHECKS",
-                3,
+                6,
             ),
             recording_early_growth_interval_seconds=_env_non_negative_float(
                 "CCATV_RECORDING_EARLY_GROWTH_INTERVAL_SECONDS",
-                2.0,
+                10.0,
             ),
             recording_periodic_growth_checks=_env_positive_int(
                 "CCATV_RECORDING_PERIODIC_GROWTH_CHECKS",

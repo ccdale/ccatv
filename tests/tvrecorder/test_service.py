@@ -761,3 +761,42 @@ def test_list_service_channel_name_map_uses_serviceinfo_ids() -> None:
         "0x233a:0x1047:0x1047": "BBC ONE East",
         "0x233a:0x1047:0x1100": "BBC News",
     }
+
+
+def test_get_service_multiplex_prefers_explicit_multiplex_field() -> None:
+    class _StubDvbCtrl:
+        def run_command(self, command: str) -> DvbCtrlResult:
+            assert command == "serviceinfo 'BBC FOUR HD'"
+            return DvbCtrlResult(
+                command=("dvbctrl", "serviceinfo", "BBC FOUR HD"),
+                returncode=0,
+                stdout=(
+                    'Name                : "BBC FOUR HD"\n'
+                    "Multiplex           : 706000000\n"
+                    "ID                  : 233a.1047.107e\n"
+                ),
+                stderr="",
+            )
+
+    service = TvRecorderService(_StubDvbCtrl())
+
+    assert service.get_service_multiplex("BBC FOUR HD") == "706000000"
+
+
+def test_get_service_multiplex_falls_back_to_service_id_pair() -> None:
+    class _StubDvbCtrl:
+        def run_command(self, command: str) -> DvbCtrlResult:
+            assert command == "serviceinfo 'BBC News'"
+            return DvbCtrlResult(
+                command=("dvbctrl", "serviceinfo", "BBC News"),
+                returncode=0,
+                stdout=(
+                    'Name                : "BBC News"\n'
+                    "ID                  : 233a.1047.1100\n"
+                ),
+                stderr="",
+            )
+
+    service = TvRecorderService(_StubDvbCtrl())
+
+    assert service.get_service_multiplex("BBC News") == "0x233a:0x1047"

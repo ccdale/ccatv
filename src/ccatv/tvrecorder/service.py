@@ -64,8 +64,8 @@ class RecordingPaddingPolicy:
 
 @dataclass(frozen=True, slots=True)
 class RecordingHealthCheckPolicy:
-    early_growth_checks: int = 3
-    early_growth_interval_seconds: float = 2.0
+    early_growth_checks: int = 6
+    early_growth_interval_seconds: float = 10.0
     final_stability_checks: int = 2
     final_stability_interval_seconds: float = 2.0
     growth_min_bytes: int = 1
@@ -138,6 +138,11 @@ class TvRecorderService:
             if svc.casefold() == name_lower:
                 return svc
         return name
+
+    def get_service_multiplex(self, service_name: str) -> str | None:
+        """Return multiplex identifier details for a dvbstreamer service."""
+        result = self.run(serviceinfo_command(service_name))
+        return _parse_serviceinfo_multiplex(result.stdout)
 
     def select_service(self, service_name: str) -> DvbCtrlResult:
         """Select a primary service by name."""
@@ -614,6 +619,30 @@ def _parse_serviceinfo_channel_source_id(output: str) -> str | None:
             normalized = f"0x{normalized}"
         normalized_parts.append(normalized)
     return ":".join(normalized_parts)
+
+
+def _parse_serviceinfo_multiplex(output: str) -> str | None:
+    fields = _parse_kv_lines(output)
+    for key in ("multiplex", "mux", "transponder", "transport", "transport id", "tsid"):
+        value = fields.get(key)
+        if value:
+            return value
+
+    raw_id = fields.get("id")
+    if raw_id is None:
+        return None
+
+    parts = [part.strip() for part in raw_id.split(".") if part.strip()]
+    if len(parts) != 3:
+        return None
+
+    onid = parts[0].lower()
+    tsid = parts[1].lower()
+    if not onid.startswith("0x"):
+        onid = f"0x{onid}"
+    if not tsid.startswith("0x"):
+        tsid = f"0x{tsid}"
+    return f"{onid}:{tsid}"
 
 
 def _parse_int(value: str | None) -> int | None:

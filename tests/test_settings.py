@@ -51,8 +51,8 @@ def test_from_env_loads_core_defaults(monkeypatch) -> None:
     assert settings.dvbctrl_timeout_seconds == 10.0
     assert settings.recording_pre_start_seconds == 120
     assert settings.recording_post_finish_seconds == 900
-    assert settings.recording_early_growth_checks == 3
-    assert settings.recording_early_growth_interval_seconds == 2.0
+    assert settings.recording_early_growth_checks == 6
+    assert settings.recording_early_growth_interval_seconds == 10.0
     assert settings.recording_periodic_growth_checks == 1
     assert settings.recording_periodic_growth_interval_seconds == 30.0
     assert settings.recording_growth_min_bytes == 1
@@ -142,8 +142,8 @@ def test_from_env_falls_back_for_invalid_numeric_values(monkeypatch) -> None:
     assert settings.dvbstreamer_stop_timeout_seconds == 5.0
     assert settings.recording_pre_start_seconds == 120
     assert settings.recording_post_finish_seconds == 900
-    assert settings.recording_early_growth_checks == 3
-    assert settings.recording_early_growth_interval_seconds == 2.0
+    assert settings.recording_early_growth_checks == 6
+    assert settings.recording_early_growth_interval_seconds == 10.0
     assert settings.recording_periodic_growth_checks == 1
     assert settings.recording_periodic_growth_interval_seconds == 30.0
     assert settings.recording_growth_min_bytes == 1
@@ -184,8 +184,8 @@ def test_from_env_falls_back_for_negative_recording_policy_values(monkeypatch) -
 
     assert settings.recording_pre_start_seconds == 120
     assert settings.recording_post_finish_seconds == 900
-    assert settings.recording_early_growth_checks == 3
-    assert settings.recording_early_growth_interval_seconds == 2.0
+    assert settings.recording_early_growth_checks == 6
+    assert settings.recording_early_growth_interval_seconds == 10.0
     assert settings.recording_periodic_growth_checks == 1
     assert settings.recording_periodic_growth_interval_seconds == 30.0
     assert settings.recording_growth_min_bytes == 1
