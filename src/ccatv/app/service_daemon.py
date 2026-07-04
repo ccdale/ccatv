@@ -440,6 +440,79 @@ def _start_all_adapter_dvbs(
     return True
 
 
+def _recycle_idle_adapter_dvbstreamers_before_ota(
+    *,
+    context: AppContext,
+    logger: logging.Logger,
+    timeout_seconds: float = 5.0,
+) -> bool:
+    """Restart idle adapter dvbstreamer processes and wait for control readiness."""
+    adapter_pool = getattr(context, "adapter_pool", None)
+    if adapter_pool is None:
+        return True
+
+    idle_slots = adapter_pool.idle_slots_snapshot()
+    if not idle_slots:
+        logger.info("daily metadata sync preflight: no idle adapter slots to recycle")
+        return True
+
+    recycled_count = 0
+    for slot in idle_slots:
+        manager = getattr(slot, "dvbstreamer", None)
+        service = getattr(slot.capture_controller, "service", None)
+        if manager is None or service is None:
+            continue
+
+        was_running = _adapter_slot_dvbstreamer_is_running(slot)
+        if was_running:
+            try:
+                manager.stop(force_kill=True)
+            except Exception as exc:
+                logger.error(
+                    "daily metadata sync preflight failed to stop idle adapter dvbstreamer: adapter=%s error=%s",
+                    slot.adapter_index,
+                    exc,
+                )
+                return False
+
+        try:
+            status = manager.start()
+        except Exception as exc:
+            logger.error(
+                "daily metadata sync preflight failed to start idle adapter dvbstreamer: adapter=%s error=%s",
+                slot.adapter_index,
+                exc,
+            )
+            return False
+
+        ready_error = _wait_for_adapter_control_ready(
+            service=service,
+            timeout_seconds=timeout_seconds,
+        )
+        if ready_error is not None:
+            logger.error(
+                "daily metadata sync preflight adapter did not become ready: adapter=%s error=%s",
+                slot.adapter_index,
+                ready_error,
+            )
+            return False
+
+        recycled_count += 1
+        logger.info(
+            "daily metadata sync preflight recycled idle adapter dvbstreamer: adapter=%s was_running=%s state=%s pid=%s",
+            slot.adapter_index,
+            was_running,
+            getattr(status, "state", None),
+            getattr(status, "pid", None),
+        )
+
+    logger.info(
+        "daily metadata sync preflight complete: recycled_idle_adapters=%s",
+        recycled_count,
+    )
+    return True
+
+
 def _service_filter_state_is_idle(filters: list[str]) -> bool:
     if not filters:
         return True
@@ -1245,18 +1318,31 @@ def run_service_daemon(
                     now_local.strftime("%H:%M"),
                 )
 
-                ota_response = dispatcher.dispatch(
-                    {
-                        "apiVersion": "v1alpha1",
-                        "command": "metadata.ota.multimux.sync.run",
-                        "payload": {
-                            "grabCommand": "epgdata",
-                            "captureSeconds": 900.0,
-                            "maxRetries": 3,
-                            "retryDelaySeconds": 300.0,
+                preflight_ok = _recycle_idle_adapter_dvbstreamers_before_ota(
+                    context=context,
+                    logger=logger,
+                )
+                if preflight_ok:
+                    ota_response = dispatcher.dispatch(
+                        {
+                            "apiVersion": "v1alpha1",
+                            "command": "metadata.ota.multimux.sync.run",
+                            "payload": {
+                                "grabCommand": "epgdata",
+                                "captureSeconds": 900.0,
+                                "maxRetries": 3,
+                                "retryDelaySeconds": 300.0,
+                            },
+                        }
+                    )
+                else:
+                    ota_response = {
+                        "ok": False,
+                        "error": {
+                            "code": "PRECHECK_FAILED",
+                            "message": "daily metadata sync preflight failed: idle adapter recycle",
                         },
                     }
-                )
                 if ota_response.get("ok") is True:
                     logger.info("daily metadata sync step complete: OTA EPG")
                 else:

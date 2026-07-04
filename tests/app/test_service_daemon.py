@@ -18,6 +18,7 @@ from ccatv.app.service_daemon import (
     IPC_MAX_REQUEST_BYTES,
     _extract_broadcast_utc,
     _handle_ipc_request,
+    _recycle_idle_adapter_dvbstreamers_before_ota,
     _run_broadcast_time_healthcheck,
     main,
     run_http_server,
@@ -131,6 +132,31 @@ class StubDvbStreamer:
         if self.fail_start:
             raise RuntimeError("dvbstreamer failed to launch")
         return SimpleNamespace(state="running", pid=1234)
+
+
+@dataclass(slots=True)
+class StubRestartableDvbStreamer:
+    running: bool = True
+    started: int = 0
+    stopped: int = 0
+    fail_start: bool = False
+
+    def start(self):
+        self.started += 1
+        if self.fail_start:
+            raise RuntimeError("dvbstreamer failed to launch")
+        self.running = True
+        return SimpleNamespace(state="running", pid=1000 + self.started)
+
+    def stop(self, *, force_kill: bool = True):
+        del force_kill
+        self.stopped += 1
+        self.running = False
+        return SimpleNamespace(state="stopped", pid=None)
+
+    def status(self):
+        state = "running" if self.running else "stopped"
+        return SimpleNamespace(state=state)
 
 
 @dataclass(slots=True)
@@ -502,6 +528,138 @@ def test_run_service_daemon_daily_metadata_sync_requires_lineup(monkeypatch) -> 
 
     assert result == 1
     assert worker.cycle_count == 0
+
+
+def test_recycle_idle_adapter_dvbstreamers_before_ota_restarts_idle_slots() -> None:
+    logger = logging.getLogger("test.daemon.daily.preflight.recycle")
+    slot0_manager = StubRestartableDvbStreamer(running=True)
+    slot1_manager = StubRestartableDvbStreamer(running=False)
+    slot0_service = StubProbeService()
+    slot1_service = StubProbeService()
+    pool = StubAdapterPool(
+        slots=[
+            StubIdleSlot(
+                adapter_index=0,
+                capture_controller=StubCaptureController(service=slot0_service),
+                dvbstreamer=slot0_manager,
+            ),
+            StubIdleSlot(
+                adapter_index=1,
+                capture_controller=StubCaptureController(service=slot1_service),
+                dvbstreamer=slot1_manager,
+            ),
+        ]
+    )
+    context = StubContext(logger=logger, adapter_pool=pool)
+
+    assert (
+        _recycle_idle_adapter_dvbstreamers_before_ota(
+            context=context,
+            logger=logger,
+            timeout_seconds=0.1,
+        )
+        is True
+    )
+    assert slot0_manager.stopped == 1
+    assert slot0_manager.started == 1
+    assert slot1_manager.stopped == 0
+    assert slot1_manager.started == 1
+
+
+def test_recycle_idle_adapter_dvbstreamers_before_ota_returns_false_on_start_failure() -> None:
+    logger = logging.getLogger("test.daemon.daily.preflight.recycle.error")
+    failing_manager = StubRestartableDvbStreamer(running=True, fail_start=True)
+    pool = StubAdapterPool(
+        slots=[
+            StubIdleSlot(
+                adapter_index=2,
+                capture_controller=StubCaptureController(service=StubProbeService()),
+                dvbstreamer=failing_manager,
+            ),
+        ]
+    )
+    context = StubContext(logger=logger, adapter_pool=pool)
+
+    assert (
+        _recycle_idle_adapter_dvbstreamers_before_ota(
+            context=context,
+            logger=logger,
+            timeout_seconds=0.1,
+        )
+        is False
+    )
+
+
+def test_run_service_daemon_daily_metadata_sync_skips_ota_when_preflight_fails(
+    monkeypatch,
+) -> None:
+    worker = StubWorker()
+    context = StubContext(
+        logger=logging.getLogger("test.daemon.daily.sync.preflight.fail"),
+        settings=SimpleNamespace(ota_epg_channel_name="BBC ONE East"),
+    )
+    dispatch_calls: list[tuple[str, dict[str, object]]] = []
+
+    class _StubDispatcher:
+        def dispatch(self, request):
+            dispatch_calls.append((request["command"], request.get("payload", {})))
+            return {
+                "apiVersion": "v1alpha1",
+                "ok": True,
+                "payload": {},
+            }
+
+    now_values = iter(
+        [
+            datetime(2026, 5, 30, 2, 59, tzinfo=timezone.utc),
+            datetime(2026, 5, 31, 3, 5, tzinfo=timezone.utc),
+        ]
+    )
+
+    class _FixedDateTime:
+        @classmethod
+        def now(cls):
+            del cls
+            return next(now_values)
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon._build_dispatcher",
+        lambda *_args, **_kwargs: _StubDispatcher(),
+    )
+    monkeypatch.setattr("ccatv.app.service_daemon.datetime", _FixedDateTime)
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon._recycle_idle_adapter_dvbstreamers_before_ota",
+        lambda **_kwargs: False,
+    )
+
+    sleep_calls = {"count": 0}
+
+    def _should_stop() -> bool:
+        return sleep_calls["count"] >= 1
+
+    def _fake_sleep(_seconds: float) -> None:
+        sleep_calls["count"] += 1
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time.sleep", _fake_sleep)
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=False,
+        enable_daily_metadata_sync=True,
+        daily_metadata_sync_time="03:00",
+        sd_lineup_id="UK-TEST",
+        should_stop=_should_stop,
+    )
+
+    assert result == 0
+    assert [call[0] for call in dispatch_calls] == ["metadata.sd.sync.run"]
 
 
 def test_run_service_daemon_idle_clock_skew_compensates_cycle_time(
