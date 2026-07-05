@@ -148,6 +148,20 @@
         <div class="empty">Sign in to load upcoming films.</div>
       </section>
 
+      <div class="pagination">
+        <div id="pagination-meta-bottom" class="pagination-meta">Page loading.</div>
+        <div class="pagination-controls">
+          <label for="page-size-select-bottom">Page size</label>
+          <select id="page-size-select-bottom">
+            <option value="20">20</option>
+            <option value="40" selected>40</option>
+            <option value="80">80</option>
+          </select>
+          <button id="previous-page-button-bottom" class="secondary" type="button">Previous</button>
+          <button id="next-page-button-bottom" class="secondary" type="button">Next</button>
+        </div>
+      </div>
+
       <dialog id="ignore-manager-dialog" class="ignore-manager">
         <div class="ignore-manager-body">
           <div class="ignore-manager-head">
@@ -184,9 +198,13 @@
       const statusNode = document.getElementById("status");
       const windowMeta = document.getElementById("window-meta");
       const paginationMeta = document.getElementById("pagination-meta");
+      const paginationMetaBottom = document.getElementById("pagination-meta-bottom");
       const pageSizeSelect = document.getElementById("page-size-select");
+      const pageSizeSelectBottom = document.getElementById("page-size-select-bottom");
       const previousPageButton = document.getElementById("previous-page-button");
       const nextPageButton = document.getElementById("next-page-button");
+      const previousPageButtonBottom = document.getElementById("previous-page-button-bottom");
+      const nextPageButtonBottom = document.getElementById("next-page-button-bottom");
       const filmList = document.getElementById("film-list");
       const ignoredPanel = document.getElementById("ignored-panel");
       const ignoredChannelsNode = document.getElementById("ignored-channels");
@@ -279,24 +297,65 @@
       function renderPagination() {
         if (!isAuthenticated) {
           paginationMeta.textContent = "Sign in to browse upcoming films.";
+          paginationMetaBottom.textContent = "Sign in to browse upcoming films.";
           previousPageButton.disabled = true;
+          previousPageButtonBottom.disabled = true;
           nextPageButton.disabled = true;
+          nextPageButtonBottom.disabled = true;
           pageSizeSelect.disabled = true;
+          pageSizeSelectBottom.disabled = true;
           return;
         }
         pageSizeSelect.disabled = false;
+        pageSizeSelectBottom.disabled = false;
         pageSizeSelect.value = String(pageLimit);
+        pageSizeSelectBottom.value = String(pageLimit);
         if (paginationTotal === 0) {
           paginationMeta.textContent = "No films in this window.";
+          paginationMetaBottom.textContent = "No films in this window.";
           previousPageButton.disabled = true;
+          previousPageButtonBottom.disabled = true;
           nextPageButton.disabled = true;
+          nextPageButtonBottom.disabled = true;
           return;
         }
         const fromIndex = pageOffset + 1;
         const toIndex = Math.min(pageOffset + paginationReturned, paginationTotal);
         paginationMeta.textContent = `Showing ${fromIndex}-${toIndex} of ${paginationTotal}.`;
+        paginationMetaBottom.textContent = `Showing ${fromIndex}-${toIndex} of ${paginationTotal}.`;
         previousPageButton.disabled = pageOffset === 0;
+        previousPageButtonBottom.disabled = pageOffset === 0;
         nextPageButton.disabled = pageOffset + paginationReturned >= paginationTotal;
+        nextPageButtonBottom.disabled = pageOffset + paginationReturned >= paginationTotal;
+      }
+
+      async function applyPageSizeChange(rawValue) {
+        const value = Number.parseInt(String(rawValue || "40"), 10);
+        if (!Number.isFinite(value) || value <= 0) {
+          return;
+        }
+        pageLimit = value;
+        pageOffset = 0;
+        await loadFilms();
+        renderFilms();
+      }
+
+      async function goPreviousPage() {
+        if (pageOffset === 0) {
+          return;
+        }
+        pageOffset = Math.max(0, pageOffset - pageLimit);
+        await loadFilms();
+        renderFilms();
+      }
+
+      async function goNextPage() {
+        if (pageOffset + paginationReturned >= paginationTotal) {
+          return;
+        }
+        pageOffset += pageLimit;
+        await loadFilms();
+        renderFilms();
       }
 
       async function loadFilms({ allowOffsetRewind = true } = {}) {
@@ -926,41 +985,48 @@
       });
 
       pageSizeSelect.addEventListener("change", async () => {
-        const value = Number.parseInt(String(pageSizeSelect.value || "40"), 10);
-        if (!Number.isFinite(value) || value <= 0) {
-          return;
-        }
-        pageLimit = value;
-        pageOffset = 0;
         try {
-          await loadFilms();
-          renderFilms();
+          await applyPageSizeChange(pageSizeSelect.value);
+        } catch (error) {
+          setStatus(error.message || "Failed to change page size.", "error");
+        }
+      });
+
+      pageSizeSelectBottom.addEventListener("change", async () => {
+        try {
+          await applyPageSizeChange(pageSizeSelectBottom.value);
         } catch (error) {
           setStatus(error.message || "Failed to change page size.", "error");
         }
       });
 
       previousPageButton.addEventListener("click", async () => {
-        if (pageOffset === 0) {
-          return;
-        }
-        pageOffset = Math.max(0, pageOffset - pageLimit);
         try {
-          await loadFilms();
-          renderFilms();
+          await goPreviousPage();
+        } catch (error) {
+          setStatus(error.message || "Failed to load previous page.", "error");
+        }
+      });
+
+      previousPageButtonBottom.addEventListener("click", async () => {
+        try {
+          await goPreviousPage();
         } catch (error) {
           setStatus(error.message || "Failed to load previous page.", "error");
         }
       });
 
       nextPageButton.addEventListener("click", async () => {
-        if (pageOffset + paginationReturned >= paginationTotal) {
-          return;
-        }
-        pageOffset += pageLimit;
         try {
-          await loadFilms();
-          renderFilms();
+          await goNextPage();
+        } catch (error) {
+          setStatus(error.message || "Failed to load next page.", "error");
+        }
+      });
+
+      nextPageButtonBottom.addEventListener("click", async () => {
+        try {
+          await goNextPage();
         } catch (error) {
           setStatus(error.message || "Failed to load next page.", "error");
         }

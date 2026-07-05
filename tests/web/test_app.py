@@ -355,6 +355,9 @@ def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
     assert "Unique programs" in body
     assert "Manage ignores" in body
     assert "page-size-select" in body
+    assert "page-size-select-bottom" in body
+    assert "previous-page-button-bottom" in body
+    assert "next-page-button-bottom" in body
     assert "Ignore channel" in body
     assert "Ignore title" in body
     assert "Ignore Manager" in body
