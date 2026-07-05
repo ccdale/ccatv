@@ -1008,6 +1008,92 @@ def test_clock_healthcheck_restarts_primary_dvbstreamer_when_unreachable(
     assert "restarted primary dvbstreamer" in caplog.text
 
 
+def test_clock_healthcheck_stale_time_retunes_and_accepts_fresh_time(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    logger = logging.getLogger("test.daemon.clock.stale.retune")
+    calls: list[str] = []
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            calls.append(command)
+            assert command == "date"
+            if len(calls) == 1:
+                return SimpleNamespace(stdout="2026-07-04T17:21:40Z\n")
+            return SimpleNamespace(stdout="2026-07-05T03:00:20Z\n")
+
+    class _StubTvRecorder:
+        def resolve_service_name(self, name: str) -> str:
+            return name
+
+        def select_service(self, name: str):
+            assert name == "BBC ONE East"
+            return object()
+
+    context = StubContext(
+        logger=logger,
+        settings=SimpleNamespace(ota_epg_channel_name="BBC ONE East"),
+    )
+    context.dvbctrl = _StubDvbCtrl()
+    context.tvrecorder = _StubTvRecorder()
+
+    with caplog.at_level(logging.INFO):
+        skew = _run_broadcast_time_healthcheck(
+            context=context,
+            logger=logger,
+            now_timestamp=datetime(2026, 7, 5, 3, 0, 0, tzinfo=timezone.utc).timestamp(),
+            skew_threshold_seconds=60.0,
+        )
+
+    assert skew == 20.0
+    assert calls == ["date", "date"]
+    assert "stale broadcast time; attempting retune" in caplog.text
+    assert "accepted refreshed broadcast time after retune" in caplog.text
+
+
+def test_clock_healthcheck_rejects_stale_time_when_retune_not_fresh(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    logger = logging.getLogger("test.daemon.clock.stale.reject")
+    calls: list[str] = []
+
+    class _StubDvbCtrl:
+        def run_command(self, command: str):
+            calls.append(command)
+            assert command == "date"
+            if len(calls) == 1:
+                return SimpleNamespace(stdout="2026-07-04T17:21:40Z\n")
+            return SimpleNamespace(stdout="No date/time has been received!\n")
+
+    class _StubTvRecorder:
+        def resolve_service_name(self, name: str) -> str:
+            return name
+
+        def select_service(self, name: str):
+            assert name == "BBC ONE East"
+            return object()
+
+    context = StubContext(
+        logger=logger,
+        settings=SimpleNamespace(ota_epg_channel_name="BBC ONE East"),
+    )
+    context.dvbctrl = _StubDvbCtrl()
+    context.tvrecorder = _StubTvRecorder()
+
+    with caplog.at_level(logging.WARNING):
+        skew = _run_broadcast_time_healthcheck(
+            context=context,
+            logger=logger,
+            now_timestamp=datetime(2026, 7, 5, 3, 0, 0, tzinfo=timezone.utc).timestamp(),
+            skew_threshold_seconds=60.0,
+        )
+
+    assert skew is None
+    assert calls == ["date", "date"]
+    assert "stale broadcast time; attempting retune" in caplog.text
+    assert "stale broadcast time rejected; no fresh date/time after retune" in caplog.text
+
+
 def test_extract_broadcast_utc_interprets_ctime_as_local_time(monkeypatch) -> None:
     class _FakeTime:
         @staticmethod

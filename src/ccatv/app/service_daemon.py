@@ -117,6 +117,7 @@ def _run_broadcast_time_healthcheck(
     logger: logging.Logger,
     now_timestamp: float,
     skew_threshold_seconds: float,
+    stale_skew_reject_seconds: float = 300.0,
 ) -> float | None:
     dvbctrl = getattr(context, "dvbctrl", None)
     if dvbctrl is None:
@@ -150,31 +151,11 @@ def _run_broadcast_time_healthcheck(
                 )
                 return None
             raw_output = getattr(result, "stdout", "")
-            if not _is_no_broadcast_time_received_output(raw_output):
-                broadcast_utc = _extract_broadcast_utc(raw_output)
-                if broadcast_utc is not None:
-                    skew_seconds = broadcast_utc.timestamp() - now_timestamp
-                    if abs(skew_seconds) > skew_threshold_seconds:
-                        system_utc = datetime_module.datetime.fromtimestamp(
-                            now_timestamp,
-                            tz=timezone.utc,
-                        )
-                        logger.warning(
-                            "idle healthcheck clock skew exceeds threshold: system_utc=%s broadcast_utc=%s skew_seconds=%.1f",
-                            system_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                            broadcast_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                            skew_seconds,
-                        )
-                    else:
-                        logger.debug(
-                            "idle healthcheck clock skew within threshold: skew_seconds=%.1f",
-                            skew_seconds,
-                        )
-                    return skew_seconds
-        logger.debug(
-            "idle healthcheck clock probe not ready yet (no broadcast date/time received)"
-        )
-        return None
+        if _is_no_broadcast_time_received_output(raw_output):
+            logger.debug(
+                "idle healthcheck clock probe not ready yet (no broadcast date/time received)"
+            )
+            return None
 
     broadcast_utc = _extract_broadcast_utc(raw_output)
     if broadcast_utc is None:
@@ -184,6 +165,68 @@ def _run_broadcast_time_healthcheck(
         return None
 
     skew_seconds = broadcast_utc.timestamp() - now_timestamp
+
+    if abs(skew_seconds) > stale_skew_reject_seconds:
+        system_utc = datetime_module.datetime.fromtimestamp(
+            now_timestamp,
+            tz=timezone.utc,
+        )
+        logger.warning(
+            "idle healthcheck clock probe reported stale broadcast time; attempting retune: system_utc=%s broadcast_utc=%s skew_seconds=%.1f",
+            system_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            broadcast_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            skew_seconds,
+        )
+
+        retuned = _attempt_idle_clock_probe_retune(context=context, logger=logger)
+        if not retuned:
+            logger.warning(
+                "idle healthcheck clock probe stale broadcast time rejected; retune unavailable"
+            )
+            return None
+
+        try:
+            refreshed = dvbctrl.run_command("date")
+        except Exception as exc:
+            logger.warning(
+                "idle healthcheck clock probe retry failed after stale-time retune: %s",
+                exc,
+            )
+            return None
+
+        refreshed_output = getattr(refreshed, "stdout", "")
+        if _is_no_broadcast_time_received_output(refreshed_output):
+            logger.warning(
+                "idle healthcheck clock probe stale broadcast time rejected; no fresh date/time after retune"
+            )
+            return None
+
+        refreshed_broadcast_utc = _extract_broadcast_utc(refreshed_output)
+        if refreshed_broadcast_utc is None:
+            logger.warning(
+                "idle healthcheck clock probe stale-time retune returned unparsable date output"
+            )
+            return None
+
+        refreshed_skew_seconds = refreshed_broadcast_utc.timestamp() - now_timestamp
+        if abs(refreshed_skew_seconds) > stale_skew_reject_seconds:
+            logger.warning(
+                "idle healthcheck clock probe stale broadcast time rejected after retune: system_utc=%s broadcast_utc=%s skew_seconds=%.1f",
+                system_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                refreshed_broadcast_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                refreshed_skew_seconds,
+            )
+            return None
+
+        broadcast_utc = refreshed_broadcast_utc
+        skew_seconds = refreshed_skew_seconds
+        logger.info(
+            "idle healthcheck clock probe accepted refreshed broadcast time after retune: system_utc=%s broadcast_utc=%s skew_seconds=%.1f",
+            system_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            broadcast_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            skew_seconds,
+        )
+
     if abs(skew_seconds) > skew_threshold_seconds:
         system_utc = datetime_module.datetime.fromtimestamp(
             now_timestamp,
