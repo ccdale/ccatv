@@ -158,6 +158,7 @@ class _StubServiceClient:
                     "channelScope": "favourites",
                     "minDurationHours": 1.5,
                     "maxDurationHours": 3.5,
+                    "uniquePrograms": True,
                 },
                 "pagination": {
                     "limit": 40,
@@ -350,6 +351,8 @@ def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
     assert "Chronological list" in body
     assert "Record" in body
     assert "channel-scope-select" in body
+    assert "unique-programs-select" in body
+    assert "Unique programs" in body
     assert "Manage ignores" in body
     assert "page-size-select" in body
     assert "Ignore channel" in body
@@ -1053,7 +1056,7 @@ def test_upcoming_films_forwards_query_params(monkeypatch) -> None:
     client = app.test_client()
 
     response = client.get(
-        "/api/upcoming-films?startAtUtc=2026-05-25T20:00:00Z&windowHours=48&minDurationHours=1.5&maxDurationHours=3.5&limit=20&offset=40"
+        "/api/upcoming-films?startAtUtc=2026-05-25T20:00:00Z&windowHours=48&minDurationHours=1.5&maxDurationHours=3.5&uniquePrograms=true&limit=20&offset=40"
     )
 
     assert response.status_code == 200
@@ -1067,6 +1070,7 @@ def test_upcoming_films_forwards_query_params(monkeypatch) -> None:
                 "windowHours": 48.0,
                 "minDurationHours": 1.5,
                 "maxDurationHours": 3.5,
+                "uniquePrograms": True,
                 "limit": 20,
                 "offset": 40,
             },
@@ -1155,6 +1159,28 @@ def test_upcoming_films_rejects_negative_offset(monkeypatch) -> None:
     client = app.test_client()
 
     response = client.get("/api/upcoming-films?offset=-1")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
+def test_upcoming_films_rejects_invalid_unique_programs(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/upcoming-films?uniquePrograms=maybe")
 
     assert response.status_code == 400
     assert response.get_json()["ok"] is False

@@ -767,6 +767,21 @@ def create_app(
                 )
                 return jsonify(response), status_code
 
+        unique_programs = request.args.get("uniquePrograms", default=None, type=str)
+        if unique_programs is not None:
+            value = unique_programs.strip().lower()
+            if value in {"1", "true", "yes", "on"}:
+                payload["uniquePrograms"] = True
+            elif value in {"0", "false", "no", "off"}:
+                payload["uniquePrograms"] = False
+            else:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'uniquePrograms' must be boolean",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+
         limit_value = request.args.get("limit", default=None, type=str)
         if limit_value is not None:
             try:

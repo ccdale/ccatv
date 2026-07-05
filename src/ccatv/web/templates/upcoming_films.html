@@ -111,6 +111,11 @@
             <option value="favourites">Favourites</option>
             <option value="all">All</option>
           </select>
+          <label for="unique-programs-select">View</label>
+          <select id="unique-programs-select">
+            <option value="true" selected>Unique programs</option>
+            <option value="false">All showings</option>
+          </select>
           <button id="manage-ignores-button" class="secondary" type="button">Manage ignores</button>
           <button id="refresh-button" class="ghost" type="button">Refresh films</button>
         </div>
@@ -172,6 +177,7 @@
       const refreshButton = document.getElementById("refresh-button");
       const manageIgnoresButton = document.getElementById("manage-ignores-button");
       const channelScopeSelect = document.getElementById("channel-scope-select");
+      const uniqueProgramsSelect = document.getElementById("unique-programs-select");
       const statusNode = document.getElementById("status");
       const windowMeta = document.getElementById("window-meta");
       const paginationMeta = document.getElementById("pagination-meta");
@@ -194,6 +200,7 @@
       let schedules = [];
       let seriesSubscriptions = new Set();
       let channelScope = "favourites";
+      let uniquePrograms = true;
       let pageLimit = 40;
       let pageOffset = 0;
       let paginationReturned = 0;
@@ -292,6 +299,7 @@
       async function loadFilms({ allowOffsetRewind = true } = {}) {
         const query = new URLSearchParams({
           channelScope,
+          uniquePrograms: uniquePrograms ? "true" : "false",
           limit: String(pageLimit),
           offset: String(pageOffset),
         });
@@ -302,6 +310,9 @@
         const pagination = payload.pagination || {};
         if (typeof filters.channelScope === "string") {
           channelScope = String(filters.channelScope).toLowerCase();
+        }
+        if (typeof filters.uniquePrograms === "boolean") {
+          uniquePrograms = filters.uniquePrograms;
         }
         paginationReturned = Number.isFinite(pagination.returned) ? Number(pagination.returned) : films.length;
         paginationTotal = Number.isFinite(pagination.total) ? Number(pagination.total) : films.length;
@@ -321,6 +332,7 @@
             .filter(Boolean)
         );
         channelScopeSelect.value = channelScope;
+        uniqueProgramsSelect.value = uniquePrograms ? "true" : "false";
         windowMeta.textContent = `Window ${formatDateTime(window.startAtUtc)} to ${formatDateTime(window.endAtUtc)}.`;
         renderPagination();
       }
@@ -527,6 +539,11 @@
       }
 
       function findOtherShowings(film) {
+        if (Array.isArray(film.otherShowings)) {
+          return film.otherShowings
+            .slice()
+            .sort((a, b) => String(a.startAtUtc).localeCompare(String(b.startAtUtc)));
+        }
         return films
           .filter((candidate) => sameFilmKey(candidate, film))
           .filter((candidate) => !(candidate.channelName === film.channelName && candidate.startAtUtc === film.startAtUtc))
@@ -731,7 +748,15 @@
           source.className = "pill";
           source.textContent = `${film.source || "unknown source"}${film.contentRef ? " | content id" : ""}`;
 
-          card.append(header, meta, source);
+          const showingCount = Number.isFinite(film.showingCount) ? Number(film.showingCount) : null;
+          if (showingCount && showingCount > 1) {
+            const countPill = document.createElement("span");
+            countPill.className = "pill";
+            countPill.textContent = `${showingCount} showings`;
+            card.append(header, meta, source, countPill);
+          } else {
+            card.append(header, meta, source);
+          }
           if (film.description) {
             const description = document.createElement("div");
             description.className = "film-description";
@@ -856,6 +881,17 @@
           await loadPageData();
         } catch (error) {
           setStatus(error.message || "Failed to apply channel scope.", "error");
+        }
+      });
+
+      uniqueProgramsSelect.addEventListener("change", async () => {
+        uniquePrograms = String(uniqueProgramsSelect.value || "true").toLowerCase() !== "false";
+        pageOffset = 0;
+        try {
+          await loadFilms();
+          renderFilms();
+        } catch (error) {
+          setStatus(error.message || "Failed to change view mode.", "error");
         }
       });
 

@@ -1906,6 +1906,128 @@ def test_dispatch_metadata_films_list_applies_pagination(monkeypatch) -> None:
     assert films[0]["title"] == "Film B"
 
 
+def test_dispatch_metadata_films_list_rejects_invalid_unique_programs() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "uniquePrograms": "yes",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_metadata_films_list_groups_unique_by_ota_identity(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "Film4", "FILM4", "14"),
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary,
+            metadata_json
+        ) VALUES(?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                "dvbstreamer_ota",
+                "prog-100",
+                "Film A",
+                "Feature",
+                "Movie",
+                '{"contentRef":"example.org/content-a"}',
+            ),
+            (
+                "dvbstreamer_ota",
+                "prog-101",
+                "Film A",
+                "Feature",
+                "Movie",
+                '{"contentRef":"example.org/content-a"}',
+            ),
+            (
+                "dvbstreamer_ota",
+                "prog-201",
+                "Film B",
+                "Feature",
+                "Movie",
+                None,
+            ),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "2026-05-25T20:00:00Z", "2026-05-25T22:00:00Z", 7200),
+            (1, 2, "2026-05-26T20:00:00Z", "2026-05-26T22:00:00Z", 7200),
+            (1, 3, "2026-05-27T20:00:00Z", "2026-05-27T22:00:00Z", 7200),
+            (1, 3, "2026-05-28T20:00:00Z", "2026-05-28T22:00:00Z", 7200),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(resolve_service_name=lambda name: name)
+    monkeypatch.setattr(
+        dispatcher,
+        "_load_service_flags_from_adapter_db",
+        lambda _service_name: (True, False, False),
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "startAtUtc": "2026-05-25T19:00:00Z",
+                "windowHours": 96,
+                "channelScope": "all",
+                "uniquePrograms": True,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    films = response["payload"]["films"]
+    assert len(films) == 2
+
+    by_title = {film["title"]: film for film in films}
+    assert by_title["Film A"]["showingCount"] == 2
+    assert len(by_title["Film A"]["otherShowings"]) == 1
+    assert by_title["Film B"]["showingCount"] == 2
+    assert len(by_title["Film B"]["otherShowings"]) == 1
+
+
 def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

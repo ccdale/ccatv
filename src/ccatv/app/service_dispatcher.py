@@ -1905,6 +1905,13 @@ class ServiceCommandDispatcher:
                 message="maxDurationHours must be greater than minDurationHours",
             )
 
+        unique_programs = payload.get("uniquePrograms", False)
+        if not isinstance(unique_programs, bool):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="uniquePrograms must be a boolean",
+            )
+
         limit_value = payload.get("limit", 40)
         if not isinstance(limit_value, int) or limit_value <= 0:
             raise ServiceCommandError(
@@ -1969,7 +1976,8 @@ class ServiceCommandDispatcher:
                 p.original_air_date,
                 json_extract(p.metadata_json, '$.contentRef') AS content_ref,
                 json_extract(p.metadata_json, '$.seriesRef') AS series_ref,
-                json_extract(p.metadata_json, '$.releaseYear') AS release_year
+                json_extract(p.metadata_json, '$.releaseYear') AS release_year,
+                p.source_program_id
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
@@ -2061,6 +2069,7 @@ class ServiceCommandDispatcher:
                 "contentRef": str(row[15]) if row[15] is not None else None,
                 "seriesRef": str(row[16]) if row[16] is not None else None,
                 "releaseYear": int(row[17]) if row[17] is not None else None,
+                "sourceProgramId": str(row[18]) if row[18] is not None else None,
                 "episodeMetadata": self._build_episode_metadata(
                     season_number=int(row[11]) if row[11] is not None else None,
                     episode_number=int(row[12]) if row[12] is not None else None,
@@ -2088,6 +2097,35 @@ class ServiceCommandDispatcher:
                 str(film["title"]).casefold(),
             ),
         )
+
+        if unique_programs:
+            grouped: dict[str, list[dict[str, object]]] = {}
+            for film in films:
+                key = self._films_program_identity_key(film)
+                grouped.setdefault(key, []).append(film)
+
+            unique_films: list[dict[str, object]] = []
+            for showings in grouped.values():
+                ordered_showings = sorted(
+                    showings,
+                    key=lambda item: (
+                        str(item["startAtUtc"]),
+                        str(item["channelName"]).casefold(),
+                    ),
+                )
+                primary = dict(ordered_showings[0])
+                primary["showingCount"] = len(ordered_showings)
+                primary["otherShowings"] = ordered_showings[1:]
+                unique_films.append(primary)
+
+            films = sorted(
+                unique_films,
+                key=lambda film: (
+                    str(film["startAtUtc"]),
+                    str(film["title"]).casefold(),
+                ),
+            )
+
         total_films = len(films)
         paged_films = films[offset_value : offset_value + limit_value]
 
@@ -2100,6 +2138,7 @@ class ServiceCommandDispatcher:
                 "channelScope": channel_scope_value,
                 "minDurationHours": float(min_duration_hours),
                 "maxDurationHours": float(max_duration_hours),
+                "uniquePrograms": unique_programs,
             },
             "pagination": {
                 "limit": limit_value,
@@ -2110,6 +2149,23 @@ class ServiceCommandDispatcher:
             "ignores": ignore_rules,
             "films": paged_films,
         }
+
+    def _films_program_identity_key(self, film: dict[str, object]) -> str:
+        source = str(film.get("source") or "").strip().casefold()
+        content_ref = str(film.get("contentRef") or "").strip().casefold()
+        source_program_id = str(film.get("sourceProgramId") or "").strip().casefold()
+        title = str(film.get("title") or "").strip().casefold()
+        release_year = film.get("releaseYear")
+
+        if source == "dvbstreamer_ota" and content_ref:
+            return f"ota:content:{content_ref}"
+        if source == "dvbstreamer_ota" and source_program_id:
+            return f"ota:program:{source_program_id}"
+        if content_ref:
+            return f"content:{content_ref}"
+        if source_program_id:
+            return f"program:{source}:{source_program_id}"
+        return f"title:{title}:{release_year}"
 
     def _metadata_films_ignore_list(
         self, payload: dict[str, object]
