@@ -77,6 +77,9 @@
       .other-showings[hidden] { display: none; }
       .other-showings-title { font-weight: 700; font-size: 0.9rem; }
       .other-showing-row { margin-top: 0.3rem; color: var(--muted); font-size: 0.9rem; }
+      .other-showing-row { display: flex; justify-content: space-between; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+      .other-showing-text { flex: 1 1 280px; }
+      .other-showing-actions { display: flex; gap: 0.45rem; }
       .pill { display: inline-flex; align-items: center; padding: 0.28rem 0.55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.84rem; }
       .empty { border: 1px dashed var(--line); border-radius: 14px; padding: 1.2rem; color: var(--muted); background: rgba(255, 255, 255, 0.6); }
       @media (max-width: 760px) {
@@ -779,7 +782,34 @@
           for (const showing of otherShowings) {
             const row = document.createElement("div");
             row.className = "other-showing-row";
-            row.textContent = `${showing.channelName || "-"} | ${formatDateTime(showing.startAtUtc)} - ${formatDateTime(showing.stopAtUtc)} | ${formatDuration(showing.durationSeconds)}`;
+
+            const text = document.createElement("div");
+            text.className = "other-showing-text";
+            text.textContent = `${showing.channelName || "-"} | ${formatDateTime(showing.startAtUtc)} - ${formatDateTime(showing.stopAtUtc)} | ${formatDuration(showing.durationSeconds)}`;
+
+            const actions = document.createElement("div");
+            actions.className = "other-showing-actions";
+            const existingShowing = findScheduledJob(showing);
+            const showingRecordButton = document.createElement("button");
+            showingRecordButton.type = "button";
+            showingRecordButton.textContent = existingShowing ? "Cancel" : "Record";
+            showingRecordButton.className = existingShowing ? "secondary" : "";
+            showingRecordButton.addEventListener("click", async () => {
+              showingRecordButton.disabled = true;
+              try {
+                const action = await toggleFilmRecording(showing);
+                await loadSchedules();
+                renderFilms();
+                setStatus(`${showing.title || film.title}: showing ${action}.`);
+              } catch (error) {
+                setStatus(error.message || "Failed to update showing recording.", "error");
+              } finally {
+                showingRecordButton.disabled = false;
+              }
+            });
+
+            actions.append(showingRecordButton);
+            row.append(text, actions);
             showingsPanel.append(row);
           }
 

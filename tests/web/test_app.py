@@ -361,6 +361,7 @@ def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
     assert "Clear all channels" in body
     assert "Clear all titles" in body
     assert "Other showings" in body
+    assert "Failed to update showing recording." in body
     assert stub.calls == []
 
 
