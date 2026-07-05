@@ -48,12 +48,24 @@
       .toolbar-controls { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
       .toolbar-controls label { color: var(--muted); font-size: 0.9rem; }
       select { font: inherit; border: 1px solid var(--line); border-radius: 999px; padding: 0.55rem 0.75rem; background: #fff; color: var(--ink); }
+      .pagination { margin-top: 0.75rem; display: flex; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      .pagination-meta { color: var(--muted); font-size: 0.9rem; }
+      .pagination-controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+      .pagination-controls label { color: var(--muted); font-size: 0.88rem; }
       .ignored-panel { margin-top: 0.75rem; border: 1px solid var(--line); border-radius: 14px; padding: 0.75rem 0.8rem; background: rgba(255, 255, 255, 0.76); }
       .ignored-panel[hidden] { display: none; }
       .ignored-title { font-weight: 700; font-size: 0.92rem; margin-bottom: 0.35rem; }
       .ignored-row { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; margin-top: 0.4rem; }
       .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.45rem; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--muted); font-size: 0.86rem; }
       .chip button { padding: 0.35rem 0.55rem; border-radius: 999px; font-size: 0.83rem; }
+      dialog.ignore-manager { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(760px, calc(100vw - 1.5rem)); box-shadow: var(--shadow); }
+      dialog.ignore-manager::backdrop { background: rgba(0, 0, 0, 0.25); }
+      .ignore-manager-body { padding: 0.95rem; display: grid; gap: 0.7rem; }
+      .ignore-manager-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
+      .ignore-manager-section { border: 1px solid var(--line); border-radius: 12px; padding: 0.65rem; background: rgba(255, 255, 255, 0.82); }
+      .ignore-manager-section h3 { margin: 0; font-size: 0.98rem; }
+      .ignore-manager-actions { margin-top: 0.5rem; display: flex; gap: 0.45rem; flex-wrap: wrap; }
+      .ignore-manager-list { margin-top: 0.45rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
       .film-list { margin-top: 0.9rem; display: grid; gap: 0.65rem; }
       .film-card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 0.85rem 0.95rem; display: grid; gap: 0.45rem; }
       .film-header { display: flex; justify-content: space-between; gap: 0.7rem; flex-wrap: wrap; align-items: center; }
@@ -99,6 +111,7 @@
             <option value="favourites">Favourites</option>
             <option value="all">All</option>
           </select>
+          <button id="manage-ignores-button" class="secondary" type="button">Manage ignores</button>
           <button id="refresh-button" class="ghost" type="button">Refresh films</button>
         </div>
       </div>
@@ -109,9 +122,46 @@
         <div id="ignored-titles" class="ignored-row"></div>
       </section>
 
+      <div class="pagination">
+        <div id="pagination-meta" class="pagination-meta">Page loading.</div>
+        <div class="pagination-controls">
+          <label for="page-size-select">Page size</label>
+          <select id="page-size-select">
+            <option value="20">20</option>
+            <option value="40" selected>40</option>
+            <option value="80">80</option>
+          </select>
+          <button id="previous-page-button" class="secondary" type="button">Previous</button>
+          <button id="next-page-button" class="secondary" type="button">Next</button>
+        </div>
+      </div>
+
       <section id="film-list" class="film-list">
         <div class="empty">Sign in to load upcoming films.</div>
       </section>
+
+      <dialog id="ignore-manager-dialog" class="ignore-manager">
+        <div class="ignore-manager-body">
+          <div class="ignore-manager-head">
+            <h2>Ignore Manager</h2>
+            <button id="close-ignore-manager-button" class="secondary" type="button">Close</button>
+          </div>
+          <div class="ignore-manager-section">
+            <h3>Ignored channels</h3>
+            <div id="ignore-manager-channels" class="ignore-manager-list"></div>
+            <div class="ignore-manager-actions">
+              <button id="clear-ignored-channels-button" class="ghost" type="button">Clear all channels</button>
+            </div>
+          </div>
+          <div class="ignore-manager-section">
+            <h3>Ignored titles</h3>
+            <div id="ignore-manager-titles" class="ignore-manager-list"></div>
+            <div class="ignore-manager-actions">
+              <button id="clear-ignored-titles-button" class="ghost" type="button">Clear all titles</button>
+            </div>
+          </div>
+        </div>
+      </dialog>
     </main>
 
     <script>
@@ -120,19 +170,34 @@
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
+      const manageIgnoresButton = document.getElementById("manage-ignores-button");
       const channelScopeSelect = document.getElementById("channel-scope-select");
       const statusNode = document.getElementById("status");
       const windowMeta = document.getElementById("window-meta");
+      const paginationMeta = document.getElementById("pagination-meta");
+      const pageSizeSelect = document.getElementById("page-size-select");
+      const previousPageButton = document.getElementById("previous-page-button");
+      const nextPageButton = document.getElementById("next-page-button");
       const filmList = document.getElementById("film-list");
       const ignoredPanel = document.getElementById("ignored-panel");
       const ignoredChannelsNode = document.getElementById("ignored-channels");
       const ignoredTitlesNode = document.getElementById("ignored-titles");
+      const ignoreManagerDialog = document.getElementById("ignore-manager-dialog");
+      const closeIgnoreManagerButton = document.getElementById("close-ignore-manager-button");
+      const ignoreManagerChannels = document.getElementById("ignore-manager-channels");
+      const ignoreManagerTitles = document.getElementById("ignore-manager-titles");
+      const clearIgnoredChannelsButton = document.getElementById("clear-ignored-channels-button");
+      const clearIgnoredTitlesButton = document.getElementById("clear-ignored-titles-button");
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let films = [];
       let schedules = [];
       let seriesSubscriptions = new Set();
       let channelScope = "favourites";
+      let pageLimit = 40;
+      let pageOffset = 0;
+      let paginationReturned = 0;
+      let paginationTotal = 0;
       let ignoredChannels = new Set();
       let ignoredTitles = new Set();
 
@@ -201,16 +266,48 @@
         }) || null;
       }
 
-      async function loadFilms() {
+      function renderPagination() {
+        if (!isAuthenticated) {
+          paginationMeta.textContent = "Sign in to browse upcoming films.";
+          previousPageButton.disabled = true;
+          nextPageButton.disabled = true;
+          pageSizeSelect.disabled = true;
+          return;
+        }
+        pageSizeSelect.disabled = false;
+        pageSizeSelect.value = String(pageLimit);
+        if (paginationTotal === 0) {
+          paginationMeta.textContent = "No films in this window.";
+          previousPageButton.disabled = true;
+          nextPageButton.disabled = true;
+          return;
+        }
+        const fromIndex = pageOffset + 1;
+        const toIndex = Math.min(pageOffset + paginationReturned, paginationTotal);
+        paginationMeta.textContent = `Showing ${fromIndex}-${toIndex} of ${paginationTotal}.`;
+        previousPageButton.disabled = pageOffset === 0;
+        nextPageButton.disabled = pageOffset + paginationReturned >= paginationTotal;
+      }
+
+      async function loadFilms({ allowOffsetRewind = true } = {}) {
         const query = new URLSearchParams({
           channelScope,
+          limit: String(pageLimit),
+          offset: String(pageOffset),
         });
         const payload = await fetchJson(`/api/upcoming-films?${query.toString()}`);
         films = Array.isArray(payload.films) ? payload.films : [];
         const window = payload.window || {};
         const filters = payload.filters || {};
+        const pagination = payload.pagination || {};
         if (typeof filters.channelScope === "string") {
           channelScope = String(filters.channelScope).toLowerCase();
+        }
+        paginationReturned = Number.isFinite(pagination.returned) ? Number(pagination.returned) : films.length;
+        paginationTotal = Number.isFinite(pagination.total) ? Number(pagination.total) : films.length;
+        if (allowOffsetRewind && paginationTotal > 0 && pageOffset >= paginationTotal && paginationReturned === 0) {
+          pageOffset = Math.max(0, Math.floor((paginationTotal - 1) / pageLimit) * pageLimit);
+          return loadFilms({ allowOffsetRewind: false });
         }
         const ignores = payload.ignores || {};
         ignoredChannels = new Set(
@@ -225,6 +322,7 @@
         );
         channelScopeSelect.value = channelScope;
         windowMeta.textContent = `Window ${formatDateTime(window.startAtUtc)} to ${formatDateTime(window.endAtUtc)}.`;
+        renderPagination();
       }
 
       function isChannelIgnored(channelName) {
@@ -337,6 +435,88 @@
         ignoredPanel.hidden = channels.length === 0 && titles.length === 0;
       }
 
+      async function clearIgnoreRuleType(ruleType) {
+        const values = Array.from(ruleType === "channel" ? ignoredChannels : ignoredTitles);
+        for (const value of values) {
+          await setIgnoreRule(ruleType, value, false);
+        }
+      }
+
+      function renderIgnoreManager() {
+        ignoreManagerChannels.replaceChildren();
+        ignoreManagerTitles.replaceChildren();
+
+        const channels = Array.from(ignoredChannels).sort((a, b) => a.localeCompare(b));
+        const titles = Array.from(ignoredTitles).sort((a, b) => a.localeCompare(b));
+
+        for (const channel of channels) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          const text = document.createElement("span");
+          text.textContent = channel;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = "Unignore";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+              await setIgnoreRule("channel", channel, false);
+              await loadFilms();
+              renderFilms();
+              renderIgnoreManager();
+            } catch (error) {
+              setStatus(error.message || "Failed to update ignore rule.", "error");
+            } finally {
+              button.disabled = false;
+            }
+          });
+          chip.append(text, button);
+          ignoreManagerChannels.append(chip);
+        }
+        if (!channels.length) {
+          const empty = document.createElement("span");
+          empty.className = "pill";
+          empty.textContent = "No ignored channels.";
+          ignoreManagerChannels.append(empty);
+        }
+
+        for (const title of titles) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          const text = document.createElement("span");
+          text.textContent = title;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = "Unignore";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+              await setIgnoreRule("title", title, false);
+              await loadFilms();
+              renderFilms();
+              renderIgnoreManager();
+            } catch (error) {
+              setStatus(error.message || "Failed to update ignore rule.", "error");
+            } finally {
+              button.disabled = false;
+            }
+          });
+          chip.append(text, button);
+          ignoreManagerTitles.append(chip);
+        }
+        if (!titles.length) {
+          const empty = document.createElement("span");
+          empty.className = "pill";
+          empty.textContent = "No ignored titles.";
+          ignoreManagerTitles.append(empty);
+        }
+
+        clearIgnoredChannelsButton.disabled = channels.length === 0;
+        clearIgnoredTitlesButton.disabled = titles.length === 0;
+      }
+
       function sameFilmKey(left, right) {
         const leftContent = String(left.contentRef || "").trim();
         const rightContent = String(right.contentRef || "").trim();
@@ -425,6 +605,7 @@
       function renderFilms() {
         filmList.replaceChildren();
         renderIgnoredRules();
+        renderIgnoreManager();
         if (!isAuthenticated) {
           const empty = document.createElement("div");
           empty.className = "empty";
@@ -591,9 +772,13 @@
           films = [];
           schedules = [];
           seriesSubscriptions = new Set();
+          pageOffset = 0;
+          paginationReturned = 0;
+          paginationTotal = 0;
           ignoredChannels = new Set();
           ignoredTitles = new Set();
           windowMeta.textContent = "Sign in to load upcoming films.";
+          renderPagination();
           renderFilms();
           return;
         }
@@ -657,6 +842,7 @@
 
       refreshButton.addEventListener("click", async () => {
         try {
+          pageOffset = 0;
           await loadPageData();
         } catch (error) {
           setStatus(error.message || "Failed to refresh.", "error");
@@ -666,9 +852,92 @@
       channelScopeSelect.addEventListener("change", async () => {
         channelScope = String(channelScopeSelect.value || "favourites").toLowerCase();
         try {
+          pageOffset = 0;
           await loadPageData();
         } catch (error) {
           setStatus(error.message || "Failed to apply channel scope.", "error");
+        }
+      });
+
+      pageSizeSelect.addEventListener("change", async () => {
+        const value = Number.parseInt(String(pageSizeSelect.value || "40"), 10);
+        if (!Number.isFinite(value) || value <= 0) {
+          return;
+        }
+        pageLimit = value;
+        pageOffset = 0;
+        try {
+          await loadFilms();
+          renderFilms();
+        } catch (error) {
+          setStatus(error.message || "Failed to change page size.", "error");
+        }
+      });
+
+      previousPageButton.addEventListener("click", async () => {
+        if (pageOffset === 0) {
+          return;
+        }
+        pageOffset = Math.max(0, pageOffset - pageLimit);
+        try {
+          await loadFilms();
+          renderFilms();
+        } catch (error) {
+          setStatus(error.message || "Failed to load previous page.", "error");
+        }
+      });
+
+      nextPageButton.addEventListener("click", async () => {
+        if (pageOffset + paginationReturned >= paginationTotal) {
+          return;
+        }
+        pageOffset += pageLimit;
+        try {
+          await loadFilms();
+          renderFilms();
+        } catch (error) {
+          setStatus(error.message || "Failed to load next page.", "error");
+        }
+      });
+
+      manageIgnoresButton.addEventListener("click", () => {
+        renderIgnoreManager();
+        if (typeof ignoreManagerDialog.showModal === "function") {
+          ignoreManagerDialog.showModal();
+        }
+      });
+
+      closeIgnoreManagerButton.addEventListener("click", () => {
+        ignoreManagerDialog.close();
+      });
+
+      clearIgnoredChannelsButton.addEventListener("click", async () => {
+        clearIgnoredChannelsButton.disabled = true;
+        try {
+          await clearIgnoreRuleType("channel");
+          pageOffset = 0;
+          await loadFilms();
+          renderFilms();
+          setStatus("Cleared ignored channels.");
+        } catch (error) {
+          setStatus(error.message || "Failed to clear ignored channels.", "error");
+        } finally {
+          clearIgnoredChannelsButton.disabled = false;
+        }
+      });
+
+      clearIgnoredTitlesButton.addEventListener("click", async () => {
+        clearIgnoredTitlesButton.disabled = true;
+        try {
+          await clearIgnoreRuleType("title");
+          pageOffset = 0;
+          await loadFilms();
+          renderFilms();
+          setStatus("Cleared ignored titles.");
+        } catch (error) {
+          setStatus(error.message || "Failed to clear ignored titles.", "error");
+        } finally {
+          clearIgnoredTitlesButton.disabled = false;
         }
       });
 
@@ -693,6 +962,7 @@
       }
 
       renderIgnoredRules();
+      renderPagination();
       setAuthUiState();
       void bootstrapPage();
     </script>

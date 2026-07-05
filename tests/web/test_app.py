@@ -159,6 +159,12 @@ class _StubServiceClient:
                     "minDurationHours": 1.5,
                     "maxDurationHours": 3.5,
                 },
+                "pagination": {
+                    "limit": 40,
+                    "offset": 0,
+                    "returned": 1,
+                    "total": 1,
+                },
                 "ignores": {
                     "channels": ["BBC Radio 4"],
                     "titles": ["Boring Movie"],
@@ -344,8 +350,13 @@ def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
     assert "Chronological list" in body
     assert "Record" in body
     assert "channel-scope-select" in body
+    assert "Manage ignores" in body
+    assert "page-size-select" in body
     assert "Ignore channel" in body
     assert "Ignore title" in body
+    assert "Ignore Manager" in body
+    assert "Clear all channels" in body
+    assert "Clear all titles" in body
     assert "Other showings" in body
     assert stub.calls == []
 
@@ -1042,7 +1053,7 @@ def test_upcoming_films_forwards_query_params(monkeypatch) -> None:
     client = app.test_client()
 
     response = client.get(
-        "/api/upcoming-films?startAtUtc=2026-05-25T20:00:00Z&windowHours=48&minDurationHours=1.5&maxDurationHours=3.5"
+        "/api/upcoming-films?startAtUtc=2026-05-25T20:00:00Z&windowHours=48&minDurationHours=1.5&maxDurationHours=3.5&limit=20&offset=40"
     )
 
     assert response.status_code == 200
@@ -1056,6 +1067,8 @@ def test_upcoming_films_forwards_query_params(monkeypatch) -> None:
                 "windowHours": 48.0,
                 "minDurationHours": 1.5,
                 "maxDurationHours": 3.5,
+                "limit": 20,
+                "offset": 40,
             },
         )
     ]
@@ -1098,6 +1111,50 @@ def test_upcoming_films_rejects_invalid_channel_scope(monkeypatch) -> None:
     client = app.test_client()
 
     response = client.get("/api/upcoming-films?channelScope=invalid")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
+def test_upcoming_films_rejects_non_integer_limit(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/upcoming-films?limit=abc")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
+def test_upcoming_films_rejects_negative_offset(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/upcoming-films?offset=-1")
 
     assert response.status_code == 400
     assert response.get_json()["ok"] is False

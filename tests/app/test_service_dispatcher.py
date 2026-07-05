@@ -1772,6 +1772,35 @@ def test_dispatch_metadata_films_list_rejects_invalid_duration_range() -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_dispatch_metadata_films_list_rejects_invalid_limit_offset() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    bad_limit = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "limit": 0,
+            },
+        }
+    )
+    assert bad_limit["ok"] is False
+    assert bad_limit["error"]["code"] == "VALIDATION_ERROR"
+
+    bad_offset = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "offset": -1,
+            },
+        }
+    )
+    assert bad_offset["ok"] is False
+    assert bad_offset["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_dispatch_metadata_films_list_rejects_invalid_channel_scope() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -1788,6 +1817,93 @@ def test_dispatch_metadata_films_list_rejects_invalid_channel_scope() -> None:
 
     assert response["ok"] is False
     assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_metadata_films_list_applies_pagination(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "200", "Film4", "FILM4", "14"),
+            ("dvbstreamer_ota", "201", "Film5", "FILM5", "15"),
+            ("dvbstreamer_ota", "202", "Film6", "FILM6", "16"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "p1", "Film A", "Feature", "Movie"),
+            ("dvbstreamer_ota", "p2", "Film B", "Feature", "Movie"),
+            ("dvbstreamer_ota", "p3", "Film C", "Feature", "Movie"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "2026-05-25T21:00:00Z", "2026-05-25T23:00:00Z", 7200),
+            (2, 2, "2026-05-25T21:30:00Z", "2026-05-25T23:30:00Z", 7200),
+            (3, 3, "2026-05-25T22:00:00Z", "2026-05-26T00:00:00Z", 7200),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(resolve_service_name=lambda name: name)
+    monkeypatch.setattr(
+        dispatcher,
+        "_load_service_flags_from_adapter_db",
+        lambda _service_name: (True, False, False),
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 8,
+                "channelScope": "all",
+                "limit": 1,
+                "offset": 1,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["pagination"] == {
+        "limit": 1,
+        "offset": 1,
+        "returned": 1,
+        "total": 3,
+    }
+    films = response["payload"]["films"]
+    assert len(films) == 1
+    assert films[0]["title"] == "Film B"
 
 
 def test_dispatch_metadata_channels_list_returns_deduplicated_channels() -> None:

@@ -767,6 +767,46 @@ def create_app(
                 )
                 return jsonify(response), status_code
 
+        limit_value = request.args.get("limit", default=None, type=str)
+        if limit_value is not None:
+            try:
+                parsed_limit = int(limit_value)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'limit' must be an integer",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            if parsed_limit <= 0:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'limit' must be greater than 0",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            payload["limit"] = parsed_limit
+
+        offset_value = request.args.get("offset", default=None, type=str)
+        if offset_value is not None:
+            try:
+                parsed_offset = int(offset_value)
+            except ValueError:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'offset' must be an integer",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            if parsed_offset < 0:
+                response, status_code = _json_error(
+                    code="VALIDATION_ERROR",
+                    message="query parameter 'offset' must be non-negative",
+                    status_code=400,
+                )
+                return jsonify(response), status_code
+            payload["offset"] = parsed_offset
+
         response, status_code = _with_client(
             _client_factory,
             "metadata.films.list",

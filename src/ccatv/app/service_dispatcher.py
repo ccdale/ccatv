@@ -1905,6 +1905,25 @@ class ServiceCommandDispatcher:
                 message="maxDurationHours must be greater than minDurationHours",
             )
 
+        limit_value = payload.get("limit", 40)
+        if not isinstance(limit_value, int) or limit_value <= 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="limit must be a positive integer",
+            )
+        if limit_value > 200:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="limit must be less than or equal to 200",
+            )
+
+        offset_value = payload.get("offset", 0)
+        if not isinstance(offset_value, int) or offset_value < 0:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="offset must be a non-negative integer",
+            )
+
         start_at_utc = payload.get("startAtUtc")
         if start_at_utc is None:
             start = datetime.now(timezone.utc)
@@ -2069,6 +2088,8 @@ class ServiceCommandDispatcher:
                 str(film["title"]).casefold(),
             ),
         )
+        total_films = len(films)
+        paged_films = films[offset_value : offset_value + limit_value]
 
         return {
             "window": {
@@ -2080,8 +2101,14 @@ class ServiceCommandDispatcher:
                 "minDurationHours": float(min_duration_hours),
                 "maxDurationHours": float(max_duration_hours),
             },
+            "pagination": {
+                "limit": limit_value,
+                "offset": offset_value,
+                "returned": len(paged_films),
+                "total": total_films,
+            },
             "ignores": ignore_rules,
-            "films": films,
+            "films": paged_films,
         }
 
     def _metadata_films_ignore_list(
