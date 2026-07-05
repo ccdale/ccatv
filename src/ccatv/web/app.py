@@ -774,6 +774,38 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.get("/api/upcoming-films/ignores")
+    def api_upcoming_films_ignores_list():
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.films.ignore.list",
+            {},
+        )
+        return jsonify(response), status_code
+
+    @app.post("/api/upcoming-films/ignore")
+    def api_upcoming_films_ignore_set():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "ruleType": body.get("ruleType"),
+            "matchValue": body.get("matchValue"),
+            "enabled": body.get("enabled"),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.films.ignore.set",
+            payload,
+        )
+        return jsonify(response), status_code
+
     @app.post("/api/schedules")
     def api_schedule_create():
         body = request.get_json(silent=True)

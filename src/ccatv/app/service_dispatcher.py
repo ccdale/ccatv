@@ -95,6 +95,8 @@ SERVICE_COMMANDS = [
     "metadata.guide.list",
     "metadata.guide.audit.list",
     "metadata.films.list",
+    "metadata.films.ignore.list",
+    "metadata.films.ignore.set",
     "metadata.series.recording.list",
     "metadata.series.recording.set",
     "metadata.ota.sync.run",
@@ -281,6 +283,10 @@ class ServiceCommandDispatcher:
             return self._metadata_guide_audit_list(payload)
         if command == "metadata.films.list":
             return self._metadata_films_list(payload)
+        if command == "metadata.films.ignore.list":
+            return self._metadata_films_ignore_list(payload)
+        if command == "metadata.films.ignore.set":
+            return self._metadata_films_ignore_set(payload)
         if command == "metadata.series.recording.list":
             return self._metadata_series_recording_list(payload)
         if command == "metadata.series.recording.set":
@@ -1975,11 +1981,29 @@ class ServiceCommandDispatcher:
                 if row[0] is not None and str(row[0]).strip()
             }
 
+        ignore_rules = self._context.persistence.list_films_ignore_rules()
+        ignored_channels = {
+            name.strip().casefold()
+            for name in ignore_rules.get("channels", [])
+            if isinstance(name, str) and name.strip()
+        }
+        ignored_titles = {
+            title.strip().casefold()
+            for title in ignore_rules.get("titles", [])
+            if isinstance(title, str) and title.strip()
+        }
+
         films_by_slot: dict[tuple[str, str, str, str], dict[str, object]] = {}
         service_eligibility_cache: dict[str, bool] = {}
         for row in rows:
             title = str(row[8])
             channel_name = str(row[2])
+
+            if channel_name.strip().casefold() in ignored_channels:
+                continue
+            if title.strip().casefold() in ignored_titles:
+                continue
+
             if (
                 channel_scope_value == "favourites"
                 and channel_name.strip().casefold() not in favourite_names
@@ -2056,7 +2080,57 @@ class ServiceCommandDispatcher:
                 "minDurationHours": float(min_duration_hours),
                 "maxDurationHours": float(max_duration_hours),
             },
+            "ignores": ignore_rules,
             "films": films,
+        }
+
+    def _metadata_films_ignore_list(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        del payload
+        return {
+            "ignores": self._context.persistence.list_films_ignore_rules(),
+        }
+
+    def _metadata_films_ignore_set(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        rule_type = payload.get("ruleType")
+        if not isinstance(rule_type, str) or not rule_type.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="ruleType must be 'channel' or 'title'",
+            )
+
+        match_value = payload.get("matchValue")
+        if not isinstance(match_value, str) or not match_value.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="matchValue must be a non-empty string",
+            )
+
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="enabled must be a boolean",
+            )
+
+        try:
+            result = self._context.persistence.set_films_ignore_rule(
+                rule_type=rule_type,
+                match_value=match_value,
+                enabled=enabled,
+            )
+        except ValueError as exc:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message=str(exc),
+            ) from exc
+
+        return {
+            "rule": result,
+            "ignores": self._context.persistence.list_films_ignore_rules(),
         }
 
     def _metadata_guide_audit_list(self, payload: dict[str, object]) -> dict[str, object]:

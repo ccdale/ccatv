@@ -1553,6 +1553,154 @@ def test_dispatch_metadata_films_list_uses_channel_radio_flag_and_backfills_new_
     assert stored_flag[1] == 1
 
 
+def test_dispatch_metadata_films_ignore_set_and_list_roundtrip() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    set_response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.ignore.set",
+            "payload": {
+                "ruleType": "channel",
+                "matchValue": "BBC Radio 4",
+                "enabled": True,
+            },
+        }
+    )
+
+    assert set_response["ok"] is True
+    assert set_response["payload"]["rule"]["action"] == "saved"
+
+    list_response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.ignore.list",
+            "payload": {},
+        }
+    )
+
+    assert list_response["ok"] is True
+    assert list_response["payload"]["ignores"] == {
+        "channels": ["BBC Radio 4"],
+        "titles": [],
+    }
+
+
+def test_dispatch_metadata_films_ignore_set_rejects_invalid_payload() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.ignore.set",
+            "payload": {
+                "ruleType": "channel",
+                "matchValue": "Film4",
+                "enabled": "yes",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_dispatch_metadata_films_list_applies_ignore_rules(monkeypatch) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(
+            source,
+            source_channel_id,
+            display_name,
+            callsign,
+            logical_channel_number
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "200", "Film4", "FILM4", "14"),
+            ("dvbstreamer_ota", "201", "Another Channel", "ANCH", "15"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_programs(
+            source,
+            source_program_id,
+            title,
+            description_long,
+            genre_primary
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "p1", "Ignored Title", "Feature", "Movie"),
+            ("dvbstreamer_ota", "p2", "Keep Title", "Feature", "Movie"),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(
+            channel_id,
+            program_id,
+            start_utc,
+            stop_utc,
+            duration_seconds
+        ) VALUES(?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, "2026-05-25T21:00:00Z", "2026-05-25T23:00:00Z", 7200),
+            (2, 2, "2026-05-25T21:30:00Z", "2026-05-25T23:30:00Z", 7200),
+        ],
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO films_ignore_rules(
+            rule_type,
+            match_value,
+            created_at_utc,
+            updated_at_utc
+        ) VALUES(?, ?, ?, ?)
+        """,
+        [
+            ("title", "Ignored Title", "2026-05-25T20:00:00Z", "2026-05-25T20:00:00Z"),
+            ("channel", "Film4", "2026-05-25T20:00:00Z", "2026-05-25T20:00:00Z"),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(resolve_service_name=lambda name: name)
+    monkeypatch.setattr(
+        dispatcher,
+        "_load_service_flags_from_adapter_db",
+        lambda _service_name: (True, False, False),
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.films.list",
+            "payload": {
+                "startAtUtc": "2026-05-25T20:00:00Z",
+                "windowHours": 8,
+                "channelScope": "all",
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    films = response["payload"]["films"]
+    assert len(films) == 1
+    assert films[0]["channelName"] == "Another Channel"
+    assert films[0]["title"] == "Keep Title"
+    assert response["payload"]["ignores"] == {
+        "channels": ["Film4"],
+        "titles": ["Ignored Title"],
+    }
+
 def test_auto_schedule_series_recordings_skips_recorded_content_ref() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

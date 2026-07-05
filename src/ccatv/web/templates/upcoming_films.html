@@ -48,6 +48,12 @@
       .toolbar-controls { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
       .toolbar-controls label { color: var(--muted); font-size: 0.9rem; }
       select { font: inherit; border: 1px solid var(--line); border-radius: 999px; padding: 0.55rem 0.75rem; background: #fff; color: var(--ink); }
+      .ignored-panel { margin-top: 0.75rem; border: 1px solid var(--line); border-radius: 14px; padding: 0.75rem 0.8rem; background: rgba(255, 255, 255, 0.76); }
+      .ignored-panel[hidden] { display: none; }
+      .ignored-title { font-weight: 700; font-size: 0.92rem; margin-bottom: 0.35rem; }
+      .ignored-row { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; margin-top: 0.4rem; }
+      .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.45rem; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--muted); font-size: 0.86rem; }
+      .chip button { padding: 0.35rem 0.55rem; border-radius: 999px; font-size: 0.83rem; }
       .film-list { margin-top: 0.9rem; display: grid; gap: 0.65rem; }
       .film-card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 0.85rem 0.95rem; display: grid; gap: 0.45rem; }
       .film-header { display: flex; justify-content: space-between; gap: 0.7rem; flex-wrap: wrap; align-items: center; }
@@ -97,6 +103,12 @@
         </div>
       </div>
 
+      <section id="ignored-panel" class="ignored-panel" hidden>
+        <div class="ignored-title">Ignored from upcoming films</div>
+        <div id="ignored-channels" class="ignored-row"></div>
+        <div id="ignored-titles" class="ignored-row"></div>
+      </section>
+
       <section id="film-list" class="film-list">
         <div class="empty">Sign in to load upcoming films.</div>
       </section>
@@ -112,12 +124,17 @@
       const statusNode = document.getElementById("status");
       const windowMeta = document.getElementById("window-meta");
       const filmList = document.getElementById("film-list");
+      const ignoredPanel = document.getElementById("ignored-panel");
+      const ignoredChannelsNode = document.getElementById("ignored-channels");
+      const ignoredTitlesNode = document.getElementById("ignored-titles");
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let films = [];
       let schedules = [];
       let seriesSubscriptions = new Set();
       let channelScope = "favourites";
+      let ignoredChannels = new Set();
+      let ignoredTitles = new Set();
 
       class ApiError extends Error {
         constructor(message, code = null) {
@@ -195,8 +212,129 @@
         if (typeof filters.channelScope === "string") {
           channelScope = String(filters.channelScope).toLowerCase();
         }
+        const ignores = payload.ignores || {};
+        ignoredChannels = new Set(
+          (Array.isArray(ignores.channels) ? ignores.channels : [])
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        );
+        ignoredTitles = new Set(
+          (Array.isArray(ignores.titles) ? ignores.titles : [])
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        );
         channelScopeSelect.value = channelScope;
         windowMeta.textContent = `Window ${formatDateTime(window.startAtUtc)} to ${formatDateTime(window.endAtUtc)}.`;
+      }
+
+      function isChannelIgnored(channelName) {
+        const normalized = String(channelName || "").trim().toLowerCase();
+        if (!normalized) return false;
+        for (const value of ignoredChannels) {
+          if (String(value).toLowerCase() === normalized) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function isTitleIgnored(title) {
+        const normalized = String(title || "").trim().toLowerCase();
+        if (!normalized) return false;
+        for (const value of ignoredTitles) {
+          if (String(value).toLowerCase() === normalized) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      async function setIgnoreRule(ruleType, matchValue, enabled) {
+        const payload = await fetchJson("/api/upcoming-films/ignore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ruleType, matchValue, enabled }),
+        });
+        const ignores = payload.ignores || {};
+        ignoredChannels = new Set(
+          (Array.isArray(ignores.channels) ? ignores.channels : [])
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        );
+        ignoredTitles = new Set(
+          (Array.isArray(ignores.titles) ? ignores.titles : [])
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        );
+      }
+
+      function renderIgnoredRules() {
+        ignoredChannelsNode.replaceChildren();
+        ignoredTitlesNode.replaceChildren();
+        const channels = Array.from(ignoredChannels).sort((a, b) => a.localeCompare(b));
+        const titles = Array.from(ignoredTitles).sort((a, b) => a.localeCompare(b));
+
+        const channelLabel = document.createElement("span");
+        channelLabel.className = "pill";
+        channelLabel.textContent = `Channels (${channels.length})`;
+        ignoredChannelsNode.append(channelLabel);
+        for (const channel of channels) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          const text = document.createElement("span");
+          text.textContent = channel;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = "Unignore";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+              await setIgnoreRule("channel", channel, false);
+              await loadFilms();
+              renderFilms();
+              setStatus(`Channel unignored: ${channel}.`);
+            } catch (error) {
+              setStatus(error.message || "Failed to update ignore rule.", "error");
+            } finally {
+              button.disabled = false;
+            }
+          });
+          chip.append(text, button);
+          ignoredChannelsNode.append(chip);
+        }
+
+        const titleLabel = document.createElement("span");
+        titleLabel.className = "pill";
+        titleLabel.textContent = `Titles (${titles.length})`;
+        ignoredTitlesNode.append(titleLabel);
+        for (const title of titles) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          const text = document.createElement("span");
+          text.textContent = title;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = "Unignore";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+              await setIgnoreRule("title", title, false);
+              await loadFilms();
+              renderFilms();
+              setStatus(`Title unignored: ${title}.`);
+            } catch (error) {
+              setStatus(error.message || "Failed to update ignore rule.", "error");
+            } finally {
+              button.disabled = false;
+            }
+          });
+          chip.append(text, button);
+          ignoredTitlesNode.append(chip);
+        }
+
+        ignoredPanel.hidden = channels.length === 0 && titles.length === 0;
       }
 
       function sameFilmKey(left, right) {
@@ -286,6 +424,7 @@
 
       function renderFilms() {
         filmList.replaceChildren();
+        renderIgnoredRules();
         if (!isAuthenticated) {
           const empty = document.createElement("div");
           empty.className = "empty";
@@ -336,6 +475,50 @@
           });
 
           header.append(title, button);
+
+          const channelIgnored = isChannelIgnored(film.channelName);
+          const ignoreChannelButton = document.createElement("button");
+          ignoreChannelButton.type = "button";
+          ignoreChannelButton.className = "secondary";
+          ignoreChannelButton.textContent = channelIgnored
+            ? "Unignore channel"
+            : "Ignore channel";
+          ignoreChannelButton.addEventListener("click", async () => {
+            ignoreChannelButton.disabled = true;
+            try {
+              await setIgnoreRule("channel", String(film.channelName || ""), !channelIgnored);
+              await loadFilms();
+              renderFilms();
+              setStatus(`${film.channelName}: channel ${channelIgnored ? "unignored" : "ignored"}.`);
+            } catch (error) {
+              setStatus(error.message || "Failed to update channel ignore.", "error");
+            } finally {
+              ignoreChannelButton.disabled = false;
+            }
+          });
+          header.append(ignoreChannelButton);
+
+          const titleIgnored = isTitleIgnored(film.title);
+          const ignoreTitleButton = document.createElement("button");
+          ignoreTitleButton.type = "button";
+          ignoreTitleButton.className = "secondary";
+          ignoreTitleButton.textContent = titleIgnored
+            ? "Unignore title"
+            : "Ignore title";
+          ignoreTitleButton.addEventListener("click", async () => {
+            ignoreTitleButton.disabled = true;
+            try {
+              await setIgnoreRule("title", String(film.title || ""), !titleIgnored);
+              await loadFilms();
+              renderFilms();
+              setStatus(`${film.title}: title ${titleIgnored ? "unignored" : "ignored"}.`);
+            } catch (error) {
+              setStatus(error.message || "Failed to update title ignore.", "error");
+            } finally {
+              ignoreTitleButton.disabled = false;
+            }
+          });
+          header.append(ignoreTitleButton);
 
           if (typeof film.seriesRef === "string" && film.seriesRef) {
             const seriesEnabled = isSeriesRecordingEnabled(film.seriesRef);
@@ -408,6 +591,8 @@
           films = [];
           schedules = [];
           seriesSubscriptions = new Set();
+          ignoredChannels = new Set();
+          ignoredTitles = new Set();
           windowMeta.textContent = "Sign in to load upcoming films.";
           renderFilms();
           return;
@@ -507,6 +692,7 @@
         }
       }
 
+      renderIgnoredRules();
       setAuthUiState();
       void bootstrapPage();
     </script>

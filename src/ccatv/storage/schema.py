@@ -341,6 +341,26 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=14,
+        name="films_ignore_rules_v14",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS films_ignore_rules (
+                rule_type TEXT NOT NULL,
+                match_value TEXT NOT NULL COLLATE NOCASE,
+                created_at_utc TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL,
+                PRIMARY KEY(rule_type, match_value),
+                CHECK(rule_type IN ('channel', 'title'))
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_films_ignore_rules_rule_type
+            ON films_ignore_rules(rule_type)
+            """,
+        ),
+    ),
 )
 
 

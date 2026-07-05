@@ -159,6 +159,10 @@ class _StubServiceClient:
                     "minDurationHours": 1.5,
                     "maxDurationHours": 3.5,
                 },
+                "ignores": {
+                    "channels": ["BBC Radio 4"],
+                    "titles": ["Boring Movie"],
+                },
                 "films": [
                     {
                         "channelName": "Film4",
@@ -171,6 +175,26 @@ class _StubServiceClient:
                         "contentRef": "example.org/content-1",
                     }
                 ],
+            }
+        if command == "metadata.films.ignore.list":
+            return {
+                "ignores": {
+                    "channels": ["BBC Radio 4"],
+                    "titles": ["Boring Movie"],
+                }
+            }
+        if command == "metadata.films.ignore.set":
+            return {
+                "rule": {
+                    "ruleType": str(payload.get("ruleType")),
+                    "matchValue": str(payload.get("matchValue")),
+                    "enabled": bool(payload.get("enabled")),
+                    "action": "saved" if bool(payload.get("enabled")) else "cleared",
+                },
+                "ignores": {
+                    "channels": ["BBC Radio 4"],
+                    "titles": ["Boring Movie"],
+                },
             }
         return {}
 
@@ -320,6 +344,8 @@ def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
     assert "Chronological list" in body
     assert "Record" in body
     assert "channel-scope-select" in body
+    assert "Ignore channel" in body
+    assert "Ignore title" in body
     assert "Other showings" in body
     assert stub.calls == []
 
@@ -1072,6 +1098,86 @@ def test_upcoming_films_rejects_invalid_channel_scope(monkeypatch) -> None:
     client = app.test_client()
 
     response = client.get("/api/upcoming-films?channelScope=invalid")
+
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+    assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
+    assert stub.calls == []
+
+
+def test_upcoming_films_ignores_list_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/upcoming-films/ignores")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [("metadata.films.ignore.list", {})]
+
+
+def test_upcoming_films_ignore_set_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post(
+        "/api/upcoming-films/ignore",
+        json={
+            "ruleType": "channel",
+            "matchValue": "BBC Radio 4",
+            "enabled": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [
+        (
+            "metadata.films.ignore.set",
+            {
+                "ruleType": "channel",
+                "matchValue": "BBC Radio 4",
+                "enabled": True,
+            },
+        )
+    ]
+
+
+def test_upcoming_films_ignore_set_rejects_non_object_json(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post("/api/upcoming-films/ignore", json=["bad"])
 
     assert response.status_code == 400
     assert response.get_json()["ok"] is False

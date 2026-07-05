@@ -627,6 +627,95 @@ class PersistenceStore:
             )
             self.connection.commit()
 
+    def list_films_ignore_rules(self) -> dict[str, list[str]]:
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT rule_type, match_value
+                FROM films_ignore_rules
+                ORDER BY rule_type ASC, match_value COLLATE NOCASE ASC
+                """
+            ).fetchall()
+
+        channels: list[str] = []
+        titles: list[str] = []
+        for row in rows:
+            rule_type = str(row[0]).strip().lower()
+            value = str(row[1]).strip()
+            if not value:
+                continue
+            if rule_type == "channel":
+                channels.append(value)
+            elif rule_type == "title":
+                titles.append(value)
+
+        return {
+            "channels": channels,
+            "titles": titles,
+        }
+
+    def set_films_ignore_rule(
+        self,
+        *,
+        rule_type: str,
+        match_value: str,
+        enabled: bool,
+    ) -> dict[str, object]:
+        normalized_rule = rule_type.strip().lower()
+        if normalized_rule not in {"channel", "title"}:
+            raise ValueError("rule_type must be 'channel' or 'title'")
+
+        normalized_value = match_value.strip()
+        if not normalized_value:
+            raise ValueError("match_value must be a non-empty string")
+
+        with self._lock:
+            if enabled:
+                self.connection.execute(
+                    """
+                    INSERT INTO films_ignore_rules(
+                        rule_type,
+                        match_value,
+                        created_at_utc,
+                        updated_at_utc
+                    )
+                    VALUES(
+                        ?,
+                        ?,
+                        strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                        strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                    )
+                    ON CONFLICT(rule_type, match_value)
+                    DO UPDATE SET
+                        updated_at_utc = excluded.updated_at_utc
+                    """,
+                    (normalized_rule, normalized_value),
+                )
+                self.connection.commit()
+                return {
+                    "ruleType": normalized_rule,
+                    "matchValue": normalized_value,
+                    "enabled": True,
+                    "action": "saved",
+                }
+
+            result = self.connection.execute(
+                """
+                DELETE FROM films_ignore_rules
+                WHERE rule_type = ?
+                  AND lower(trim(match_value)) = lower(trim(?))
+                """,
+                (normalized_rule, normalized_value),
+            )
+            self.connection.commit()
+            return {
+                "ruleType": normalized_rule,
+                "matchValue": normalized_value,
+                "enabled": False,
+                "action": "cleared" if result.rowcount > 0 else "noop",
+                "updatedRows": int(result.rowcount),
+            }
+
     def has_recorded_content_ref(self, content_ref: str) -> bool:
         normalized = content_ref.strip()
         if not normalized:

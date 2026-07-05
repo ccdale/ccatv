@@ -274,6 +274,64 @@ def test_series_recording_subscription_roundtrip(tmp_path: Path) -> None:
         connection.close()
 
 
+def test_films_ignore_rules_roundtrip(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        assert store.list_films_ignore_rules() == {"channels": [], "titles": []}
+
+        channel_saved = store.set_films_ignore_rule(
+            rule_type="channel",
+            match_value="BBC Radio 4",
+            enabled=True,
+        )
+        title_saved = store.set_films_ignore_rule(
+            rule_type="title",
+            match_value="Boring Movie",
+            enabled=True,
+        )
+
+        assert channel_saved["action"] == "saved"
+        assert title_saved["action"] == "saved"
+        assert store.list_films_ignore_rules() == {
+            "channels": ["BBC Radio 4"],
+            "titles": ["Boring Movie"],
+        }
+
+        cleared = store.set_films_ignore_rule(
+            rule_type="channel",
+            match_value="bbc radio 4",
+            enabled=False,
+        )
+        assert cleared["action"] == "cleared"
+        assert store.list_films_ignore_rules() == {
+            "channels": [],
+            "titles": ["Boring Movie"],
+        }
+    finally:
+        connection.close()
+
+
+def test_films_ignore_rules_validate_inputs(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        with pytest.raises(ValueError, match="rule_type"):
+            store.set_films_ignore_rule(
+                rule_type="genre",
+                match_value="Drama",
+                enabled=True,
+            )
+        with pytest.raises(ValueError, match="match_value"):
+            store.set_films_ignore_rule(
+                rule_type="title",
+                match_value="   ",
+                enabled=True,
+            )
+    finally:
+        connection.close()
+
+
 def test_recorded_content_ref_history_roundtrip(tmp_path: Path) -> None:
     connection = initialize_database(tmp_path / "ccatv.sqlite3")
     store = PersistenceStore(connection=connection)
