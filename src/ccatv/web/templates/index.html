@@ -64,6 +64,7 @@
       button:hover { transform: translateY(-1px); }
       button.secondary { background: rgba(29, 29, 27, 0.08); color: var(--ink); }
       button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+      button.active-auto-record { background: #10b981; color: #fff; border: 0; }
       button:disabled { opacity: 0.55; cursor: default; transform: none; }
       .layout { margin-top: 0.5rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
       .panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
@@ -281,6 +282,7 @@
       let favouriteChannels = [];
       let schedules = [];
       let seriesSubscriptions = new Set();
+      let autoRecordTitles = new Set();
       let timelineData = new Map();
       let timelineOriginMs = 0;
       let timelineStartMs = 0;
@@ -913,6 +915,32 @@
           seriesRow.append(seriesLabel, seriesButton);
           timelineHover.append(seriesRow);
         }
+
+        const autoRecordEnabled = isAutoRecordEnabled(programme.title);
+        const autoRecordRow = document.createElement("div");
+        autoRecordRow.className = "record-toggle-row";
+
+        const autoRecordLabel = document.createElement("span");
+        autoRecordLabel.className = "record-toggle-label";
+        autoRecordLabel.textContent = autoRecordEnabled ? "Auto-record enabled" : "Auto-record disabled";
+
+        const autoRecordButton = document.createElement("button");
+        autoRecordButton.type = "button";
+        autoRecordButton.className = autoRecordEnabled ? "active-auto-record" : "secondary";
+        autoRecordButton.setAttribute("role", "switch");
+        autoRecordButton.setAttribute("aria-checked", autoRecordEnabled ? "true" : "false");
+        autoRecordButton.setAttribute("aria-label", autoRecordEnabled ? "Disable auto-record for this title" : "Enable auto-record for this title");
+        const autoRecordKnob = document.createElement("span");
+        autoRecordKnob.className = "record-switch-knob";
+        autoRecordButton.append(autoRecordKnob);
+        autoRecordButton.addEventListener("click", () => {
+          void setAutoRecord(programme.title, !autoRecordEnabled).then(() => {
+            renderTimelineHover(programme, findScheduledJob(programme) || null);
+          });
+        });
+
+        autoRecordRow.append(autoRecordLabel, autoRecordButton);
+        timelineHover.append(autoRecordRow);
       }
 
       function renderTimelineRuler(startMs, windowMinutes) {
@@ -1148,6 +1176,39 @@
         }
       }
 
+      async function loadAutoRecordTitles() {
+        try {
+          const payload = await fetchJson("/api/auto-record");
+          const titles = Array.isArray(payload.titles) ? payload.titles : [];
+          autoRecordTitles = new Set(
+            titles
+              .map((item) => String(item || "").trim().toLowerCase())
+              .filter(Boolean)
+          );
+        } catch (error) {
+          console.warn("Failed to load auto-record titles:", error);
+          autoRecordTitles = new Set();
+        }
+      }
+
+      function isAutoRecordEnabled(title) {
+        return typeof title === "string" && autoRecordTitles.has(String(title).trim().toLowerCase());
+      }
+
+      async function setAutoRecord(title, enabled) {
+        await fetchJson("/api/auto-record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, enabled }),
+        });
+        const normalized = String(title || "").trim().toLowerCase();
+        if (enabled) {
+          autoRecordTitles.add(normalized);
+        } else {
+          autoRecordTitles.delete(normalized);
+        }
+      }
+
       async function loadTimeline() {
         timelineData = new Map();
         renderTimeline();
@@ -1245,7 +1306,7 @@
       }
 
       async function initializeAfterAuth() {
-        await Promise.all([loadChannels(), loadSchedules(), loadSeriesSubscriptions(), loadGroups()]);
+        await Promise.all([loadChannels(), loadSchedules(), loadSeriesSubscriptions(), loadGroups(), loadAutoRecordTitles()]);
         timelineOriginMs = Date.now();
         timelineStartMs = timelineOriginMs;
         await loadTimeline();
