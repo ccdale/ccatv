@@ -220,6 +220,7 @@
       let films = [];
       let schedules = [];
       let seriesSubscriptions = new Set();
+      let autoRecordTitles = new Set();
       let channelScope = "favourites";
       let uniquePrograms = true;
       let pageLimit = 40;
@@ -646,6 +647,34 @@
         }
       }
 
+      async function loadAutoRecordTitles() {
+        const payload = await fetchJson("/api/auto-record");
+        const titles = Array.isArray(payload.titles) ? payload.titles : [];
+        autoRecordTitles = new Set(
+          titles
+            .map((item) => String(item || "").trim().toLowerCase())
+            .filter(Boolean)
+        );
+      }
+
+      function isAutoRecordEnabled(title) {
+        return typeof title === "string" && autoRecordTitles.has(String(title).trim().toLowerCase());
+      }
+
+      async function setAutoRecord(title, enabled) {
+        await fetchJson("/api/auto-record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, enabled }),
+        });
+        const normalized = String(title || "").trim().toLowerCase();
+        if (enabled) {
+          autoRecordTitles.add(normalized);
+        } else {
+          autoRecordTitles.delete(normalized);
+        }
+      }
+
       async function createRecording(film) {
         const durationSeconds = film.durationSeconds || Math.max(60, Math.round((new Date(film.stopAtUtc) - new Date(film.startAtUtc)) / 1000));
         return fetchJson("/api/schedules", {
@@ -800,6 +829,25 @@
               }
             });
             header.append(seriesButton);
+          } else {
+            const autoRecordEnabled = isAutoRecordEnabled(film.title);
+            const autoRecordButton = document.createElement("button");
+            autoRecordButton.type = "button";
+            autoRecordButton.className = "secondary";
+            autoRecordButton.textContent = autoRecordEnabled ? "Always recording" : "Always record title";
+            autoRecordButton.addEventListener("click", async () => {
+              autoRecordButton.disabled = true;
+              try {
+                await setAutoRecord(String(film.title || ""), !autoRecordEnabled);
+                renderFilms();
+                setStatus(`${film.title}: auto-record ${!autoRecordEnabled ? "enabled" : "disabled"}.`);
+              } catch (error) {
+                setStatus(error.message || "Failed to update auto-record.", "error");
+              } finally {
+                autoRecordButton.disabled = false;
+              }
+            });
+            header.append(autoRecordButton);
           }
 
           const meta = document.createElement("div");
@@ -896,7 +944,7 @@
           renderFilms();
           return;
         }
-        await Promise.all([loadFilms(), loadSchedules(), loadSeriesSubscriptions()]);
+        await Promise.all([loadFilms(), loadSchedules(), loadSeriesSubscriptions(), loadAutoRecordTitles()]);
         renderFilms();
         setStatus(`Loaded ${films.length} upcoming film(s).`);
       }
