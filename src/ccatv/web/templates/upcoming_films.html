@@ -648,13 +648,18 @@
       }
 
       async function loadAutoRecordTitles() {
-        const payload = await fetchJson("/api/auto-record");
-        const titles = Array.isArray(payload.titles) ? payload.titles : [];
-        autoRecordTitles = new Set(
-          titles
-            .map((item) => String(item || "").trim().toLowerCase())
-            .filter(Boolean)
-        );
+        try {
+          const payload = await fetchJson("/api/auto-record");
+          const titles = Array.isArray(payload.titles) ? payload.titles : [];
+          autoRecordTitles = new Set(
+            titles
+              .map((item) => String(item || "").trim().toLowerCase())
+              .filter(Boolean)
+          );
+        } catch (error) {
+          console.warn("Failed to load auto-record titles:", error);
+          autoRecordTitles = new Set();
+        }
       }
 
       function isAutoRecordEnabled(title) {
