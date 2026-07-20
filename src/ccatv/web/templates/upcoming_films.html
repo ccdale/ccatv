@@ -54,7 +54,10 @@
       .pagination-controls label { color: var(--muted); font-size: 0.88rem; }
       .ignored-panel { margin-top: 0.75rem; border: 1px solid var(--line); border-radius: 14px; padding: 0.75rem 0.8rem; background: rgba(255, 255, 255, 0.76); }
       .ignored-panel[hidden] { display: none; }
-      .ignored-title { font-weight: 700; font-size: 0.92rem; margin-bottom: 0.35rem; }
+      .ignored-panel.collapsed .ignored-content { display: none; }
+      .ignored-title { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 0.92rem; margin-bottom: 0.35rem; cursor: pointer; }
+      .ignored-title button { background: none; border: none; color: var(--accent); cursor: pointer; font-weight: 700; font-size: 0.9rem; padding: 0; }
+      .ignored-content { margin-top: 0.35rem; }
       .ignored-row { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; margin-top: 0.4rem; }
       .chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.45rem; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--muted); font-size: 0.86rem; }
       .chip button { padding: 0.35rem 0.55rem; border-radius: 999px; font-size: 0.83rem; }
@@ -125,9 +128,14 @@
       </div>
 
       <section id="ignored-panel" class="ignored-panel" hidden>
-        <div class="ignored-title">Ignored from upcoming films</div>
-        <div id="ignored-channels" class="ignored-row"></div>
-        <div id="ignored-titles" class="ignored-row"></div>
+        <div class="ignored-title">
+          <span>Ignored from upcoming films</span>
+          <button id="ignored-panel-toggle" type="button">−</button>
+        </div>
+        <div id="ignored-content" class="ignored-content">
+          <div id="ignored-channels" class="ignored-row"></div>
+          <div id="ignored-titles" class="ignored-row"></div>
+        </div>
       </section>
 
       <div class="pagination">
@@ -207,8 +215,11 @@
       const nextPageButtonBottom = document.getElementById("next-page-button-bottom");
       const filmList = document.getElementById("film-list");
       const ignoredPanel = document.getElementById("ignored-panel");
+      const ignoredContent = document.getElementById("ignored-content");
+      const ignoredPanelToggle = document.getElementById("ignored-panel-toggle");
       const ignoredChannelsNode = document.getElementById("ignored-channels");
       const ignoredTitlesNode = document.getElementById("ignored-titles");
+      let ignoredPanelCollapsed = localStorage.getItem("ignoredPanelCollapsed") === "true";
       const ignoreManagerDialog = document.getElementById("ignore-manager-dialog");
       const closeIgnoreManagerButton = document.getElementById("close-ignore-manager-button");
       const ignoreManagerChannels = document.getElementById("ignore-manager-channels");
@@ -248,6 +259,23 @@
         logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
         tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
       }
+
+      function updateIgnoredPanelState() {
+        if (ignoredPanelCollapsed) {
+          ignoredPanel.classList.add("collapsed");
+          ignoredPanelToggle.textContent = "+";
+        } else {
+          ignoredPanel.classList.remove("collapsed");
+          ignoredPanelToggle.textContent = "−";
+        }
+      }
+
+      ignoredPanelToggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        ignoredPanelCollapsed = !ignoredPanelCollapsed;
+        localStorage.setItem("ignoredPanelCollapsed", String(ignoredPanelCollapsed));
+        updateIgnoredPanelState();
+      });
 
       async function fetchJson(url, options = {}) {
         const response = await fetch(url, {
@@ -1149,6 +1177,7 @@
       renderIgnoredRules();
       renderPagination();
       setAuthUiState();
+      updateIgnoredPanelState();
       void bootstrapPage();
     </script>
   </body>
