@@ -361,6 +361,24 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=15,
+        name="auto_record_titles_v15",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS auto_record_titles (
+                title TEXT NOT NULL COLLATE NOCASE,
+                created_at_utc TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL,
+                PRIMARY KEY(title)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_auto_record_titles_created
+            ON auto_record_titles(created_at_utc DESC)
+            """,
+        ),
+    ),
 )
 
 

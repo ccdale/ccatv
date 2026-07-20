@@ -861,6 +861,37 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.get("/api/auto-record")
+    def api_auto_record_list():
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.auto-record.list",
+            {},
+        )
+        return jsonify(response), status_code
+
+    @app.post("/api/auto-record")
+    def api_auto_record_set():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            response, status_code = _json_error(
+                code="VALIDATION_ERROR",
+                message="request JSON body must be an object",
+                status_code=400,
+            )
+            return jsonify(response), status_code
+
+        payload = {
+            "title": body.get("title"),
+            "enabled": body.get("enabled"),
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.auto-record.set",
+            payload,
+        )
+        return jsonify(response), status_code
+
     @app.post("/api/schedules")
     def api_schedule_create():
         body = request.get_json(silent=True)

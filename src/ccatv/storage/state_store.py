@@ -1000,3 +1000,60 @@ class PersistenceStore:
             ).rowcount
             self.connection.commit()
             return {"action": "deleted", "deletedRows": int(deleted)}
+
+    def list_auto_record_titles(self) -> list[str]:
+        """List all titles that should be automatically recorded."""
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT title
+                FROM auto_record_titles
+                ORDER BY title COLLATE NOCASE
+                """
+            ).fetchall()
+            return [str(row[0]).strip() for row in rows]
+
+    def set_auto_record_title(
+        self,
+        *,
+        title: str,
+        enabled: bool,
+    ) -> dict[str, object]:
+        """Enable or disable auto-record for a title."""
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise ValueError("Title cannot be empty")
+
+        with self._lock:
+            if enabled:
+                result = self.connection.execute(
+                    """
+                    INSERT INTO auto_record_titles(title, created_at_utc, updated_at_utc)
+                    VALUES(?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                    ON CONFLICT(title)
+                    DO UPDATE SET updated_at_utc = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                    """,
+                    (normalized_title,),
+                )
+                self.connection.commit()
+                return {
+                    "title": normalized_title,
+                    "enabled": True,
+                    "action": "added" if result.rowcount > 0 else "noop",
+                    "updatedRows": int(result.rowcount),
+                }
+            else:
+                result = self.connection.execute(
+                    """
+                    DELETE FROM auto_record_titles
+                    WHERE lower(trim(title)) = lower(trim(?))
+                    """,
+                    (normalized_title,),
+                )
+                self.connection.commit()
+                return {
+                    "title": normalized_title,
+                    "enabled": False,
+                    "action": "removed" if result.rowcount > 0 else "noop",
+                    "updatedRows": int(result.rowcount),
+                }

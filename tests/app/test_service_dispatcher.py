@@ -1607,6 +1607,80 @@ def test_dispatch_metadata_films_ignore_set_rejects_invalid_payload() -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_dispatch_metadata_auto_record_set_and_list_roundtrip() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    set_response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.auto-record.set",
+            "payload": {
+                "title": "The Dark Knight",
+                "enabled": True,
+            },
+        }
+    )
+
+    assert set_response["ok"] is True
+    assert set_response["payload"]["record"]["action"] == "added"
+
+    list_response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.auto-record.list",
+            "payload": {},
+        }
+    )
+
+    assert list_response["ok"] is True
+    assert list_response["payload"]["titles"] == ["The Dark Knight"]
+
+    set_response_2 = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.auto-record.set",
+            "payload": {
+                "title": "The Dark Knight",
+                "enabled": False,
+            },
+        }
+    )
+
+    assert set_response_2["ok"] is True
+    assert set_response_2["payload"]["record"]["action"] == "removed"
+
+    list_response_2 = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.auto-record.list",
+            "payload": {},
+        }
+    )
+
+    assert list_response_2["ok"] is True
+    assert list_response_2["payload"]["titles"] == []
+
+
+def test_dispatch_metadata_auto_record_set_rejects_invalid_payload() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.auto-record.set",
+            "payload": {
+                "title": "Inception",
+                "enabled": "yes",
+            },
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_dispatch_metadata_films_list_applies_ignore_rules(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

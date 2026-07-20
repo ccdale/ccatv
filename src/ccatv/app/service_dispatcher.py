@@ -62,6 +62,7 @@ SERVICE_CAPABILITIES = [
     "metadata.channels",
     "metadata.guide",
     "metadata.films",
+    "metadata.auto-record",
     "metadata.series.recording",
     "metadata.ota.sync",
     "metadata.ota.multimux.sync",
@@ -97,6 +98,8 @@ SERVICE_COMMANDS = [
     "metadata.films.list",
     "metadata.films.ignore.list",
     "metadata.films.ignore.set",
+    "metadata.auto-record.list",
+    "metadata.auto-record.set",
     "metadata.series.recording.list",
     "metadata.series.recording.set",
     "metadata.ota.sync.run",
@@ -287,6 +290,10 @@ class ServiceCommandDispatcher:
             return self._metadata_films_ignore_list(payload)
         if command == "metadata.films.ignore.set":
             return self._metadata_films_ignore_set(payload)
+        if command == "metadata.auto-record.list":
+            return self._metadata_auto_record_list(payload)
+        if command == "metadata.auto-record.set":
+            return self._metadata_auto_record_set(payload)
         if command == "metadata.series.recording.list":
             return self._metadata_series_recording_list(payload)
         if command == "metadata.series.recording.set":
@@ -2214,6 +2221,47 @@ class ServiceCommandDispatcher:
         return {
             "rule": result,
             "ignores": self._context.persistence.list_films_ignore_rules(),
+        }
+
+    def _metadata_auto_record_list(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        del payload
+        return {
+            "titles": self._context.persistence.list_auto_record_titles(),
+        }
+
+    def _metadata_auto_record_set(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        title = payload.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="title must be a non-empty string",
+            )
+
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="enabled must be a boolean",
+            )
+
+        try:
+            result = self._context.persistence.set_auto_record_title(
+                title=title,
+                enabled=enabled,
+            )
+        except ValueError as exc:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message=str(exc),
+            ) from exc
+
+        return {
+            "record": result,
+            "titles": self._context.persistence.list_auto_record_titles(),
         }
 
     def _metadata_guide_audit_list(self, payload: dict[str, object]) -> dict[str, object]:

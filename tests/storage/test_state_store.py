@@ -369,6 +369,48 @@ def test_delete_recording_removes_row_and_returns_deleted_record(tmp_path: Path)
         connection.close()
 
 
+def test_auto_record_titles_roundtrip(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        assert store.list_auto_record_titles() == []
+
+        added_first = store.set_auto_record_title(
+            title="The Dark Knight",
+            enabled=True,
+        )
+        added_second = store.set_auto_record_title(
+            title="Inception",
+            enabled=True,
+        )
+
+        assert added_first["action"] == "added"
+        assert added_second["action"] == "added"
+        assert store.list_auto_record_titles() == ["Inception", "The Dark Knight"]
+
+        removed = store.set_auto_record_title(
+            title="the dark knight",
+            enabled=False,
+        )
+        assert removed["action"] == "removed"
+        assert store.list_auto_record_titles() == ["Inception"]
+    finally:
+        connection.close()
+
+
+def test_auto_record_titles_validate_inputs(tmp_path: Path) -> None:
+    connection = initialize_database(tmp_path / "ccatv.sqlite3")
+    store = PersistenceStore(connection=connection)
+    try:
+        with pytest.raises(ValueError, match="Title cannot be empty"):
+            store.set_auto_record_title(
+                title="   ",
+                enabled=True,
+            )
+    finally:
+        connection.close()
+
+
 def test_store_serializes_shared_connection_access() -> None:
     class _FakeCursor:
         rowcount = 1
