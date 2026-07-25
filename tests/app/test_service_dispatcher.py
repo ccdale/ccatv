@@ -1919,6 +1919,49 @@ def test_auto_schedule_title_recordings_prefers_hd_over_sd_and_plus_one() -> Non
     assert scheduled_calls[0]["channel_name"] == "Channel 4 HD"
 
 
+def test_auto_schedule_title_recordings_skips_ignored_channels() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.set_auto_record_title(title="Formula 1", enabled=True)
+    context.persistence.set_films_ignore_rule(
+        rule_type="channel",
+        match_value="Channel 4 HD",
+        enabled=True,
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "Channel 4 HD"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "p1", "Formula 1"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc, duration_seconds)
+        VALUES(1, 1, ?, ?, ?)
+        """,
+        ("2099-07-25T18:30:00Z", "2099-07-25T20:30:00Z", 7200),
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(
+        schedule_recording=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("must not schedule")),
+    )
+    dispatcher._channel_is_eligible_for_films = lambda channel_name, cache=None: True
+
+    stats = dispatcher._auto_schedule_title_recordings()
+
+    assert stats == {"scheduled": 0, "skipped": 1}
+
+
 def test_auto_schedule_series_recordings_prefers_hd_over_sd_and_plus_one() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -1974,6 +2017,54 @@ def test_auto_schedule_series_recordings_prefers_hd_over_sd_and_plus_one() -> No
     assert stats == {"scheduled": 1, "skipped": 2}
     assert len(scheduled_calls) == 1
     assert scheduled_calls[0]["channel_name"] == "Channel 4 HD"
+
+
+def test_auto_schedule_series_recordings_skips_ignored_channels() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.set_series_recording_subscription("example.org/series-1", True)
+    context.persistence.set_films_ignore_rule(
+        rule_type="channel",
+        match_value="Channel 4 HD",
+        enabled=True,
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "Channel 4 HD"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, metadata_json)
+        VALUES(?, ?, ?, ?)
+        """,
+        (
+            "dvbstreamer_ota",
+            "p1",
+            "Formula 1",
+            '{"seriesRef":"example.org/series-1"}',
+        ),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc, duration_seconds)
+        VALUES(1, 1, ?, ?, ?)
+        """,
+        ("2099-07-25T18:30:00Z", "2099-07-25T20:30:00Z", 7200),
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(
+        schedule_recording=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("must not schedule")),
+    )
+    dispatcher._channel_is_eligible_for_films = lambda channel_name, cache=None: True
+
+    stats = dispatcher._auto_schedule_series_recordings()
+
+    assert stats == {"scheduled": 0, "skipped": 1}
 
 
 def test_dispatch_metadata_auto_record_set_rejects_invalid_payload() -> None:

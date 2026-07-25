@@ -3005,12 +3005,17 @@ class ServiceCommandDispatcher:
             for job in existing_jobs
             if job.state in {"scheduled", "running", "completed"}
         }
+        ignored_channels = self._ignored_film_channels()
 
         scheduled = 0
         skipped = duplicate_skips
         service_eligibility_cache: dict[str, bool] = {}
         for row in rows:
             channel_name = str(row[1])
+            if channel_name.strip().casefold() in ignored_channels:
+                skipped += 1
+                continue
+
             if not self._channel_is_eligible_for_films(
                 channel_name,
                 cache=service_eligibility_cache,
@@ -3142,12 +3147,17 @@ class ServiceCommandDispatcher:
             for job in existing_jobs
             if job.state in {"scheduled", "running", "completed"}
         }
+        ignored_channels = self._ignored_film_channels()
 
         scheduled = 0
         skipped = duplicate_skips
         service_eligibility_cache: dict[str, bool] = {}
         for row in rows:
             channel_name = str(row[1])
+            if channel_name.strip().casefold() in ignored_channels:
+                skipped += 1
+                continue
+
             if not self._channel_is_eligible_for_films(
                 channel_name,
                 cache=service_eligibility_cache,
@@ -3206,6 +3216,14 @@ class ServiceCommandDispatcher:
         return {
             "scheduled": scheduled,
             "skipped": skipped,
+        }
+
+    def _ignored_film_channels(self) -> set[str]:
+        ignore_rules = self._context.persistence.list_films_ignore_rules()
+        return {
+            name.strip().casefold()
+            for name in ignore_rules.get("channels", [])
+            if isinstance(name, str) and name.strip()
         }
 
     def _select_preferred_auto_schedule_rows(
