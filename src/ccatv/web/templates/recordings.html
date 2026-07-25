@@ -55,6 +55,7 @@
       .upcoming-list { margin-top: 0.75rem; display: grid; gap: 0.55rem; }
       .upcoming-card { border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.8); padding: 0.65rem 0.75rem; display: grid; gap: 0.25rem; }
       .upcoming-meta { color: var(--muted); font-size: 0.9rem; }
+      .upcoming-actions { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
       .table-wrap { margin-top: 0.9rem; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); overflow: auto; }
       table { width: 100%; border-collapse: collapse; min-width: 980px; }
       th, td { padding: 0.8rem 0.75rem; border-bottom: 1px solid rgba(31, 41, 55, 0.08); text-align: left; vertical-align: top; }
@@ -323,8 +324,39 @@
           state.className = "pill";
           state.textContent = `${job.state} | job ${job.id}`;
 
-          card.append(title, meta, state);
+          const actions = document.createElement("div");
+          actions.className = "upcoming-actions";
+
+          const cancelButton = document.createElement("button");
+          cancelButton.type = "button";
+          cancelButton.className = "danger";
+          cancelButton.textContent = "Cancel";
+          cancelButton.addEventListener("click", () => {
+            void cancelUpcomingSchedule(job, cancelButton);
+          });
+
+          actions.append(state, cancelButton);
+
+          card.append(title, meta, actions);
           upcomingList.append(card);
+        }
+      }
+
+      async function cancelUpcomingSchedule(job, button) {
+        if (!window.confirm(`Cancel scheduled job ${job.id}?`)) {
+          return;
+        }
+        button.disabled = true;
+        try {
+          await fetchJson(`/api/schedules/${job.id}`, {
+            method: "DELETE",
+          });
+          schedules = schedules.filter((item) => item.id !== job.id);
+          renderUpcomingSchedules();
+          setStatus(`Cancelled scheduled job ${job.id}.`);
+        } catch (error) {
+          setStatus(error.message, "error");
+          button.disabled = false;
         }
       }
 

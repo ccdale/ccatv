@@ -332,6 +332,7 @@ def test_recordings_page_serves_browser_ui(monkeypatch) -> None:
     body = response.get_data(as_text=True)
     assert "Recordings" in body
     assert "Upcoming recordings" in body
+    assert "Cancel" in body
     assert "Delete page" in body
     assert "Clean list" in body
     assert "Back to Guide" in body
