@@ -398,6 +398,94 @@ def test_dispatch_recording_list_reads_nfo_title_and_description(
     assert recording["description"] == "The Doctor investigates a temporal anomaly."
     assert recording["fileSizeBytes"] == 2048
 
+
+def test_dispatch_recording_failure_log_get_returns_surrounding_lines(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO recordings(
+            channel_name,
+            output_path,
+            state,
+            started_at_utc,
+            ended_at_utc,
+            program_title,
+            program_start_at_utc
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "Channel 4 HD",
+            "/tmp/formula1.ts",
+            "failed",
+            "2026-07-25T18:28:00Z",
+            "2026-07-25T18:29:00Z",
+            "Formula 1",
+            "2026-07-25T18:30:00Z",
+        ),
+    )
+    context.persistence.connection.commit()
+
+    log_dir = tmp_path / "ccatv"
+    (log_dir / "logs").mkdir(parents=True)
+    (log_dir / "logs" / "ccatv-service.log").write_text(
+        "\n".join(
+            [
+                "2026-07-25 18:27:59,000 INFO ccatv: recording started: job_id=1 channel=Channel 4 HD program=Formula 1",
+                "2026-07-25 18:29:00,000 ERROR ccatv: recording failed: job_id=1 channel=Channel 4 HD program=Formula 1 error=frontend lost lock",
+                "2026-07-25 18:29:01,000 INFO ccatv: scheduler continuing",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "ccatv.app.service_dispatcher.user_state_dir",
+        lambda _app_name, appauthor=False: str(log_dir),
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.failure.log.get",
+            "payload": {"id": 1},
+        }
+    )
+
+    assert response["ok"] is True
+    payload = response["payload"]
+    assert payload["id"] == 1
+    assert payload["matchLine"] == 2
+    assert any("recording failed:" in line for line in payload["lines"])
+
+
+def test_dispatch_recording_failure_log_get_rejects_non_failed_recording() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO recordings(channel_name, output_path, state)
+        VALUES(?, ?, ?)
+        """,
+        ("BBC TWO HD", "/tmp/bbc2.ts", "capture_completed"),
+    )
+    context.persistence.connection.commit()
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "recording.failure.log.get",
+            "payload": {"id": 1},
+        }
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "INVALID_STATE"
+
 def test_dispatch_recording_schedule_create_round_trips_in_list() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

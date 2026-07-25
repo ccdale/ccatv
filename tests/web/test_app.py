@@ -125,6 +125,17 @@ class _StubServiceClient:
                     "errors": [],
                 },
             }
+        if command == "recording.failure.log.get":
+            return {
+                "id": int(payload.get("id", 0)),
+                "title": "Example failure",
+                "logPath": "/home/chris/.local/state/ccatv/logs/ccatv-service.log",
+                "matchLine": 120,
+                "lines": [
+                    "2026-07-25 18:28:00,000 INFO ccatv: recording started: program=Example failure",
+                    "2026-07-25 18:29:00,000 ERROR ccatv: recording failed: program=Example failure error=frontend lost lock",
+                ],
+            }
         if command == "recording.schedule.create":
             return {"job": {"id": 1, "state": "scheduled"}}
         if command == "recording.schedule.cancel":
@@ -321,10 +332,12 @@ def test_recordings_page_serves_browser_ui(monkeypatch) -> None:
     body = response.get_data(as_text=True)
     assert "Recordings" in body
     assert "Upcoming recordings" in body
+    assert "Delete page" in body
     assert "Clean list" in body
     assert "Back to Guide" in body
     assert "Upcoming Films" in body
     assert "health-pill" in body
+    assert "Failure log" in body
     assert stub.calls == []
 
 
@@ -605,6 +618,31 @@ def test_recordings_clean_completed_route_forwards_command(monkeypatch) -> None:
     assert stub.calls == [(
         "recording.clean.completed",
         {},
+    )]
+
+
+def test_recordings_failure_log_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.get("/api/recordings/42/failure-log")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert response.get_json()["payload"]["id"] == 42
+    assert stub.calls == [(
+        "recording.failure.log.get",
+        {"id": 42},
     )]
 
 

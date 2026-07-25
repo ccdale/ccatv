@@ -405,6 +405,18 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.get("/api/recordings/<int:recording_id>/failure-log")
+    def api_recording_failure_log(recording_id: int):
+        payload = {
+            "id": recording_id,
+        }
+        response, status_code = _with_client(
+            _client_factory,
+            "recording.failure.log.get",
+            payload,
+        )
+        return jsonify(response), status_code
+
     @app.post("/api/recordings/<int:recording_id>/stop")
     def api_recording_stop(recording_id: int):
         payload = {

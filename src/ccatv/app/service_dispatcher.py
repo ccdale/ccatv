@@ -15,6 +15,8 @@ from types import SimpleNamespace
 import time
 import xml.etree.ElementTree as ET
 
+from platformdirs import user_state_dir
+
 from ccatv import __app_name__, __version__
 from ccatv.app.bootstrap import AppContext
 from ccatv.app.recorder_worker import create_scheduler_worker
@@ -76,6 +78,7 @@ SERVICE_COMMANDS = [
     "recording.list",
     "recording.clean.completed",
     "recording.delete",
+    "recording.failure.log.get",
     "recording.stop",
     "recording.schedule.create",
     "recording.schedule.cancel",
@@ -247,6 +250,8 @@ class ServiceCommandDispatcher:
             return self._recording_clean_completed(payload)
         if command == "recording.delete":
             return self._recording_delete(payload)
+        if command == "recording.failure.log.get":
+            return self._recording_failure_log_get(payload)
         if command == "recording.stop":
             return self._recording_stop(payload)
         if command == "recording.schedule.create":
@@ -637,6 +642,30 @@ class ServiceCommandDispatcher:
             "fileDelete": file_result,
         }
 
+    def _recording_failure_log_get(self, payload: dict[str, object]) -> dict[str, object]:
+        recording_id = payload.get("id")
+        if not isinstance(recording_id, int) or recording_id < 1:
+            raise ServiceCommandError(
+                code="VALIDATION_ERROR",
+                message="id must be a positive integer",
+            )
+
+        try:
+            recording = self._context.persistence.get_recording(recording_id, required=True)
+        except ValueError as exc:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=str(exc),
+            ) from exc
+
+        if str(recording.state).strip().lower() != "failed":
+            raise ServiceCommandError(
+                code="INVALID_STATE",
+                message=f"recording {recording_id} is not in 'failed' state",
+            )
+
+        return self._load_recording_failure_log_payload(recording)
+
     def _recording_stop(self, payload: dict[str, object]) -> dict[str, object]:
         recording_id = payload.get("id")
         if not isinstance(recording_id, int) or recording_id < 1:
@@ -736,6 +765,118 @@ class ServiceCommandDispatcher:
             "programStopAtUtc": recording.program_stop_at_utc,
             "fileSizeBytes": self._recording_file_size(recording.output_path),
         }
+
+    def _load_recording_failure_log_payload(self, recording) -> dict[str, object]:
+        log_path = self._service_log_path()
+        if not log_path.is_file():
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=f"service log not found: {log_path}",
+            )
+
+        title = (
+            str(recording.program_title).strip()
+            if isinstance(recording.program_title, str) and recording.program_title.strip()
+            else Path(recording.output_path).stem
+        )
+        start_at_utc = None
+        for candidate in (recording.program_start_at_utc, recording.started_at_utc):
+            if isinstance(candidate, str) and candidate.strip():
+                start_at_utc = candidate.strip()
+                break
+
+        try:
+            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            raise ServiceCommandError(
+                code="INTERNAL_ERROR",
+                message=f"failed reading service log: {exc}",
+            ) from exc
+
+        match_index = self._find_failure_log_index(
+            lines=lines,
+            title=title,
+            start_at_utc=start_at_utc,
+        )
+        if match_index is None:
+            raise ServiceCommandError(
+                code="NOT_FOUND",
+                message=f"no failure log context found for recording {recording.id}",
+            )
+
+        start = max(0, match_index - 20)
+        end = min(len(lines), match_index + 21)
+        snippet = lines[start:end]
+        return {
+            "id": recording.id,
+            "title": title,
+            "logPath": str(log_path),
+            "matchLine": match_index + 1,
+            "lines": snippet,
+        }
+
+    def _find_failure_log_index(
+        self,
+        *,
+        lines: list[str],
+        title: str,
+        start_at_utc: str | None,
+    ) -> int | None:
+        title_pattern = title.casefold()
+        timestamp = None
+        if isinstance(start_at_utc, str) and start_at_utc:
+            try:
+                timestamp = datetime.strptime(start_at_utc, "%Y-%m-%dT%H:%M:%SZ")
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            except ValueError:
+                timestamp = None
+
+        matches: list[int] = []
+        for index, line in enumerate(lines):
+            normalized = line.casefold()
+            if "recording failed:" not in normalized:
+                continue
+            if title_pattern not in normalized:
+                continue
+            matches.append(index)
+
+        if not matches:
+            return None
+        if timestamp is None:
+            return matches[-1]
+
+        best_index = matches[-1]
+        best_delta: float | None = None
+        for index in matches:
+            line_timestamp = self._parse_log_line_timestamp(lines[index])
+            if line_timestamp is None:
+                continue
+            delta = abs((line_timestamp - timestamp).total_seconds())
+            if best_delta is None or delta < best_delta:
+                best_delta = delta
+                best_index = index
+        return best_index
+
+    def _parse_log_line_timestamp(self, line: str) -> datetime | None:
+        match = re.match(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(\d{3})", line)
+        if match is None:
+            return None
+        try:
+            parsed = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+        return parsed.replace(microsecond=int(match.group(2)) * 1000, tzinfo=timezone.utc)
+
+    def _service_log_path(self) -> Path:
+        state_home = Path(user_state_dir("ccatv", appauthor=False))
+        log_candidates = [
+            state_home / "logs" / "ccatv-service.log",
+            state_home / "ccatv-service.log",
+        ]
+        for candidate in log_candidates:
+            if candidate.is_file():
+                return candidate
+        return log_candidates[0]
 
     def _recording_file_size(self, output_path: str) -> int | None:
         path = Path(output_path)

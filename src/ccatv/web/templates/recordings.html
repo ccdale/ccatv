@@ -64,6 +64,7 @@
       .pill.state-failed { background: rgba(127, 29, 29, 0.16); color: #7f1d1d; }
       .pill.state-running { background: rgba(30, 64, 175, 0.16); color: #1e40af; }
       .pill.state-recorded { background: rgba(22, 101, 52, 0.16); color: #166534; }
+      button.pill { border: 0; cursor: pointer; }
       .title-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
       .recording-description { margin-top: 0.45rem; color: var(--muted); white-space: pre-wrap; }
       .recording-description[hidden] { display: none; }
@@ -71,6 +72,12 @@
       .pagination { margin-top: 0.9rem; display: flex; justify-content: flex-end; align-items: center; gap: 0.6rem; }
       .pagination .meta { color: var(--muted); font-size: 0.92rem; }
       .empty { padding: 1.4rem; color: var(--muted); }
+      dialog.log-dialog { border: 1px solid var(--line); border-radius: 18px; padding: 0; width: min(980px, calc(100vw - 1.5rem)); background: var(--panel); box-shadow: var(--shadow); }
+      dialog.log-dialog::backdrop { background: rgba(15, 23, 42, 0.35); }
+      .log-dialog-body { padding: 1rem; display: grid; gap: 0.8rem; }
+      .log-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+      .log-dialog-meta { color: var(--muted); font-size: 0.9rem; }
+      .log-snippet { margin: 0; padding: 0.9rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.82); overflow: auto; max-height: 60vh; white-space: pre-wrap; font: 0.85rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       @media (max-width: 760px) {
         main { width: calc(100vw - 1rem); }
         .auth-bar { grid-template-columns: 1fr; }
@@ -99,6 +106,7 @@
       <div class="toolbar">
         <div class="subtitle">Refresh to reload the recording history from the backend.</div>
         <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+          <button id="delete-page-button" class="secondary" type="button">Delete page</button>
           <button id="clean-completed-button" class="secondary" type="button">Clean list</button>
           <button id="refresh-button" class="ghost" type="button">Refresh recordings</button>
         </div>
@@ -136,6 +144,19 @@
         <button id="prev-page-button" class="ghost" type="button">Previous</button>
         <button id="next-page-button" class="ghost" type="button">Next</button>
       </div>
+
+      <dialog id="failure-log-dialog" class="log-dialog">
+        <div class="log-dialog-body">
+          <div class="log-dialog-head">
+            <div>
+              <h2 id="failure-log-title">Failure log</h2>
+              <div id="failure-log-meta" class="log-dialog-meta"></div>
+            </div>
+            <button id="close-failure-log-button" class="secondary" type="button">Close</button>
+          </div>
+          <pre id="failure-log-snippet" class="log-snippet">Select a failed recording to load log context.</pre>
+        </div>
+      </dialog>
     </main>
 
     <script>
@@ -143,6 +164,7 @@
       const tokenInput = document.getElementById("token-input");
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
+      const deletePageButton = document.getElementById("delete-page-button");
       const cleanCompletedButton = document.getElementById("clean-completed-button");
       const refreshButton = document.getElementById("refresh-button");
       const statusNode = document.getElementById("status");
@@ -152,6 +174,11 @@
       const prevPageButton = document.getElementById("prev-page-button");
       const nextPageButton = document.getElementById("next-page-button");
       const healthPill = document.getElementById("health-pill");
+      const failureLogDialog = document.getElementById("failure-log-dialog");
+      const closeFailureLogButton = document.getElementById("close-failure-log-button");
+      const failureLogTitle = document.getElementById("failure-log-title");
+      const failureLogMeta = document.getElementById("failure-log-meta");
+      const failureLogSnippet = document.getElementById("failure-log-snippet");
 
       let isAuthenticated = Boolean(bootstrap.authenticated);
       let recordings = [];
@@ -202,6 +229,7 @@
         tokenInput.disabled = !bootstrap.authRequired || isAuthenticated;
         loginButton.disabled = !bootstrap.authRequired || isAuthenticated;
         logoutButton.disabled = !bootstrap.authRequired || !isAuthenticated;
+        deletePageButton.disabled = !isAuthenticated;
         cleanCompletedButton.disabled = !isAuthenticated;
         tokenInput.style.display = bootstrap.authRequired ? "block" : "none";
       }
@@ -330,7 +358,7 @@
         const totalPages = Math.max(1, Math.ceil(recordings.length / pageSize));
         currentPage = Math.min(Math.max(currentPage, 1), totalPages);
         const offset = (currentPage - 1) * pageSize;
-        const pagedRecordings = recordings.slice(offset, offset + pageSize);
+        const pagedRecordings = currentPageRecordings();
 
         for (const recording of pagedRecordings) {
           const row = document.createElement("tr");
@@ -369,11 +397,22 @@
           sizeCell.textContent = formatFileSize(recording.fileSizeBytes);
 
           const stateCell = document.createElement("td");
-          const pill = document.createElement("span");
           const state = statePresentation(recording);
-          pill.className = `pill ${state.className}`.trim();
-          pill.textContent = state.label;
-          stateCell.append(pill);
+          if (String(recording.state || "").toLowerCase() === "failed") {
+            const pillButton = document.createElement("button");
+            pillButton.type = "button";
+            pillButton.className = `pill ${state.className}`.trim();
+            pillButton.textContent = state.label;
+            pillButton.addEventListener("click", () => {
+              void showFailureLog(recording, pillButton);
+            });
+            stateCell.append(pillButton);
+          } else {
+            const pill = document.createElement("span");
+            pill.className = `pill ${state.className}`.trim();
+            pill.textContent = state.label;
+            stateCell.append(pill);
+          }
 
           const actionsCell = document.createElement("td");
           const isRunning = recording.state === "recording";
@@ -395,6 +434,11 @@
         }
 
         renderPagination(totalPages, recordings.length);
+      }
+
+      function currentPageRecordings() {
+        const offset = (currentPage - 1) * pageSize;
+        return recordings.slice(offset, offset + pageSize);
       }
 
       function renderPagination(totalPages, totalItems) {
@@ -425,6 +469,58 @@
           setStatus(`Deleted recording ${recording.id} from the database.`);
         } catch (error) {
           setStatus(error.message, "error");
+          button.disabled = false;
+        }
+      }
+
+      async function deleteRecordingPage() {
+        if (!isAuthenticated) {
+          setStatus("Sign in to delete recordings from this page.", "error");
+          return;
+        }
+        const visible = currentPageRecordings();
+        const deletable = visible.filter((item) => String(item.state || "").toLowerCase() !== "recording");
+        const skipped = visible.length - deletable.length;
+        if (!deletable.length) {
+          setStatus("No deletable recordings on this page.", "error");
+          return;
+        }
+        if (!window.confirm(`Delete ${deletable.length} recording(s) from this page? This removes them from the database only.`)) {
+          return;
+        }
+        deletePageButton.disabled = true;
+        try {
+          for (const recording of deletable) {
+            await fetchJson(`/api/recordings/${recording.id}`, {
+              method: "DELETE",
+            });
+          }
+          const deletedIds = new Set(deletable.map((item) => item.id));
+          recordings = recordings.filter((item) => !deletedIds.has(item.id));
+          const totalPages = Math.max(1, Math.ceil(Math.max(recordings.length, 1) / pageSize));
+          currentPage = Math.min(currentPage, totalPages);
+          renderRecordings();
+          setStatus(`Deleted ${deletable.length} recording(s) from this page.${skipped ? ` Skipped ${skipped} running item(s).` : ""}`);
+        } catch (error) {
+          setStatus(error.message, "error");
+        } finally {
+          deletePageButton.disabled = !isAuthenticated;
+        }
+      }
+
+      async function showFailureLog(recording, button) {
+        button.disabled = true;
+        try {
+          const payload = await fetchJson(`/api/recordings/${recording.id}/failure-log`);
+          failureLogTitle.textContent = `Failure log for ${recordingTitle(recording)}`;
+          failureLogMeta.textContent = `${payload.logPath || ""}${payload.matchLine ? ` | matched line ${payload.matchLine}` : ""}`;
+          failureLogSnippet.textContent = Array.isArray(payload.lines) ? payload.lines.join("\n") : "No log lines returned.";
+          if (typeof failureLogDialog.showModal === "function") {
+            failureLogDialog.showModal();
+          }
+        } catch (error) {
+          setStatus(error.message, "error");
+        } finally {
           button.disabled = false;
         }
       }
@@ -560,8 +656,14 @@
 
       loginButton.addEventListener("click", () => { void login(); });
       logoutButton.addEventListener("click", () => { void logout(); });
+      deletePageButton.addEventListener("click", () => {
+        void deleteRecordingPage();
+      });
       cleanCompletedButton.addEventListener("click", () => {
         void cleanCompletedRecordings();
+      });
+      closeFailureLogButton.addEventListener("click", () => {
+        failureLogDialog.close();
       });
       refreshButton.addEventListener("click", () => {
         if (!isAuthenticated) {
