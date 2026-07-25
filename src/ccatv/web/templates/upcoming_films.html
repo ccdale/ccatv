@@ -123,6 +123,7 @@
             <option value="true" selected>Unique programs</option>
             <option value="false">All showings</option>
           </select>
+          <button id="rescan-auto-record-button" class="secondary" type="button">Rescan auto-record</button>
           <button id="manage-ignores-button" class="secondary" type="button">Manage ignores</button>
           <button id="refresh-button" class="ghost" type="button">Refresh films</button>
         </div>
@@ -201,6 +202,7 @@
       const loginButton = document.getElementById("login-button");
       const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
+      const rescanAutoRecordButton = document.getElementById("rescan-auto-record-button");
       const manageIgnoresButton = document.getElementById("manage-ignores-button");
       const channelScopeSelect = document.getElementById("channel-scope-select");
       const uniqueProgramsSelect = document.getElementById("unique-programs-select");
@@ -709,6 +711,18 @@
         }
       }
 
+      async function rescanAutoRecordTitles() {
+        const payload = await fetchJson("/api/auto-record/rescan", {
+          method: "POST",
+        });
+        const stats = payload.autoSchedule || {};
+        await Promise.all([loadFilms(), loadSchedules(), loadAutoRecordTitles()]);
+        renderFilms();
+        setStatus(
+          `Auto-record rescan complete: scheduled ${Number(stats.scheduled || 0)}, skipped ${Number(stats.skipped || 0)}.`
+        );
+      }
+
       async function createRecording(film) {
         const durationSeconds = film.durationSeconds || Math.max(60, Math.round((new Date(film.stopAtUtc) - new Date(film.startAtUtc)) / 1000));
         return fetchJson("/api/schedules", {
@@ -1042,6 +1056,17 @@
           await loadPageData();
         } catch (error) {
           setStatus(error.message || "Failed to refresh.", "error");
+        }
+      });
+
+      rescanAutoRecordButton.addEventListener("click", async () => {
+        rescanAutoRecordButton.disabled = true;
+        try {
+          await rescanAutoRecordTitles();
+        } catch (error) {
+          setStatus(error.message || "Failed to rescan auto-record titles.", "error");
+        } finally {
+          rescanAutoRecordButton.disabled = false;
         }
       });
 

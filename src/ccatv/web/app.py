@@ -892,6 +892,15 @@ def create_app(
         )
         return jsonify(response), status_code
 
+    @app.post("/api/auto-record/rescan")
+    def api_auto_record_rescan():
+        response, status_code = _with_client(
+            _client_factory,
+            "metadata.auto-record.rescan",
+            {},
+        )
+        return jsonify(response), status_code
+
     @app.post("/api/schedules")
     def api_schedule_create():
         body = request.get_json(silent=True)

@@ -1798,6 +1798,32 @@ def test_dispatch_metadata_auto_record_set_rejects_invalid_payload() -> None:
     assert response["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_dispatch_metadata_auto_record_rescan_schedules_existing_matches(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.set_auto_record_title(title="Formula 1", enabled=True)
+    monkeypatch.setattr(
+        dispatcher,
+        "_auto_schedule_title_recordings",
+        lambda only_titles=None: {"scheduled": 2, "skipped": 1},
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.auto-record.rescan",
+            "payload": {},
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["titles"] == ["Formula 1"]
+    assert response["payload"]["autoSchedule"] == {"scheduled": 2, "skipped": 1}
+
+
 def test_dispatch_metadata_films_list_applies_ignore_rules(monkeypatch) -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)

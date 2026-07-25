@@ -99,6 +99,7 @@ SERVICE_COMMANDS = [
     "metadata.films.ignore.list",
     "metadata.films.ignore.set",
     "metadata.auto-record.list",
+    "metadata.auto-record.rescan",
     "metadata.auto-record.set",
     "metadata.series.recording.list",
     "metadata.series.recording.set",
@@ -292,6 +293,8 @@ class ServiceCommandDispatcher:
             return self._metadata_films_ignore_set(payload)
         if command == "metadata.auto-record.list":
             return self._metadata_auto_record_list(payload)
+        if command == "metadata.auto-record.rescan":
+            return self._metadata_auto_record_rescan(payload)
         if command == "metadata.auto-record.set":
             return self._metadata_auto_record_set(payload)
         if command == "metadata.series.recording.list":
@@ -2270,6 +2273,16 @@ class ServiceCommandDispatcher:
 
         return {
             "record": result,
+            "titles": self._context.persistence.list_auto_record_titles(),
+            "autoSchedule": auto_schedule,
+        }
+
+    def _metadata_auto_record_rescan(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        del payload
+        auto_schedule = self._auto_schedule_title_recordings()
+        return {
             "titles": self._context.persistence.list_auto_record_titles(),
             "autoSchedule": auto_schedule,
         }

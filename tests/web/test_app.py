@@ -353,6 +353,7 @@ def test_upcoming_films_page_serves_browser_ui(monkeypatch) -> None:
     assert "channel-scope-select" in body
     assert "unique-programs-select" in body
     assert "Unique programs" in body
+    assert "Rescan auto-record" in body
     assert "Manage ignores" in body
     assert "page-size-select" in body
     assert "page-size-select-bottom" in body
@@ -1348,6 +1349,27 @@ def test_auto_record_set_rejects_non_object_json(monkeypatch) -> None:
     assert response.get_json()["ok"] is False
     assert response.get_json()["error"]["code"] == "VALIDATION_ERROR"
     assert stub.calls == []
+
+
+def test_auto_record_rescan_route_forwards_command(monkeypatch) -> None:
+    stub = _StubServiceClient()
+    monkeypatch.setattr(
+        "ccatv.web.app.create_service_client",
+        lambda **_kwargs: stub,
+    )
+
+    app = create_app(
+        service_host="127.0.0.1",
+        service_port=8787,
+        service_auth_token="token",
+    )
+    client = app.test_client()
+
+    response = client.post("/api/auto-record/rescan")
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert stub.calls == [("metadata.auto-record.rescan", {})]
 
 
 def test_guide_search_queries_all_channels_and_filters_matches(monkeypatch) -> None:
