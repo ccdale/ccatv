@@ -2965,14 +2965,18 @@ class ServiceCommandDispatcher:
         rows = self._context.persistence.connection.execute(
             f"""
             SELECT
+                                c.source,
                 c.display_name,
+                                c.channel_group_id,
+                                c.favorite_channel,
                 b.start_utc,
                 b.stop_utc,
                 b.duration_seconds,
                 p.title,
                 p.description_long,
                 json_extract(p.metadata_json, '$.contentRef') AS content_ref,
-                json_extract(p.metadata_json, '$.seriesRef') AS series_ref
+                                json_extract(p.metadata_json, '$.seriesRef') AS series_ref,
+                                p.source_program_id
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
@@ -2982,6 +2986,8 @@ class ServiceCommandDispatcher:
             """,
             (now_utc, *sorted(all_series_refs)),
         ).fetchall()
+
+        rows, duplicate_skips = self._select_preferred_auto_schedule_rows(rows)
 
         existing_jobs = self._context.persistence.list_scheduler_jobs()
         taken_content_refs = {
@@ -3001,10 +3007,10 @@ class ServiceCommandDispatcher:
         }
 
         scheduled = 0
-        skipped = 0
+        skipped = duplicate_skips
         service_eligibility_cache: dict[str, bool] = {}
         for row in rows:
-            channel_name = str(row[0])
+            channel_name = str(row[1])
             if not self._channel_is_eligible_for_films(
                 channel_name,
                 cache=service_eligibility_cache,
@@ -3012,10 +3018,10 @@ class ServiceCommandDispatcher:
                 skipped += 1
                 continue
 
-            start_at_utc = str(row[1])
+            start_at_utc = str(row[4])
             slot_key = (channel_name.casefold(), start_at_utc)
-            content_ref = str(row[6]).strip() if row[6] is not None else None
-            series_ref = str(row[7]).strip() if row[7] is not None else None
+            content_ref = str(row[9]).strip() if row[9] is not None else None
+            series_ref = str(row[10]).strip() if row[10] is not None else None
 
             if slot_key in taken_slots:
                 skipped += 1
@@ -3027,11 +3033,11 @@ class ServiceCommandDispatcher:
                 skipped += 1
                 continue
 
-            duration_seconds: int | None = int(row[3]) if row[3] is not None else None
-            if duration_seconds is None and row[2] is not None:
+            duration_seconds: int | None = int(row[6]) if row[6] is not None else None
+            if duration_seconds is None and row[5] is not None:
                 try:
                     start_dt = datetime.strptime(start_at_utc, "%Y-%m-%dT%H:%M:%SZ")
-                    stop_dt = datetime.strptime(str(row[2]), "%Y-%m-%dT%H:%M:%SZ")
+                    stop_dt = datetime.strptime(str(row[5]), "%Y-%m-%dT%H:%M:%SZ")
                     duration_seconds = int((stop_dt - start_dt).total_seconds())
                 except ValueError:
                     duration_seconds = None
@@ -3044,10 +3050,10 @@ class ServiceCommandDispatcher:
                     channel_name=channel_name,
                     start_at_utc=start_at_utc,
                     duration_seconds=duration_seconds,
-                    program_title=str(row[4]) if row[4] is not None else None,
-                    program_description=str(row[5]) if row[5] is not None else None,
+                    program_title=str(row[7]) if row[7] is not None else None,
+                    program_description=str(row[8]) if row[8] is not None else None,
                     program_start_at_utc=start_at_utc,
-                    program_stop_at_utc=(str(row[2]) if row[2] is not None else None),
+                    program_stop_at_utc=(str(row[5]) if row[5] is not None else None),
                     program_content_ref=content_ref,
                     program_series_ref=series_ref,
                 )
@@ -3096,14 +3102,18 @@ class ServiceCommandDispatcher:
         rows = self._context.persistence.connection.execute(
             f"""
             SELECT
+                c.source,
                 c.display_name,
+                c.channel_group_id,
+                c.favorite_channel,
                 b.start_utc,
                 b.stop_utc,
                 b.duration_seconds,
                 p.title,
                 p.description_long,
                 json_extract(p.metadata_json, '$.contentRef') AS content_ref,
-                json_extract(p.metadata_json, '$.seriesRef') AS series_ref
+                json_extract(p.metadata_json, '$.seriesRef') AS series_ref,
+                p.source_program_id
             FROM epg_broadcasts AS b
             JOIN epg_channels AS c ON c.id = b.channel_id
             JOIN epg_programs AS p ON p.id = b.program_id
@@ -3113,6 +3123,8 @@ class ServiceCommandDispatcher:
             """,
             (now_utc, *normalized_titles),
         ).fetchall()
+
+        rows, duplicate_skips = self._select_preferred_auto_schedule_rows(rows)
 
         existing_jobs = self._context.persistence.list_scheduler_jobs()
         taken_content_refs = {
@@ -3132,10 +3144,10 @@ class ServiceCommandDispatcher:
         }
 
         scheduled = 0
-        skipped = 0
+        skipped = duplicate_skips
         service_eligibility_cache: dict[str, bool] = {}
         for row in rows:
-            channel_name = str(row[0])
+            channel_name = str(row[1])
             if not self._channel_is_eligible_for_films(
                 channel_name,
                 cache=service_eligibility_cache,
@@ -3143,10 +3155,10 @@ class ServiceCommandDispatcher:
                 skipped += 1
                 continue
 
-            start_at_utc = str(row[1])
+            start_at_utc = str(row[4])
             slot_key = (channel_name.casefold(), start_at_utc)
-            content_ref = str(row[6]).strip() if row[6] is not None else None
-            series_ref = str(row[7]).strip() if row[7] is not None else None
+            content_ref = str(row[9]).strip() if row[9] is not None else None
+            series_ref = str(row[10]).strip() if row[10] is not None else None
 
             if slot_key in taken_slots:
                 skipped += 1
@@ -3158,11 +3170,11 @@ class ServiceCommandDispatcher:
                 skipped += 1
                 continue
 
-            duration_seconds: int | None = int(row[3]) if row[3] is not None else None
-            if duration_seconds is None and row[2] is not None:
+            duration_seconds: int | None = int(row[6]) if row[6] is not None else None
+            if duration_seconds is None and row[5] is not None:
                 try:
                     start_dt = datetime.strptime(start_at_utc, "%Y-%m-%dT%H:%M:%SZ")
-                    stop_dt = datetime.strptime(str(row[2]), "%Y-%m-%dT%H:%M:%SZ")
+                    stop_dt = datetime.strptime(str(row[5]), "%Y-%m-%dT%H:%M:%SZ")
                     duration_seconds = int((stop_dt - start_dt).total_seconds())
                 except ValueError:
                     duration_seconds = None
@@ -3175,10 +3187,10 @@ class ServiceCommandDispatcher:
                     channel_name=channel_name,
                     start_at_utc=start_at_utc,
                     duration_seconds=duration_seconds,
-                    program_title=str(row[4]) if row[4] is not None else None,
-                    program_description=str(row[5]) if row[5] is not None else None,
+                    program_title=str(row[7]) if row[7] is not None else None,
+                    program_description=str(row[8]) if row[8] is not None else None,
                     program_start_at_utc=start_at_utc,
-                    program_stop_at_utc=(str(row[2]) if row[2] is not None else None),
+                    program_stop_at_utc=(str(row[5]) if row[5] is not None else None),
                     program_content_ref=content_ref,
                     program_series_ref=series_ref,
                 )
@@ -3195,6 +3207,115 @@ class ServiceCommandDispatcher:
             "scheduled": scheduled,
             "skipped": skipped,
         }
+
+    def _select_preferred_auto_schedule_rows(
+        self,
+        rows: list[tuple[object, ...]],
+    ) -> tuple[list[tuple[object, ...]], int]:
+        best_by_key: dict[tuple[str, str, str], tuple[object, ...]] = {}
+        duplicate_skips = 0
+
+        for row in rows:
+            selection_key = self._auto_schedule_selection_key(row)
+            existing = best_by_key.get(selection_key)
+            if existing is None:
+                best_by_key[selection_key] = row
+                continue
+
+            if self._auto_schedule_variant_sort_key(row) < self._auto_schedule_variant_sort_key(existing):
+                best_by_key[selection_key] = row
+            duplicate_skips += 1
+
+        selected_rows = sorted(
+            best_by_key.values(),
+            key=lambda row: (str(row[4]), str(row[1]).casefold()),
+        )
+        return selected_rows, duplicate_skips
+
+    def _auto_schedule_selection_key(
+        self,
+        row: tuple[object, ...],
+    ) -> tuple[str, str, str]:
+        identity_key = self._auto_schedule_program_identity_key(row)
+        family_key, timeshift_minutes, _is_hd = self._auto_schedule_channel_variant_info(row)
+        start_at_utc = str(row[4])
+        canonical_start = self._auto_schedule_canonical_start(
+            start_at_utc=start_at_utc,
+            timeshift_minutes=timeshift_minutes,
+        )
+        return identity_key, family_key, canonical_start
+
+    def _auto_schedule_variant_sort_key(
+        self,
+        row: tuple[object, ...],
+    ) -> tuple[int, int, str]:
+        _family_key, timeshift_minutes, is_hd = self._auto_schedule_channel_variant_info(row)
+        hd_rank = 0 if is_hd else 1
+        return (timeshift_minutes, hd_rank, str(row[1]).casefold())
+
+    def _auto_schedule_program_identity_key(
+        self,
+        row: tuple[object, ...],
+    ) -> str:
+        source = str(row[0] or "").strip().casefold()
+        title = str(row[7] or "").strip().casefold()
+        content_ref = str(row[9] or "").strip().casefold()
+        series_ref = str(row[10] or "").strip().casefold()
+        source_program_id = str(row[11] or "").strip().casefold()
+
+        if source == "dvbstreamer_ota" and content_ref:
+            return f"ota:content:{content_ref}"
+        if source == "dvbstreamer_ota" and source_program_id:
+            return f"ota:program:{source_program_id}"
+        if content_ref:
+            return f"content:{content_ref}"
+        if source_program_id:
+            return f"program:{source}:{source_program_id}"
+        if series_ref:
+            return f"series:{series_ref}:title:{title}"
+        return f"title:{title}"
+
+    def _auto_schedule_channel_variant_info(
+        self,
+        row: tuple[object, ...],
+    ) -> tuple[str, int, bool]:
+        channel_name = str(row[1] or "").strip()
+        group_id = row[2]
+        normalized = channel_name.replace(" ", "").casefold()
+
+        timeshift_minutes = 0
+        plus_match = re.search(r"\+(\d+)$", normalized)
+        if plus_match is not None:
+            timeshift_minutes = int(plus_match.group(1)) * 60
+            normalized = normalized[: plus_match.start()]
+
+        is_hd = normalized.endswith("hd")
+        if is_hd:
+            normalized = normalized[:-2]
+        elif normalized.endswith("sd"):
+            normalized = normalized[:-2]
+
+        family_key = (
+            f"group:{int(group_id)}"
+            if group_id is not None
+            else f"name:{normalized}"
+        )
+        return family_key, timeshift_minutes, is_hd
+
+    def _auto_schedule_canonical_start(
+        self,
+        *,
+        start_at_utc: str,
+        timeshift_minutes: int,
+    ) -> str:
+        if timeshift_minutes <= 0:
+            return start_at_utc
+        try:
+            start_dt = datetime.strptime(start_at_utc, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return start_at_utc
+        canonical = start_dt - timedelta(minutes=timeshift_minutes)
+        return canonical.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def _metadata_sd_sync_run(self, payload: dict[str, object]) -> dict[str, object]:
         lineup_id = payload.get("lineupId")
