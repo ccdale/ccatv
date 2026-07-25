@@ -2259,9 +2259,19 @@ class ServiceCommandDispatcher:
                 message=str(exc),
             ) from exc
 
+        auto_schedule = {
+            "scheduled": 0,
+            "skipped": 0,
+        }
+        if enabled:
+            auto_schedule = self._auto_schedule_title_recordings(
+                only_titles={title.strip()}
+            )
+
         return {
             "record": result,
             "titles": self._context.persistence.list_auto_record_titles(),
+            "autoSchedule": auto_schedule,
         }
 
     def _metadata_guide_audit_list(self, payload: dict[str, object]) -> dict[str, object]:
@@ -2901,6 +2911,137 @@ class ServiceCommandDispatcher:
             "skipped": skipped,
         }
 
+    def _auto_schedule_title_recordings(
+        self,
+        *,
+        only_titles: set[str] | None = None,
+    ) -> dict[str, int]:
+        all_titles = set(self._context.persistence.list_auto_record_titles())
+        if only_titles is not None:
+            normalized_only = {
+                title.strip().casefold()
+                for title in only_titles
+                if isinstance(title, str) and title.strip()
+            }
+            all_titles = {
+                title
+                for title in all_titles
+                if title.strip().casefold() in normalized_only
+            }
+        if not all_titles:
+            return {"scheduled": 0, "skipped": 0}
+
+        normalized_titles = sorted(
+            {title.strip().casefold() for title in all_titles if title.strip()}
+        )
+        if not normalized_titles:
+            return {"scheduled": 0, "skipped": 0}
+
+        placeholders = ", ".join("?" for _ in normalized_titles)
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows = self._context.persistence.connection.execute(
+            f"""
+            SELECT
+                c.display_name,
+                b.start_utc,
+                b.stop_utc,
+                b.duration_seconds,
+                p.title,
+                p.description_long,
+                json_extract(p.metadata_json, '$.contentRef') AS content_ref,
+                json_extract(p.metadata_json, '$.seriesRef') AS series_ref
+            FROM epg_broadcasts AS b
+            JOIN epg_channels AS c ON c.id = b.channel_id
+            JOIN epg_programs AS p ON p.id = b.program_id
+            WHERE b.start_utc >= ?
+              AND lower(trim(p.title)) IN ({placeholders})
+            ORDER BY b.start_utc ASC, c.display_name COLLATE NOCASE ASC
+            """,
+            (now_utc, *normalized_titles),
+        ).fetchall()
+
+        existing_jobs = self._context.persistence.list_scheduler_jobs()
+        taken_content_refs = {
+            job.program_content_ref
+            for job in existing_jobs
+            if isinstance(job.program_content_ref, str)
+            and job.program_content_ref.strip()
+            and job.state in {"scheduled", "running", "completed"}
+        }
+        taken_slots = {
+            (
+                job.channel_name.casefold(),
+                job.program_start_at_utc or job.start_at_utc,
+            )
+            for job in existing_jobs
+            if job.state in {"scheduled", "running", "completed"}
+        }
+
+        scheduled = 0
+        skipped = 0
+        service_eligibility_cache: dict[str, bool] = {}
+        for row in rows:
+            channel_name = str(row[0])
+            if not self._channel_is_eligible_for_films(
+                channel_name,
+                cache=service_eligibility_cache,
+            ):
+                skipped += 1
+                continue
+
+            start_at_utc = str(row[1])
+            slot_key = (channel_name.casefold(), start_at_utc)
+            content_ref = str(row[6]).strip() if row[6] is not None else None
+            series_ref = str(row[7]).strip() if row[7] is not None else None
+
+            if slot_key in taken_slots:
+                skipped += 1
+                continue
+            if content_ref and content_ref in taken_content_refs:
+                skipped += 1
+                continue
+            if content_ref and self._context.persistence.has_recorded_content_ref(content_ref):
+                skipped += 1
+                continue
+
+            duration_seconds: int | None = int(row[3]) if row[3] is not None else None
+            if duration_seconds is None and row[2] is not None:
+                try:
+                    start_dt = datetime.strptime(start_at_utc, "%Y-%m-%dT%H:%M:%SZ")
+                    stop_dt = datetime.strptime(str(row[2]), "%Y-%m-%dT%H:%M:%SZ")
+                    duration_seconds = int((stop_dt - start_dt).total_seconds())
+                except ValueError:
+                    duration_seconds = None
+            if duration_seconds is None or duration_seconds < MIN_RECORDING_SECONDS:
+                skipped += 1
+                continue
+
+            try:
+                self._context.tvrecorder.schedule_recording(
+                    channel_name=channel_name,
+                    start_at_utc=start_at_utc,
+                    duration_seconds=duration_seconds,
+                    program_title=str(row[4]) if row[4] is not None else None,
+                    program_description=str(row[5]) if row[5] is not None else None,
+                    program_start_at_utc=start_at_utc,
+                    program_stop_at_utc=(str(row[2]) if row[2] is not None else None),
+                    program_content_ref=content_ref,
+                    program_series_ref=series_ref,
+                )
+            except Exception:
+                skipped += 1
+                continue
+
+            scheduled += 1
+            taken_slots.add(slot_key)
+            if content_ref:
+                taken_content_refs.add(content_ref)
+
+        return {
+            "scheduled": scheduled,
+            "skipped": skipped,
+        }
+
     def _metadata_sd_sync_run(self, payload: dict[str, object]) -> dict[str, object]:
         lineup_id = payload.get("lineupId")
         if not isinstance(lineup_id, str) or not lineup_id.strip():
@@ -3011,7 +3152,8 @@ class ServiceCommandDispatcher:
                 details={"timeoutSeconds": float(timeout_seconds)},
             ) from exc
 
-        auto_schedule = self._auto_schedule_series_recordings()
+        series_auto_schedule = self._auto_schedule_series_recordings()
+        title_auto_schedule = self._auto_schedule_title_recordings()
 
         return {
             "stats": {
@@ -3021,8 +3163,10 @@ class ServiceCommandDispatcher:
                 "staleSchedulesPruned": stats.stale_schedules_pruned,
                 "ingestRunId": stats.ingest_run_id,
                 "fullRefresh": clear_existing,
-                "seriesAutoScheduled": auto_schedule["scheduled"],
-                "seriesAutoSkipped": auto_schedule["skipped"],
+                "seriesAutoScheduled": series_auto_schedule["scheduled"],
+                "seriesAutoSkipped": series_auto_schedule["skipped"],
+                "titleAutoScheduled": title_auto_schedule["scheduled"],
+                "titleAutoSkipped": title_auto_schedule["skipped"],
             }
         }
 
@@ -3277,7 +3421,8 @@ class ServiceCommandDispatcher:
             if close_after:
                 target_connection.close()
 
-        auto_schedule = self._auto_schedule_series_recordings()
+        series_auto_schedule = self._auto_schedule_series_recordings()
+        title_auto_schedule = self._auto_schedule_title_recordings()
 
         logger.info(
             "OTA multi-mux sync complete "
@@ -3297,8 +3442,10 @@ class ServiceCommandDispatcher:
                 "channelsUpserted": total_channels,
                 "programsUpserted": total_programs,
                 "broadcastsUpserted": total_broadcasts,
-                "seriesAutoScheduled": auto_schedule["scheduled"],
-                "seriesAutoSkipped": auto_schedule["skipped"],
+                "seriesAutoScheduled": series_auto_schedule["scheduled"],
+                "seriesAutoSkipped": series_auto_schedule["skipped"],
+                "titleAutoScheduled": title_auto_schedule["scheduled"],
+                "titleAutoSkipped": title_auto_schedule["skipped"],
             }
         }
 
@@ -3460,7 +3607,8 @@ class ServiceCommandDispatcher:
             stats.ingest_run_id,
         )
 
-        auto_schedule = self._auto_schedule_series_recordings()
+        series_auto_schedule = self._auto_schedule_series_recordings()
+        title_auto_schedule = self._auto_schedule_title_recordings()
 
         return {
             "stats": {
@@ -3469,8 +3617,10 @@ class ServiceCommandDispatcher:
                 "broadcastsUpserted": stats.broadcasts_upserted,
                 "parsedEvents": stats.parsed_events,
                 "ingestRunId": stats.ingest_run_id,
-                "seriesAutoScheduled": auto_schedule["scheduled"],
-                "seriesAutoSkipped": auto_schedule["skipped"],
+                "seriesAutoScheduled": series_auto_schedule["scheduled"],
+                "seriesAutoSkipped": series_auto_schedule["skipped"],
+                "titleAutoScheduled": title_auto_schedule["scheduled"],
+                "titleAutoSkipped": title_auto_schedule["skipped"],
             }
         }
 

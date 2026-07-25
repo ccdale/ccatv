@@ -1662,6 +1662,123 @@ def test_dispatch_metadata_auto_record_set_and_list_roundtrip() -> None:
     assert list_response_2["payload"]["titles"] == []
 
 
+def test_dispatch_metadata_auto_record_set_schedules_existing_future_matches(
+    monkeypatch,
+) -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "Channel 4 HD"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, metadata_json)
+        VALUES(?, ?, ?, ?)
+        """,
+        (
+            "dvbstreamer_ota",
+            "p1",
+            "Formula 1",
+            '{"contentRef":"example.org/formula1-1"}',
+        ),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc, duration_seconds)
+        VALUES(1, 1, ?, ?, ?)
+        """,
+        ("2099-07-25T18:30:00Z", "2099-07-25T20:30:00Z", 7200),
+    )
+    context.persistence.connection.commit()
+
+    scheduled_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        dispatcher,
+        "_channel_is_eligible_for_films",
+        lambda _channel_name, cache=None: True,
+    )
+    context.tvrecorder = SimpleNamespace(
+        schedule_recording=lambda **kwargs: (
+            scheduled_calls.append(kwargs),
+            SimpleNamespace(id=1),
+        )[1]
+    )
+
+    response = dispatcher.dispatch(
+        {
+            "apiVersion": API_VERSION,
+            "command": "metadata.auto-record.set",
+            "payload": {
+                "title": "Formula 1",
+                "enabled": True,
+            },
+        }
+    )
+
+    assert response["ok"] is True
+    assert response["payload"]["autoSchedule"] == {"scheduled": 1, "skipped": 0}
+    assert len(scheduled_calls) == 1
+    assert scheduled_calls[0]["channel_name"] == "Channel 4 HD"
+    assert scheduled_calls[0]["program_title"] == "Formula 1"
+
+
+def test_auto_schedule_title_recordings_skips_recorded_content_ref() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.set_auto_record_title(title="Formula 1", enabled=True)
+    context.persistence.mark_recorded_content_ref(
+        content_ref="example.org/formula1-1",
+        series_ref=None,
+        title="Formula 1",
+        recording_id=1,
+    )
+
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "200", "Channel 4 HD"),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title, metadata_json)
+        VALUES(?, ?, ?, ?)
+        """,
+        (
+            "dvbstreamer_ota",
+            "p1",
+            "Formula 1",
+            '{"contentRef":"example.org/formula1-1"}',
+        ),
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc, duration_seconds)
+        VALUES(1, 1, ?, ?, ?)
+        """,
+        ("2099-07-25T18:30:00Z", "2099-07-25T20:30:00Z", 7200),
+    )
+    context.persistence.connection.commit()
+
+    context.tvrecorder = SimpleNamespace(
+        resolve_service_name=lambda name: name,
+        run=lambda _command: SimpleNamespace(stdout="Type: TV\nVideo PID: 0x100\n"),
+        schedule_recording=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("must not schedule")),
+    )
+
+    stats = dispatcher._auto_schedule_title_recordings()
+
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+
+
 def test_dispatch_metadata_auto_record_set_rejects_invalid_payload() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -3435,6 +3552,16 @@ def test_dispatch_metadata_sd_sync_run(monkeypatch) -> None:
         return stats
 
     monkeypatch.setattr(dispatcher, "_run_sd_sync", _stub_run_sd_sync)
+    monkeypatch.setattr(
+        dispatcher,
+        "_auto_schedule_series_recordings",
+        lambda only_series_refs=None: {"scheduled": 5, "skipped": 6},
+    )
+    monkeypatch.setattr(
+        dispatcher,
+        "_auto_schedule_title_recordings",
+        lambda only_titles=None: {"scheduled": 7, "skipped": 8},
+    )
 
     response = dispatcher.dispatch({
         "apiVersion": API_VERSION,
@@ -3453,6 +3580,10 @@ def test_dispatch_metadata_sd_sync_run(monkeypatch) -> None:
     assert sd_stats["staleSchedulesPruned"] == 4
     assert sd_stats["ingestRunId"] == 9
     assert sd_stats["fullRefresh"] is False
+    assert sd_stats["seriesAutoScheduled"] == 5
+    assert sd_stats["seriesAutoSkipped"] == 6
+    assert sd_stats["titleAutoScheduled"] == 7
+    assert sd_stats["titleAutoSkipped"] == 8
 
 
 def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
@@ -3516,6 +3647,16 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
         "ccatv.app.service_dispatcher.ingest_dvbstreamer_epg",
         _stub_ingest,
     )
+    monkeypatch.setattr(
+        dispatcher,
+        "_auto_schedule_series_recordings",
+        lambda only_series_refs=None: {"scheduled": 1, "skipped": 2},
+    )
+    monkeypatch.setattr(
+        dispatcher,
+        "_auto_schedule_title_recordings",
+        lambda only_titles=None: {"scheduled": 3, "skipped": 4},
+    )
 
     response = dispatcher.dispatch({
         "apiVersion": API_VERSION,
@@ -3538,6 +3679,10 @@ def test_dispatch_metadata_ota_sync_run(monkeypatch) -> None:
     assert stats["broadcastsUpserted"] == 27
     assert stats["parsedEvents"] == 27
     assert stats["ingestRunId"] == 22
+    assert stats["seriesAutoScheduled"] == 1
+    assert stats["seriesAutoSkipped"] == 2
+    assert stats["titleAutoScheduled"] == 3
+    assert stats["titleAutoSkipped"] == 4
 
 
 def test_dispatch_metadata_ota_channel_names_backfill_run(monkeypatch) -> None:
