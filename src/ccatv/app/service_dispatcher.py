@@ -3426,8 +3426,12 @@ class ServiceCommandDispatcher:
         self,
         row: tuple[object, ...],
     ) -> tuple[int, int, int, str]:
-        _family_key, timeshift_minutes, is_hd, delivery_system = self._auto_schedule_channel_variant_info(row)
-        hd_rank = 0 if is_hd else 1
+        (
+            _family_key,
+            timeshift_minutes,
+            hd_rank,
+            delivery_system,
+        ) = self._auto_schedule_channel_variant_info(row)
         delivery_rank = 0 if delivery_system == "DVB-T2" else 1 if delivery_system == "DVB-T" else 2
         return (timeshift_minutes, hd_rank, delivery_rank, str(row[1]).casefold())
 
@@ -3456,7 +3460,7 @@ class ServiceCommandDispatcher:
     def _auto_schedule_channel_variant_info(
         self,
         row: tuple[object, ...],
-    ) -> tuple[str, int, bool, str | None]:
+    ) -> tuple[str, int, int, str | None]:
         channel_name = str(row[1] or "").strip()
         normalized = channel_name.replace(" ", "").casefold()
 
@@ -3466,18 +3470,25 @@ class ServiceCommandDispatcher:
             timeshift_minutes = int(plus_match.group(1)) * 60
             normalized = normalized[: plus_match.start()]
 
-        is_hd = normalized.endswith("hd")
-        if is_hd:
+        explicit_hd = normalized.endswith("hd")
+        explicit_sd = normalized.endswith("sd")
+        if explicit_hd:
             normalized = normalized[:-2]
-        elif normalized.endswith("sd"):
+        elif explicit_sd:
             normalized = normalized[:-2]
 
         _known_radio, known_hd, delivery_system = self._get_channel_tech_flags(channel_name)
-        if not is_hd:
-            is_hd = known_hd is True
+        if explicit_hd:
+            hd_rank = 0
+        elif known_hd is True:
+            hd_rank = 1
+        elif explicit_sd:
+            hd_rank = 3
+        else:
+            hd_rank = 2
 
         family_key = f"name:{normalized}"
-        return family_key, timeshift_minutes, is_hd, delivery_system
+        return family_key, timeshift_minutes, hd_rank, delivery_system
 
     def _auto_schedule_canonical_start(
         self,
