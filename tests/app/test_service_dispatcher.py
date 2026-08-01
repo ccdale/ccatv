@@ -2031,6 +2031,63 @@ def test_auto_schedule_title_recordings_prefers_stored_hd_flag_when_name_is_ambi
     assert scheduled_calls[0]["channel_name"] == "Channel 4"
 
 
+def test_auto_schedule_title_recordings_prefers_dvb_t2_when_hd_flag_is_unavailable() -> None:
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    context.persistence.set_auto_record_title(title="Formula 1", enabled=True)
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_channels(source, source_channel_id, display_name)
+        VALUES(?, ?, ?)
+        """,
+        [
+            ("dvbstreamer_ota", "200", "Channel 4"),
+            ("dvbstreamer_ota", "201", "Channel 4 SD"),
+        ],
+    )
+    context.persistence.connection.execute(
+        """
+        INSERT INTO epg_programs(source, source_program_id, title)
+        VALUES(?, ?, ?)
+        """,
+        ("dvbstreamer_ota", "p1", "Formula 1"),
+    )
+    context.persistence.connection.executemany(
+        """
+        INSERT INTO epg_broadcasts(channel_id, program_id, start_utc, stop_utc, duration_seconds)
+        VALUES(?, 1, ?, ?, ?)
+        """,
+        [
+            (1, "2099-07-25T18:30:00Z", "2099-07-25T20:30:00Z", 7200),
+            (2, "2099-07-25T18:30:00Z", "2099-07-25T20:30:00Z", 7200),
+        ],
+    )
+    context.persistence.connection.commit()
+
+    scheduled_calls: list[dict[str, object]] = []
+    context.tvrecorder = SimpleNamespace(
+        resolve_service_name=lambda name: name,
+        schedule_recording=lambda **kwargs: (
+            scheduled_calls.append(kwargs),
+            SimpleNamespace(id=1),
+        )[1],
+    )
+    dispatcher._channel_is_eligible_for_films = lambda channel_name, cache=None: True
+    dispatcher._load_service_flags_from_adapter_db = lambda service_name: (
+        True,
+        False,
+        None,
+        "DVB-T2" if service_name == "Channel 4" else "DVB-T",
+    )
+
+    stats = dispatcher._auto_schedule_title_recordings()
+
+    assert stats == {"scheduled": 1, "skipped": 1}
+    assert len(scheduled_calls) == 1
+    assert scheduled_calls[0]["channel_name"] == "Channel 4"
+
+
 def test_auto_schedule_title_recordings_skips_ignored_channels() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
@@ -3045,6 +3102,19 @@ def test_parse_ts_id_from_serviceinfo() -> None:
     context = _build_context()
     dispatcher = ServiceCommandDispatcher(context)
     assert dispatcher._parse_ts_id_from_serviceinfo(raw) == "0x4087"
+
+
+def test_serviceinfo_delivery_system_parses_dvb_t2() -> None:
+    raw = (
+        'Name                : "BBC TWO HD"\n'
+        "Type                : Digital TV\n"
+        "Delivery System     : DVB-T2\n"
+        "PLP Number          : 0\n"
+    )
+    context = _build_context()
+    dispatcher = ServiceCommandDispatcher(context)
+
+    assert dispatcher._serviceinfo_delivery_system(raw) == "DVB-T2"
 
 
 def test_parse_ts_id_from_serviceinfo_returns_none_when_absent() -> None:

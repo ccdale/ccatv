@@ -2624,7 +2624,9 @@ class ServiceCommandDispatcher:
         if key in cache:
             return cache[key]
 
-        known_radio_flag, _known_hd_flag = self._get_channel_tech_flags(channel_name)
+        known_radio_flag, _known_hd_flag, _known_delivery_system = self._get_channel_tech_flags(
+            channel_name
+        )
 
         # Default to include when control-plane inspection is unavailable.
         eligible = known_radio_flag is not True
@@ -2636,11 +2638,12 @@ class ServiceCommandDispatcher:
                 max_age_days=SERVICEINFO_CACHE_MAX_AGE_DAYS,
             )
             if cached is not None:
-                has_pid, is_radio, is_hd = cached
+                has_pid, is_radio, is_hd, delivery_system = cached
                 self._set_channel_tech_flags(
                     channel_name,
                     is_radio=is_radio,
                     is_hd=is_hd,
+                    delivery_system=delivery_system,
                 )
                 known_radio_flag = is_radio
                 eligible = has_pid and not known_radio_flag
@@ -2652,12 +2655,17 @@ class ServiceCommandDispatcher:
                 if len(adapter_flags) == 2:
                     has_pid, is_radio = adapter_flags
                     is_hd = None
-                else:
+                    delivery_system = None
+                elif len(adapter_flags) == 3:
                     has_pid, is_radio, is_hd = adapter_flags
+                    delivery_system = None
+                else:
+                    has_pid, is_radio, is_hd, delivery_system = adapter_flags
                 self._set_channel_tech_flags(
                     channel_name,
                     is_radio=is_radio,
                     is_hd=is_hd,
+                    delivery_system=delivery_system,
                 )
                 known_radio_flag = is_radio
                 self._upsert_serviceinfo_cache(
@@ -2666,6 +2674,7 @@ class ServiceCommandDispatcher:
                     has_media_pid=has_pid,
                     is_radio=is_radio,
                     is_hd=is_hd,
+                    delivery_system=delivery_system,
                 )
                 eligible = has_pid and not known_radio_flag
         except Exception:
@@ -2677,11 +2686,12 @@ class ServiceCommandDispatcher:
                     max_age_days=None,
                 )
                 if cached is not None:
-                    has_pid, is_radio, is_hd = cached
+                    has_pid, is_radio, is_hd, delivery_system = cached
                     self._set_channel_tech_flags(
                         channel_name,
                         is_radio=is_radio,
                         is_hd=is_hd,
+                        delivery_system=delivery_system,
                     )
                     known_radio_flag = is_radio
                     eligible = has_pid and not known_radio_flag
@@ -2693,20 +2703,28 @@ class ServiceCommandDispatcher:
         cache[key] = eligible
         return eligible
 
-    def _get_channel_tech_flags(self, channel_name: str) -> tuple[bool | None, bool | None]:
+    def _get_channel_tech_flags(
+        self,
+        channel_name: str,
+    ) -> tuple[bool | None, bool | None, str | None]:
         rows = self._context.persistence.connection.execute(
             """
-            SELECT is_radio_channel, is_hd_channel
+            SELECT is_radio_channel, is_hd_channel, delivery_system
             FROM epg_channels
             WHERE lower(display_name) = lower(?)
             """,
             (channel_name,),
         ).fetchall()
         if not rows:
-            return (None, None)
+            return (None, None, None)
 
         radio_values = [row[0] for row in rows if row[0] is not None]
         hd_values = [row[1] for row in rows if row[1] is not None]
+        delivery_values = {
+            str(row[2]).strip().upper()
+            for row in rows
+            if row[2] is not None and str(row[2]).strip()
+        }
 
         known_radio: bool | None
         if not radio_values:
@@ -2724,7 +2742,19 @@ class ServiceCommandDispatcher:
         else:
             known_hd = False
 
-        return (known_radio, known_hd)
+        known_delivery_system: str | None
+        if not delivery_values:
+            known_delivery_system = None
+        elif "DVB-T2" in delivery_values:
+            known_delivery_system = "DVB-T2"
+        elif "DVB-T" in delivery_values:
+            known_delivery_system = "DVB-T"
+        elif len(delivery_values) == 1:
+            known_delivery_system = next(iter(delivery_values))
+        else:
+            known_delivery_system = None
+
+        return (known_radio, known_hd, known_delivery_system)
 
     def _set_channel_tech_flags(
         self,
@@ -2732,8 +2762,13 @@ class ServiceCommandDispatcher:
         *,
         is_radio: bool,
         is_hd: bool | None,
+        delivery_system: str | None,
     ) -> None:
-        if is_hd is None:
+        normalized_delivery_system = None
+        if isinstance(delivery_system, str) and delivery_system.strip():
+            normalized_delivery_system = delivery_system.strip().upper()
+
+        if is_hd is None and normalized_delivery_system is None:
             self._context.persistence.connection.execute(
                 """
                 UPDATE epg_channels
@@ -2747,12 +2782,79 @@ class ServiceCommandDispatcher:
                 """
                 UPDATE epg_channels
                 SET is_radio_channel = ?,
-                    is_hd_channel = ?
+                    is_hd_channel = COALESCE(?, is_hd_channel),
+                    delivery_system = COALESCE(?, delivery_system)
                 WHERE lower(display_name) = lower(?)
                 """,
-                (int(is_radio), int(is_hd), channel_name),
+                (
+                    int(is_radio),
+                    None if is_hd is None else int(is_hd),
+                    normalized_delivery_system,
+                    channel_name,
+                ),
             )
         self._context.persistence.connection.commit()
+
+    def _refresh_channel_tech_flags(
+        self,
+        channel_name: str,
+    ) -> tuple[bool | None, bool | None, str | None]:
+        known_radio, known_hd, known_delivery_system = self._get_channel_tech_flags(
+            channel_name
+        )
+        if known_hd is not None and known_delivery_system is not None:
+            return known_radio, known_hd, known_delivery_system
+
+        resolved_name = None
+        try:
+            resolved_name = self._context.tvrecorder.resolve_service_name(channel_name)
+        except Exception:
+            return known_radio, known_hd, known_delivery_system
+
+        try:
+            cached = self._get_cached_serviceinfo_flags(
+                resolved_name,
+                max_age_days=SERVICEINFO_CACHE_MAX_AGE_DAYS,
+            )
+            if cached is not None:
+                _has_pid, is_radio, is_hd, delivery_system = cached
+                self._set_channel_tech_flags(
+                    channel_name,
+                    is_radio=is_radio,
+                    is_hd=is_hd,
+                    delivery_system=delivery_system,
+                )
+                return self._get_channel_tech_flags(channel_name)
+
+            adapter_flags = self._load_service_flags_from_adapter_db(resolved_name)
+            if adapter_flags is not None:
+                if len(adapter_flags) == 2:
+                    has_pid, is_radio = adapter_flags
+                    is_hd = None
+                    delivery_system = None
+                elif len(adapter_flags) == 3:
+                    has_pid, is_radio, is_hd = adapter_flags
+                    delivery_system = None
+                else:
+                    has_pid, is_radio, is_hd, delivery_system = adapter_flags
+                self._set_channel_tech_flags(
+                    channel_name,
+                    is_radio=is_radio,
+                    is_hd=is_hd,
+                    delivery_system=delivery_system,
+                )
+                self._upsert_serviceinfo_cache(
+                    resolved_name,
+                    raw_output="adapter-db",
+                    has_media_pid=has_pid,
+                    is_radio=is_radio,
+                    is_hd=is_hd,
+                    delivery_system=delivery_system,
+                )
+        except Exception:
+            return known_radio, known_hd, known_delivery_system
+
+        return self._get_channel_tech_flags(channel_name)
 
     def _load_service_flags_from_adapter_db(
         self,
@@ -2768,8 +2870,9 @@ class ServiceCommandDispatcher:
         try:
             rows = connection.execute(
                 """
-                SELECT s.type, p.type
+                                SELECT s.type, p.type, m.type, m.tuningparams
                 FROM Services AS s
+                                JOIN Multiplexes AS m ON m.uid = s.mplexuid
                 LEFT JOIN PIDs AS p
                   ON p.mplexuid = s.mplexuid
                  AND p.serviceid = s.id
@@ -2786,26 +2889,38 @@ class ServiceCommandDispatcher:
         has_video_pid = False
         radio_only = True
         has_hd_video_pid = False
-        for service_type, pid_type in rows:
+        delivery_systems: set[str] = set()
+        for service_type, pid_type, mux_type, tuningparams in rows:
             if service_type is not None and int(service_type) != 1:
                 radio_only = False
             if pid_type is not None and int(pid_type) in VIDEO_PID_STREAM_TYPES:
                 has_video_pid = True
             if pid_type is not None and int(pid_type) in HD_VIDEO_PID_STREAM_TYPES:
                 has_hd_video_pid = True
+            delivery_system = self._delivery_system_from_adapter_db(
+                mux_type=mux_type,
+                tuningparams=str(tuningparams) if tuningparams is not None else None,
+            )
+            if delivery_system is not None:
+                delivery_systems.add(delivery_system)
 
         is_hd: bool | None = has_hd_video_pid if has_video_pid else None
-        return (has_video_pid, radio_only, is_hd)
+        delivery_system = None
+        if "DVB-T2" in delivery_systems:
+            delivery_system = "DVB-T2"
+        elif "DVB-T" in delivery_systems:
+            delivery_system = "DVB-T"
+        return (has_video_pid, radio_only, is_hd, delivery_system)
 
     def _get_cached_serviceinfo_flags(
         self,
         service_name: str,
         *,
         max_age_days: int | None,
-    ) -> tuple[bool, bool, bool | None] | None:
+    ) -> tuple[bool, bool, bool | None, str | None] | None:
         row = self._context.persistence.connection.execute(
             """
-            SELECT has_media_pid, is_radio, is_hd_channel, fetched_at_utc
+            SELECT has_media_pid, is_radio, is_hd_channel, delivery_system, fetched_at_utc
             FROM serviceinfo_cache
             WHERE service_name = ?
             """,
@@ -2815,7 +2930,7 @@ class ServiceCommandDispatcher:
             return None
 
         if max_age_days is not None:
-            fetched_at_utc = str(row[3])
+            fetched_at_utc = str(row[4])
             try:
                 fetched = datetime.strptime(fetched_at_utc, "%Y-%m-%dT%H:%M:%SZ")
                 fetched = fetched.replace(tzinfo=timezone.utc)
@@ -2826,7 +2941,8 @@ class ServiceCommandDispatcher:
                 return None
 
         is_hd = None if row[2] is None else bool(row[2])
-        return (bool(row[0]), bool(row[1]), is_hd)
+        delivery_system = str(row[3]).strip().upper() if row[3] is not None and str(row[3]).strip() else None
+        return (bool(row[0]), bool(row[1]), is_hd, delivery_system)
 
     def _upsert_serviceinfo_cache(
         self,
@@ -2836,6 +2952,7 @@ class ServiceCommandDispatcher:
         has_media_pid: bool,
         is_radio: bool,
         is_hd: bool | None,
+        delivery_system: str | None,
     ) -> None:
         fetched_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._context.persistence.connection.execute(
@@ -2846,15 +2963,17 @@ class ServiceCommandDispatcher:
                 has_media_pid,
                 is_radio,
                 is_hd_channel,
+                delivery_system,
                 fetched_at_utc
             )
-            VALUES(?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(service_name)
             DO UPDATE SET
                 raw_output = excluded.raw_output,
                 has_media_pid = excluded.has_media_pid,
                 is_radio = excluded.is_radio,
                 is_hd_channel = excluded.is_hd_channel,
+                delivery_system = excluded.delivery_system,
                 fetched_at_utc = excluded.fetched_at_utc
             """,
             (
@@ -2863,10 +2982,41 @@ class ServiceCommandDispatcher:
                 int(has_media_pid),
                 int(is_radio),
                 None if is_hd is None else int(is_hd),
+                delivery_system.strip().upper() if isinstance(delivery_system, str) and delivery_system.strip() else None,
                 fetched_at_utc,
             ),
         )
         self._context.persistence.connection.commit()
+
+    def _serviceinfo_delivery_system(self, raw: str) -> str | None:
+        lowered = raw.casefold()
+        if "dvb-t2" in lowered:
+            return "DVB-T2"
+        if "plp number" in lowered or "256qam" in lowered or "transmission_mode_32k" in lowered:
+            return "DVB-T2"
+        if "dvb-t" in lowered or "64qam" in lowered:
+            return "DVB-T"
+        return None
+
+    def _delivery_system_from_adapter_db(
+        self,
+        *,
+        mux_type: object,
+        tuningparams: str | None,
+    ) -> str | None:
+        mux_type_value = None
+        if mux_type is not None:
+            try:
+                mux_type_value = int(mux_type)
+            except (TypeError, ValueError):
+                mux_type_value = None
+
+        tuning = tuningparams.casefold() if isinstance(tuningparams, str) else ""
+        if mux_type_value == 5 or "plp number" in tuning or "256qam" in tuning or "transmission_mode_32k" in tuning:
+            return "DVB-T2"
+        if mux_type_value == 2 or tuning:
+            return "DVB-T"
+        return None
 
     def _serviceinfo_has_media_pid(self, raw: str) -> bool:
         for line in raw.splitlines():
@@ -3230,6 +3380,13 @@ class ServiceCommandDispatcher:
         self,
         rows: list[tuple[object, ...]],
     ) -> tuple[list[tuple[object, ...]], int]:
+        for channel_name in {
+            str(row[1]).strip()
+            for row in rows
+            if row[1] is not None and str(row[1]).strip()
+        }:
+            self._refresh_channel_tech_flags(channel_name)
+
         best_by_key: dict[tuple[str, str, str], tuple[object, ...]] = {}
         duplicate_skips = 0
 
@@ -3255,7 +3412,9 @@ class ServiceCommandDispatcher:
         row: tuple[object, ...],
     ) -> tuple[str, str, str]:
         identity_key = self._auto_schedule_program_identity_key(row)
-        family_key, timeshift_minutes, _is_hd = self._auto_schedule_channel_variant_info(row)
+        family_key, timeshift_minutes, _is_hd, _delivery_system = (
+            self._auto_schedule_channel_variant_info(row)
+        )
         start_at_utc = str(row[4])
         canonical_start = self._auto_schedule_canonical_start(
             start_at_utc=start_at_utc,
@@ -3266,10 +3425,11 @@ class ServiceCommandDispatcher:
     def _auto_schedule_variant_sort_key(
         self,
         row: tuple[object, ...],
-    ) -> tuple[int, int, str]:
-        _family_key, timeshift_minutes, is_hd = self._auto_schedule_channel_variant_info(row)
+    ) -> tuple[int, int, int, str]:
+        _family_key, timeshift_minutes, is_hd, delivery_system = self._auto_schedule_channel_variant_info(row)
         hd_rank = 0 if is_hd else 1
-        return (timeshift_minutes, hd_rank, str(row[1]).casefold())
+        delivery_rank = 0 if delivery_system == "DVB-T2" else 1 if delivery_system == "DVB-T" else 2
+        return (timeshift_minutes, hd_rank, delivery_rank, str(row[1]).casefold())
 
     def _auto_schedule_program_identity_key(
         self,
@@ -3296,7 +3456,7 @@ class ServiceCommandDispatcher:
     def _auto_schedule_channel_variant_info(
         self,
         row: tuple[object, ...],
-    ) -> tuple[str, int, bool]:
+    ) -> tuple[str, int, bool, str | None]:
         channel_name = str(row[1] or "").strip()
         normalized = channel_name.replace(" ", "").casefold()
 
@@ -3312,12 +3472,12 @@ class ServiceCommandDispatcher:
         elif normalized.endswith("sd"):
             normalized = normalized[:-2]
 
+        _known_radio, known_hd, delivery_system = self._get_channel_tech_flags(channel_name)
         if not is_hd:
-            _known_radio, known_hd = self._get_channel_tech_flags(channel_name)
             is_hd = known_hd is True
 
         family_key = f"name:{normalized}"
-        return family_key, timeshift_minutes, is_hd
+        return family_key, timeshift_minutes, is_hd, delivery_system
 
     def _auto_schedule_canonical_start(
         self,
@@ -3566,9 +3726,20 @@ class ServiceCommandDispatcher:
             ts_id = None
             try:
                 info = self._context.tvrecorder.run(serviceinfo_command(svc)).stdout
-                if self._serviceinfo_is_radio(info):
+                is_radio = self._serviceinfo_is_radio(info)
+                has_media_pid = self._serviceinfo_has_media_pid(info)
+                delivery_system = self._serviceinfo_delivery_system(info)
+                self._upsert_serviceinfo_cache(
+                    svc,
+                    raw_output=info,
+                    has_media_pid=has_media_pid,
+                    is_radio=is_radio,
+                    is_hd=None,
+                    delivery_system=delivery_system,
+                )
+                if is_radio:
                     continue
-                if not self._serviceinfo_has_media_pid(info):
+                if not has_media_pid:
                     continue
                 ts_id = self._parse_ts_id_from_serviceinfo(info)
             except Exception as exc:

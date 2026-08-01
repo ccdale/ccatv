@@ -66,7 +66,7 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
 
     assert applied_count == 0
     assert applied_versions is not None
-    assert applied_versions[0] == 15
+    assert applied_versions[0] == 16
 
 
 def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None:
@@ -84,7 +84,7 @@ def test_initialize_database_is_idempotent_for_same_path(tmp_path: Path) -> None
         second.close()
 
     assert applied_versions is not None
-    assert applied_versions[0] == 15
+    assert applied_versions[0] == 16
 
 
 def test_migration_v4_adds_dvbstreamer_service_name_column(tmp_path: Path) -> None:
@@ -133,6 +133,21 @@ def test_migration_v13_adds_is_hd_channel_column(tmp_path: Path) -> None:
         connection.close()
 
     assert "is_hd_channel" in column_names
+
+
+def test_migration_v16_adds_delivery_system_column(tmp_path: Path) -> None:
+    db_path = tmp_path / "ccatv.sqlite3"
+    connection = initialize_database(db_path)
+    try:
+        channel_columns = connection.execute("PRAGMA table_info(epg_channels)").fetchall()
+        cache_columns = connection.execute("PRAGMA table_info(serviceinfo_cache)").fetchall()
+        channel_column_names = {str(row[1]) for row in channel_columns}
+        cache_column_names = {str(row[1]) for row in cache_columns}
+    finally:
+        connection.close()
+
+    assert "delivery_system" in channel_column_names
+    assert "delivery_system" in cache_column_names
 
 
 def test_migration_v6_adds_program_snapshot_columns(tmp_path: Path) -> None:

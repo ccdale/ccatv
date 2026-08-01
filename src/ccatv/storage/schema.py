@@ -379,6 +379,24 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=16,
+        name="channel_delivery_system_v16",
+        statements=(
+            """
+            ALTER TABLE epg_channels
+            ADD COLUMN delivery_system TEXT
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_epg_channels_delivery_system
+            ON epg_channels(delivery_system)
+            """,
+            """
+            ALTER TABLE serviceinfo_cache
+            ADD COLUMN delivery_system TEXT
+            """,
+        ),
+    ),
 )
 
 
