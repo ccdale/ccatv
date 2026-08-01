@@ -3298,7 +3298,6 @@ class ServiceCommandDispatcher:
         row: tuple[object, ...],
     ) -> tuple[str, int, bool]:
         channel_name = str(row[1] or "").strip()
-        group_id = row[2]
         normalized = channel_name.replace(" ", "").casefold()
 
         timeshift_minutes = 0
@@ -3313,11 +3312,11 @@ class ServiceCommandDispatcher:
         elif normalized.endswith("sd"):
             normalized = normalized[:-2]
 
-        family_key = (
-            f"group:{int(group_id)}"
-            if group_id is not None
-            else f"name:{normalized}"
-        )
+        if not is_hd:
+            _known_radio, known_hd = self._get_channel_tech_flags(channel_name)
+            is_hd = known_hd is True
+
+        family_key = f"name:{normalized}"
         return family_key, timeshift_minutes, is_hd
 
     def _auto_schedule_canonical_start(
