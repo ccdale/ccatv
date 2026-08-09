@@ -136,6 +136,10 @@ instead of launching a direct CLI process probe.
 three-service split. It validates unit load/enabled/active states, web and API
 health checks, and warns if linger is disabled.
 
+`ccatv-start` also terminates unmanaged legacy `uv run ccatv-service` and
+`uv run ccatv-web` processes before it starts the user units. This prevents old
+wrapper-era background processes from holding ports `8787` or `5000`.
+
 ## Running without an active login session (linger)
 
 By default systemd user services stop when you log out. To keep `ccatv-service` running even when no session is active:

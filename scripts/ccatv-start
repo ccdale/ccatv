@@ -167,6 +167,35 @@ systemctl_user() {
   systemctl --user "$@"
 }
 
+stop_legacy_ccatv_processes() {
+  local pids
+  pids=$(pgrep -f 'uv run ccatv-(service|web)|/ccatv/.venv/bin/ccatv-(service|web)' || true)
+  if [[ -z "${pids}" ]]; then
+    return
+  fi
+
+  local terminated=0
+  local pid
+  for pid in ${pids}; do
+    if [[ ! -r "/proc/${pid}/cgroup" ]]; then
+      continue
+    fi
+
+    if grep -Eq 'ccatv(\-api|\-web)?\.service|ccatv\.service' "/proc/${pid}/cgroup"; then
+      continue
+    fi
+
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill "${pid}" 2>/dev/null || true
+      terminated=1
+    fi
+  done
+
+  if [[ "${terminated}" -eq 1 ]]; then
+    echo "Terminated legacy unmanaged ccatv processes before starting systemd user services."
+  fi
+}
+
 write_repo_units() {
   local uv_bin_escaped
   uv_bin_escaped=${UV_BIN@Q}
@@ -321,6 +350,7 @@ PY
 cd "${REPO_DIR}"
 "${UV_BIN}" sync
 write_repo_units
+stop_legacy_ccatv_processes
 
 systemctl_user daemon-reload
 systemctl_user enable --now ccatv.service ccatv-api.service ccatv-web.service
