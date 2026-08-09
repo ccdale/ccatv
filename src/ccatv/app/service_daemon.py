@@ -1268,7 +1268,14 @@ def run_service_daemon(
 
     dvbctrl = getattr(context, "dvbctrl", None)
     if dvbctrl is not None:
-        ready_deadline = time.time() + 5.0
+        control_ready_timeout_seconds = 10.0
+        try:
+            timeout_seconds = float(getattr(dvbctrl, "timeout_seconds", 0.0))
+            control_ready_timeout_seconds = max(10.0, timeout_seconds + 2.0)
+        except Exception:
+            pass
+
+        ready_deadline = time.time() + control_ready_timeout_seconds
         ready_error: str | None = None
         while True:
             try:
@@ -1277,7 +1284,8 @@ def run_service_daemon(
                 ready_error = str(exc)
                 if time.time() >= ready_deadline:
                     logger.error(
-                        "service daemon dvbstreamer readiness probe failed: %s",
+                        "service daemon dvbstreamer readiness probe failed after %.1f seconds: %s",
+                        control_ready_timeout_seconds,
                         ready_error,
                     )
                     return 1

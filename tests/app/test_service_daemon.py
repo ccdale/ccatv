@@ -303,6 +303,54 @@ def test_run_service_daemon_starts_all_adapter_slots_before_cycle(monkeypatch) -
     assert worker.cycle_count == 1
 
 
+def test_run_service_daemon_waits_beyond_five_seconds_for_dvbctrl_readiness(
+    monkeypatch,
+) -> None:
+    worker = StubWorker()
+    context = StubContext(
+        logger=logging.getLogger("test.daemon.readiness.extended_timeout"),
+        dvbstreamer=StubDvbStreamer(),
+    )
+
+    current_time = {"value": 1000.0}
+
+    class _StubDvbCtrl:
+        timeout_seconds = 10.0
+
+        def run_command(self, command: str):
+            assert command == "stats"
+            if current_time["value"] < 1008.0:
+                raise RuntimeError("Failed to connect to host localhost port 54197")
+            return SimpleNamespace(stdout="Packets=1\n")
+
+    context.dvbctrl = _StubDvbCtrl()
+
+    monkeypatch.setattr(
+        "ccatv.app.service_daemon.create_scheduler_worker",
+        lambda *_args, **_kwargs: worker,
+    )
+
+    def _fake_time() -> float:
+        return current_time["value"]
+
+    def _fake_sleep(seconds: float) -> None:
+        current_time["value"] += seconds
+
+    monkeypatch.setattr("ccatv.app.service_daemon.time.time", _fake_time)
+    monkeypatch.setattr("ccatv.app.service_daemon.time.sleep", _fake_sleep)
+
+    result = run_service_daemon(
+        context,
+        output_directory="/tmp",
+        max_jobs_per_cycle=1,
+        poll_interval_seconds=5.0,
+        run_once=True,
+    )
+
+    assert result == 0
+    assert worker.cycle_count == 1
+
+
 def test_run_service_daemon_returns_error_when_dvbstreamer_fails_to_start(
     monkeypatch,
 ) -> None:
