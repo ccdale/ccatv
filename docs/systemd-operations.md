@@ -164,19 +164,19 @@ and add:
 Environment=CCATV_LOG_LEVEL=DEBUG
 ```
 
-### Service-filter capture diagnostics (local script workflow)
+### Service-filter capture diagnostics (script-managed user units)
 
-When running via local scripts on hosts like `druidmedia` (instead of user units),
-restart with DEBUG to emit service-filter capture start/stop diagnostics:
+The helper scripts now manage `systemd --user` units directly. Restart with
+DEBUG to emit service-filter capture start/stop diagnostics:
 
 ```bash
-ssh druidmedia 'bash -lc "set -euo pipefail; cd ~/src/ccatv; bash ./scripts/ccatv-stop; CCATV_LOG_LEVEL=DEBUG bash ./scripts/ccatv-start"'
+ssh druidmedia 'bash -lc "set -euo pipefail; cd ~/src/ccatv; CCATV_LOG_LEVEL=DEBUG bash ./scripts/ccatv-stop; CCATV_LOG_LEVEL=DEBUG bash ./scripts/ccatv-start"'
 ```
 
-Then watch the capture diagnostics live:
+Then watch the capture diagnostics live from journald:
 
 ```bash
-ssh druidmedia 'bash -lc "tail -F ~/.local/state/ccatv/logs/ccatv-service.log | grep -E \"service-filter capture start|service-filter capture stop|recording started|recording completed successfully\""'
+ssh druidmedia 'bash -lc "journalctl --user-unit ccatv.service -f | grep -E "service-filter capture start|service-filter capture stop|recording started|recording completed successfully""'
 ```
 
 To switch back to normal INFO-level operation:

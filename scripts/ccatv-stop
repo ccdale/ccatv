@@ -2,14 +2,11 @@
 
 set -euo pipefail
 
-STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/ccatv"
-RUN_DIR="${STATE_DIR}/run"
-
 usage() {
   cat <<'EOF'
 Usage: ccatv-stop
 
-Stop ccatv-web, ccatv-api, and ccatv-service using their pid files.
+Stop ccatv-web, ccatv-api, and ccatv-service via systemd --user.
 EOF
 }
 
@@ -27,119 +24,19 @@ if [[ $# -gt 0 ]]; then
   esac
 fi
 
-stop_component() {
-  local name="$1"
-  local pid_file="$2"
-  local wait_seconds="${3:-15}"
+systemctl_user() {
+  local uid
+  uid=$(id -u)
+  local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+  local bus="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
 
-  if [[ ! -f "${pid_file}" ]]; then
-    echo "${name} not running"
-    return 0
+  if [[ -S "${runtime_dir}/bus" ]]; then
+    XDG_RUNTIME_DIR="${runtime_dir}" DBUS_SESSION_BUS_ADDRESS="${bus}" systemctl --user "$@"
+    return
   fi
 
-  local pid
-  pid=$(<"${pid_file}")
-  if [[ -z "${pid}" ]]; then
-    rm -f "${pid_file}"
-    echo "${name} had empty pid file"
-    return 0
-  fi
-
-  if ! kill -0 "${pid}" 2>/dev/null; then
-    rm -f "${pid_file}"
-    echo "${name} already stopped"
-    return 0
-  fi
-
-  kill "${pid}"
-  local loops=$((wait_seconds * 4))
-  # Wait for graceful shutdown in 250ms increments.
-  for ((i = 0; i < loops; i++)); do
-    if ! kill -0 "${pid}" 2>/dev/null; then
-      rm -f "${pid_file}"
-      echo "Stopped ${name}"
-      return 0
-    fi
-    sleep 0.25
-  done
-
-  kill -9 "${pid}" 2>/dev/null || true
-  rm -f "${pid_file}"
-  echo "Force-stopped ${name}"
+  systemctl --user "$@"
 }
 
-cleanup_dvbstreamer_processes() {
-  local pids
-  pids=$(pgrep -x dvbstreamer || true)
-  if [[ -z "${pids}" ]]; then
-    return 0
-  fi
-
-  local live_pids=""
-  local zombie_pids=""
-  local pid
-  for pid in ${pids}; do
-    local stat
-    stat=$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)
-    if [[ -z "${stat}" ]]; then
-      continue
-    fi
-    if [[ "${stat}" == Z* ]]; then
-      zombie_pids+=" ${pid}"
-    else
-      live_pids+=" ${pid}"
-    fi
-  done
-
-  if [[ -n "${zombie_pids}" ]]; then
-    zombie_pids="${zombie_pids# }"
-    echo "Found zombie dvbstreamer processes (cannot be killed directly): ${zombie_pids}"
-    ps -o pid=,ppid=,stat=,cmd= -p ${zombie_pids} || true
-  fi
-
-  if [[ -z "${live_pids}" ]]; then
-    return 0
-  fi
-
-  live_pids="${live_pids# }"
-  echo "Stopping stray dvbstreamer processes: ${live_pids}"
-  kill -TERM ${live_pids} 2>/dev/null || true
-
-  for _ in {1..40}; do
-    local remaining_live=""
-    for pid in ${live_pids}; do
-      local stat
-      stat=$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)
-      if [[ -n "${stat}" && "${stat}" != Z* ]]; then
-        remaining_live+=" ${pid}"
-      fi
-    done
-    if [[ -z "${remaining_live}" ]]; then
-      echo "Stopped stray dvbstreamer processes"
-      return 0
-    fi
-    sleep 0.25
-  done
-
-  local remaining
-  remaining=""
-  for pid in ${live_pids}; do
-    local stat
-    stat=$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)
-    if [[ -n "${stat}" && "${stat}" != Z* ]]; then
-      remaining+=" ${pid}"
-    fi
-  done
-  if [[ -n "${remaining}" ]]; then
-    remaining="${remaining# }"
-    echo "Force-stopping remaining dvbstreamer processes: ${remaining}"
-    kill -KILL ${remaining} 2>/dev/null || true
-  fi
-}
-
-stop_component "ccatv-web" "${RUN_DIR}/ccatv-web.pid"
-stop_component "ccatv-api" "${RUN_DIR}/ccatv-api.pid"
-# Service shutdown can involve active recording stop + post-processing cleanup,
-# so give it a larger grace window before force-kill.
-stop_component "ccatv-service" "${RUN_DIR}/ccatv-service.pid" 120
-cleanup_dvbstreamer_processes
+systemctl_user stop ccatv-web.service ccatv-api.service ccatv.service
+echo "Stopped ccatv-web, ccatv-api, and ccatv-service via systemd --user"

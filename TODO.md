@@ -128,6 +128,33 @@ M6. Multi-front-end enablement.
 - [x] Add first Flask/FastAPI command-path integration against remote API transport.
 - [x] Add remote transport security baseline (disabled by default, explicit bind host, auth requirement).
 
+## Operational Rebuild Roadmap
+
+Near-term target:
+
+1. Convert current ccatv runtime to three `systemd --user` services.
+	- `ccatv.service`: recorder and scheduler only.
+	- `ccatv-api.service`: local HTTP transport only.
+	- `ccatv-web.service`: Flask UI only.
+	- Keep user config under `$HOME/.config/ccatv/`.
+	- Prefer journald for service logs instead of wrapper-managed log files.
+
+2. Validate that layout on the current `druidmedia` Mint 22.3 machine.
+	- Enable the three user services and verify they start cleanly.
+	- Confirm recordings continue independently of the desktop session.
+	- Confirm recorder, API, and web logs are visible per-unit in journald.
+	- Confirm the desktop session and Kodi do not control ccatv lifecycle.
+
+Deferred until the rebuild machine is ready:
+
+3. Package ccatv as an installable AUR package built from GitHub release artifacts.
+	- Include service units and sensible `$HOME/.config` defaults.
+	- Keep secrets/runtime tokens out of the package and in user config.
+
+4. Fold the final layout into the Arch-based `druidhtpc` rebuild.
+	- Keep the 3-service split as the appliance baseline.
+	- Treat the package and service layout as the canonical install path for the rebuilt machine.
+
 ## Later Milestones (After Recorder + Persistence)
 
 - Playback backend abstraction (mpv first).

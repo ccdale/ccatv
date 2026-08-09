@@ -4,13 +4,11 @@ set -euo pipefail
 
 REPO_DIR="${HOME}/src/ccatv"
 CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/ccatv"
-STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/ccatv"
-LOG_DIR="${STATE_DIR}/logs"
-RUN_DIR="${STATE_DIR}/run"
 WEB_ENV="${CONFIG_DIR}/web.env"
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
 RECORDINGS_DIR="${HOME}/.local/share/ccatv/recordings"
 
-mkdir -p "${CONFIG_DIR}" "${LOG_DIR}" "${RUN_DIR}" "${RECORDINGS_DIR}"
+mkdir -p "${CONFIG_DIR}" "${SYSTEMD_USER_DIR}" "${RECORDINGS_DIR}"
 
 if [[ ! -d "${REPO_DIR}" ]]; then
   echo "Missing repo directory: ${REPO_DIR}" >&2
@@ -60,11 +58,11 @@ while [[ $# -gt 0 ]]; do
 Usage: ccatv-start [--debug-dvbstreamer-output] [--dvbstreamer-bind-address ADDRESS] [--dvbstreamer-bind-all] [--api-start-delay-seconds SECONDS] [--api-ready-timeout-seconds SECONDS]
 
 Options:
-  --debug-dvbstreamer-output  Keep dvbstreamer stdout/stderr pipes for debugging.
-  --dvbstreamer-bind-address  Set CCATV_DVBSTREAMER_BIND_ADDRESS for ccatv-service processes.
+  --debug-dvbstreamer-output  Set CCATV_DVBSTREAMER_DEBUG_OUTPUT=1 for services.
+  --dvbstreamer-bind-address  Set CCATV_DVBSTREAMER_BIND_ADDRESS for services.
   --dvbstreamer-bind-all      Shortcut for --dvbstreamer-bind-address 0.0.0.0.
-  --api-start-delay-seconds   Extra delay before launching ccatv-api after readiness checks.
-  --api-ready-timeout-seconds Maximum time to wait for migration readiness (default: 60).
+  --api-start-delay-seconds   Stored for backward compatibility (unused in systemd mode).
+  --api-ready-timeout-seconds Stored for backward compatibility (unused in systemd mode).
 EOF
       exit 0
       ;;
@@ -146,67 +144,90 @@ load_web_env() {
   source "${WEB_ENV}"
 }
 
-cleanup_stale_pid() {
-  local pid_file="$1"
-  if [[ -f "${pid_file}" ]]; then
-    local pid
-    pid=$(<"${pid_file}")
-    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-      return 0
-    fi
-    rm -f "${pid_file}"
-  fi
-  return 1
-}
+systemctl_user() {
+  local uid
+  uid=$(id -u)
+  local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+  local bus="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
 
-start_component() {
-  local name="$1"
-  local log_file="$2"
-  local pid_file="$3"
-  shift 3
-
-  if cleanup_stale_pid "${pid_file}"; then
-    echo "${name} already running (pid $(<"${pid_file}"))"
-    return 0
+  if [[ -S "${runtime_dir}/bus" ]]; then
+    XDG_RUNTIME_DIR="${runtime_dir}" DBUS_SESSION_BUS_ADDRESS="${bus}" systemctl --user "$@"
+    return
   fi
 
-  (
-    cd "${REPO_DIR}"
-    nohup "$@" >>"${log_file}" 2>&1 &
-    echo $! > "${pid_file}"
-  )
-
-  echo "Started ${name} (pid $(<"${pid_file}"))"
+  systemctl --user "$@"
 }
 
-wait_for_migration_readiness() {
-  local timeout_seconds="$1"
-  local deadline=$((SECONDS + timeout_seconds))
+write_repo_units() {
+  cat > "${SYSTEMD_USER_DIR}/ccatv.service" <<EOF
+[Unit]
+Description=ccatv scheduler daemon (repo workspace)
+After=network-online.target
+Wants=network-online.target
 
-  while (( SECONDS <= deadline )); do
-    if cd "${REPO_DIR}" && uv run python - <<'PY' >/dev/null 2>&1
-import sqlite3
-from ccatv.settings import AppSettings
-from ccatv.storage.schema import MIGRATIONS
+[Service]
+Type=simple
+EnvironmentFile=-${WEB_ENV}
+ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_SD_LINEUP_ID="\${CCATV_SD_LINEUP_ID:-}" CCATV_DVBSTREAMER_BIND_ADDRESS="\${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="\${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}" CCATV_DVBSTREAMER_MANAGE_PROCESS="1" uv run ccatv-service --output-directory %h/.local/share/ccatv/recordings --poll-interval-seconds 5 --enable-daily-metadata-sync --daily-metadata-sync-time 03:00'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=%h/.local/share/ccatv
+ReadWritePaths=%h/.config/ccatv
 
-settings = AppSettings.from_env()
-connection = sqlite3.connect(settings.database_path)
-try:
-    row = connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()
-    applied = int(row[0]) if row is not None else 0
-finally:
-    connection.close()
+[Install]
+WantedBy=default.target
+EOF
 
-raise SystemExit(0 if applied >= len(MIGRATIONS) else 1)
-PY
-    then
-      return 0
-    fi
+  cat > "${SYSTEMD_USER_DIR}/ccatv-api.service" <<EOF
+[Unit]
+Description=ccatv HTTP API transport (repo workspace)
+After=network-online.target ccatv.service
+Wants=network-online.target ccatv.service
 
-    sleep 1
-  done
+[Service]
+Type=simple
+Environment=CCATV_API_BIND_HOST=127.0.0.1
+Environment=CCATV_API_PORT=8787
+EnvironmentFile=${WEB_ENV}
+ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_LOG_LEVEL="\${CCATV_LOG_LEVEL:-INFO}" CCATV_DVBSTREAMER_BIND_ADDRESS="\${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="\${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}" CCATV_DVBSTREAMER_MANAGE_PROCESS="0" uv run ccatv-service --http-bind-host "\${CCATV_API_BIND_HOST}" --http-port "\${CCATV_API_PORT}" --http-auth-token "\${CCATV_SERVICE_AUTH_TOKEN}"'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=%h/.local/share/ccatv
+ReadWritePaths=%h/.config/ccatv
 
-  return 1
+[Install]
+WantedBy=default.target
+EOF
+
+  cat > "${SYSTEMD_USER_DIR}/ccatv-web.service" <<EOF
+[Unit]
+Description=ccatv Flask web frontend (repo workspace)
+After=network-online.target ccatv-api.service
+Wants=network-online.target ccatv-api.service
+
+[Service]
+Type=simple
+Environment=CCATV_WEB_LISTEN_HOST=0.0.0.0
+Environment=CCATV_WEB_LISTEN_PORT=5000
+Environment=CCATV_WEB_SERVICE_HOST=127.0.0.1
+Environment=CCATV_WEB_SERVICE_PORT=8787
+EnvironmentFile=${WEB_ENV}
+ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_SERVICE_AUTH_TOKEN="\${CCATV_SERVICE_AUTH_TOKEN}" CCATV_WEB_AUTH_TOKEN="\${CCATV_WEB_AUTH_TOKEN}" CCATV_WEB_SESSION_SECRET="\${CCATV_WEB_SESSION_SECRET}" CCATV_LOG_LEVEL="\${CCATV_LOG_LEVEL:-INFO}" uv run ccatv-web --listen-host "\${CCATV_WEB_LISTEN_HOST}" --listen-port "\${CCATV_WEB_LISTEN_PORT}" --service-host "\${CCATV_WEB_SERVICE_HOST}" --service-port "\${CCATV_WEB_SERVICE_PORT}"'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=default.target
+EOF
 }
 
 ensure_web_env
@@ -241,39 +262,58 @@ echo "dvbstreamer bind address: ${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}"
 echo "api start delay seconds: ${CCATV_API_START_DELAY_SECONDS_FLAG}"
 echo "api ready timeout seconds: ${CCATV_API_READY_TIMEOUT_SECONDS_FLAG}"
 
-SERVICE_ARGS=(--poll-interval-seconds 5 --enable-daily-metadata-sync --daily-metadata-sync-time 03:00)
+# Persist service overrides to shared env so all units see the same values.
+python3 - <<PY
+from pathlib import Path
+
+env_path = Path(${WEB_ENV@Q})
+lines = env_path.read_text().splitlines()
+kv = {}
+for line in lines:
+    if not line or line.lstrip().startswith('#') or '=' not in line:
+        continue
+    key, value = line.split('=', 1)
+    kv[key] = value
+
+kv['CCATV_DVBSTREAMER_BIND_ADDRESS'] = ${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG@Q}
+kv['CCATV_DVBSTREAMER_DEBUG_OUTPUT'] = ${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG@Q}
+kv.setdefault('CCATV_SD_LINEUP_ID', kv.get('CCATV_SD_LINEUP_ID', ''))
+
+ordered_keys = [
+    'CCATV_SERVICE_AUTH_TOKEN',
+    'CCATV_WEB_AUTH_TOKEN',
+    'CCATV_WEB_SESSION_SECRET',
+    'CCATV_API_BIND_HOST',
+    'CCATV_API_PORT',
+    'CCATV_WEB_LISTEN_HOST',
+    'CCATV_WEB_LISTEN_PORT',
+    'CCATV_WEB_SERVICE_HOST',
+    'CCATV_WEB_SERVICE_PORT',
+    'CCATV_COMSKIP_INI_PATH',
+    'CCATV_SD_LINEUP_ID',
+    'CCATV_DVBSTREAMER_BIND_ADDRESS',
+    'CCATV_DVBSTREAMER_DEBUG_OUTPUT',
+]
+
+output = []
+for key in ordered_keys:
+    if key in kv:
+        output.append(f"{key}={kv[key]}")
+for key in sorted(kv.keys()):
+    if key not in ordered_keys:
+        output.append(f"{key}={kv[key]}")
+
+env_path.write_text("\n".join(output) + "\n")
+PY
 
 cd "${REPO_DIR}"
 uv sync
+write_repo_units
 
-start_component \
-  "ccatv-service" \
-  "${LOG_DIR}/ccatv-service.log" \
-  "${RUN_DIR}/ccatv-service.pid" \
-  env CCATV_SD_LINEUP_ID="${CCATV_SD_LINEUP_ID:-}" CCATV_DVBSTREAMER_BIND_ADDRESS="${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}" CCATV_DVBSTREAMER_MANAGE_PROCESS="1" uv run ccatv-service "${SERVICE_ARGS[@]}"
+systemctl_user daemon-reload
+systemctl_user enable --now ccatv.service ccatv-api.service ccatv-web.service
 
-echo "Waiting for migration readiness before starting ccatv-api..."
-if ! wait_for_migration_readiness "${CCATV_API_READY_TIMEOUT_SECONDS_FLAG}"; then
-  echo "Migration readiness did not complete within ${CCATV_API_READY_TIMEOUT_SECONDS_FLAG}s; continuing with API startup." >&2
-fi
-
-if [[ "${CCATV_API_START_DELAY_SECONDS_FLAG}" -gt 0 ]]; then
-  echo "Waiting ${CCATV_API_START_DELAY_SECONDS_FLAG}s before starting ccatv-api..."
-  sleep "${CCATV_API_START_DELAY_SECONDS_FLAG}"
-fi
-
-start_component \
-  "ccatv-api" \
-  "${LOG_DIR}/ccatv-api.log" \
-  "${RUN_DIR}/ccatv-api.pid" \
-  env CCATV_LOG_LEVEL="${CCATV_LOG_LEVEL:-INFO}" CCATV_DVBSTREAMER_BIND_ADDRESS="${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}" CCATV_DVBSTREAMER_MANAGE_PROCESS="0" uv run ccatv-service --http-bind-host "${CCATV_API_BIND_HOST}" --http-port "${CCATV_API_PORT}" --http-auth-token "${CCATV_SERVICE_AUTH_TOKEN}"
-
-start_component \
-  "ccatv-web" \
-  "${LOG_DIR}/ccatv-web.log" \
-  "${RUN_DIR}/ccatv-web.pid" \
-  env CCATV_SERVICE_AUTH_TOKEN="${CCATV_SERVICE_AUTH_TOKEN}" CCATV_WEB_AUTH_TOKEN="${CCATV_WEB_AUTH_TOKEN}" CCATV_WEB_SESSION_SECRET="${CCATV_WEB_SESSION_SECRET}" CCATV_LOG_LEVEL="${CCATV_LOG_LEVEL:-INFO}" uv run ccatv-web --listen-host "${CCATV_WEB_LISTEN_HOST}" --listen-port "${CCATV_WEB_LISTEN_PORT}" --service-host "${CCATV_WEB_SERVICE_HOST}" --service-port "${CCATV_WEB_SERVICE_PORT}"
-
-echo "Logs: ${LOG_DIR}"
+echo "Services started under systemd --user."
 echo "Shared env: ${WEB_ENV}"
 echo "Web URL: http://$(hostname):${CCATV_WEB_LISTEN_PORT}"
+echo "Follow logs with: journalctl --user-unit ccatv.service -f"
