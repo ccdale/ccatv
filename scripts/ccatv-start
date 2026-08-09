@@ -15,6 +15,15 @@ if [[ ! -d "${REPO_DIR}" ]]; then
   exit 1
 fi
 
+UV_BIN="$(command -v uv 2>/dev/null || true)"
+if [[ -z "${UV_BIN}" && -x "${HOME}/.local/bin/uv" ]]; then
+  UV_BIN="${HOME}/.local/bin/uv"
+fi
+if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
+  echo "Unable to locate executable 'uv'. Install uv or add it to PATH." >&2
+  exit 1
+fi
+
 CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG="${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}"
 CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG="${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}"
 CCATV_API_START_DELAY_SECONDS_FLAG="${CCATV_API_START_DELAY_SECONDS:-0}"
@@ -159,6 +168,9 @@ systemctl_user() {
 }
 
 write_repo_units() {
+  local uv_bin_escaped
+  uv_bin_escaped=${UV_BIN@Q}
+
   cat > "${SYSTEMD_USER_DIR}/ccatv.service" <<EOF
 [Unit]
 Description=ccatv scheduler daemon (repo workspace)
@@ -168,7 +180,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-${WEB_ENV}
-ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_SD_LINEUP_ID="\${CCATV_SD_LINEUP_ID:-}" CCATV_DVBSTREAMER_BIND_ADDRESS="\${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="\${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}" CCATV_DVBSTREAMER_MANAGE_PROCESS="1" uv run ccatv-service --output-directory %h/.local/share/ccatv/recordings --poll-interval-seconds 5 --enable-daily-metadata-sync --daily-metadata-sync-time 03:00'
+ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_SD_LINEUP_ID="\${CCATV_SD_LINEUP_ID:-}" CCATV_DVBSTREAMER_BIND_ADDRESS="\${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="\${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}" CCATV_DVBSTREAMER_MANAGE_PROCESS="1" ${uv_bin_escaped} run ccatv-service --output-directory %h/.local/share/ccatv/recordings --poll-interval-seconds 5 --enable-daily-metadata-sync --daily-metadata-sync-time 03:00'
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
@@ -192,7 +204,7 @@ Type=simple
 Environment=CCATV_API_BIND_HOST=127.0.0.1
 Environment=CCATV_API_PORT=8787
 EnvironmentFile=${WEB_ENV}
-ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_LOG_LEVEL="\${CCATV_LOG_LEVEL:-INFO}" CCATV_DVBSTREAMER_BIND_ADDRESS="\${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="\${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}" CCATV_DVBSTREAMER_MANAGE_PROCESS="0" uv run ccatv-service --http-bind-host "\${CCATV_API_BIND_HOST}" --http-port "\${CCATV_API_PORT}" --http-auth-token "\${CCATV_SERVICE_AUTH_TOKEN}"'
+ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_LOG_LEVEL="\${CCATV_LOG_LEVEL:-INFO}" CCATV_DVBSTREAMER_BIND_ADDRESS="\${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="\${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}" CCATV_DVBSTREAMER_MANAGE_PROCESS="0" ${uv_bin_escaped} run ccatv-service --http-bind-host "\${CCATV_API_BIND_HOST}" --http-port "\${CCATV_API_PORT}" --http-auth-token "\${CCATV_SERVICE_AUTH_TOKEN}"'
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
@@ -218,7 +230,7 @@ Environment=CCATV_WEB_LISTEN_PORT=5000
 Environment=CCATV_WEB_SERVICE_HOST=127.0.0.1
 Environment=CCATV_WEB_SERVICE_PORT=8787
 EnvironmentFile=${WEB_ENV}
-ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_SERVICE_AUTH_TOKEN="\${CCATV_SERVICE_AUTH_TOKEN}" CCATV_WEB_AUTH_TOKEN="\${CCATV_WEB_AUTH_TOKEN}" CCATV_WEB_SESSION_SECRET="\${CCATV_WEB_SESSION_SECRET}" CCATV_LOG_LEVEL="\${CCATV_LOG_LEVEL:-INFO}" uv run ccatv-web --listen-host "\${CCATV_WEB_LISTEN_HOST}" --listen-port "\${CCATV_WEB_LISTEN_PORT}" --service-host "\${CCATV_WEB_SERVICE_HOST}" --service-port "\${CCATV_WEB_SERVICE_PORT}"'
+ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_SERVICE_AUTH_TOKEN="\${CCATV_SERVICE_AUTH_TOKEN}" CCATV_WEB_AUTH_TOKEN="\${CCATV_WEB_AUTH_TOKEN}" CCATV_WEB_SESSION_SECRET="\${CCATV_WEB_SESSION_SECRET}" CCATV_LOG_LEVEL="\${CCATV_LOG_LEVEL:-INFO}" ${uv_bin_escaped} run ccatv-web --listen-host "\${CCATV_WEB_LISTEN_HOST}" --listen-port "\${CCATV_WEB_LISTEN_PORT}" --service-host "\${CCATV_WEB_SERVICE_HOST}" --service-port "\${CCATV_WEB_SERVICE_PORT}"'
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
@@ -307,7 +319,7 @@ env_path.write_text("\n".join(output) + "\n")
 PY
 
 cd "${REPO_DIR}"
-uv sync
+"${UV_BIN}" sync
 write_repo_units
 
 systemctl_user daemon-reload
