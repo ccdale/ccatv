@@ -117,6 +117,25 @@ systemctl --user status ccatv-web.service
 journalctl --user-unit ccatv-web.service -f
 ```
 
+Repo helper scripts (recommended for day-to-day use):
+
+```bash
+bash ./scripts/ccatv-start
+bash ./scripts/ccatv-stop
+bash ./scripts/ccatv-restart
+bash ./scripts/ccatv-bounce-flask
+bash ./scripts/ccatv-status
+bash ./scripts/ccatv-status --logs 50
+bash ./scripts/ccatv-verify-systemd-user
+```
+
+`ccatv-status` now reports per-unit enabled/active state from `systemd --user`
+instead of launching a direct CLI process probe.
+
+`ccatv-verify-systemd-user` is the first-boot acceptance checker for the
+three-service split. It validates unit load/enabled/active states, web and API
+health checks, and warns if linger is disabled.
+
 ## Running without an active login session (linger)
 
 By default systemd user services stop when you log out. To keep `ccatv-service` running even when no session is active:

@@ -12,5 +12,6 @@ install -m 755 "${REPO_DIR}/scripts/ccatv-restart" "${TARGET_DIR}/ccatv-restart"
 install -m 755 "${REPO_DIR}/scripts/ccatv-bounce-flask" "${TARGET_DIR}/ccatv-bounce-flask"
 install -m 755 "${REPO_DIR}/scripts/ccatv-epg-daily" "${TARGET_DIR}/ccatv-epg-daily"
 install -m 755 "${REPO_DIR}/scripts/ccatv-status" "${TARGET_DIR}/ccatv-status"
+install -m 755 "${REPO_DIR}/scripts/ccatv-verify-systemd-user" "${TARGET_DIR}/ccatv-verify-systemd-user"
 
-echo "Installed ccatv-start, ccatv-stop, ccatv-restart, ccatv-bounce-flask, ccatv-epg-daily, and ccatv-status to ${TARGET_DIR}"
+echo "Installed ccatv-start, ccatv-stop, ccatv-restart, ccatv-bounce-flask, ccatv-epg-daily, ccatv-status, and ccatv-verify-systemd-user to ${TARGET_DIR}"

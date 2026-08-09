@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: ccatv-verify-systemd-user [--logs LINES]
+
+Validate first-boot expectations for ccatv systemd --user services.
+
+Checks:
+  - user bus availability
+  - unit file load state
+  - enabled state for ccatv.service, ccatv-api.service, ccatv-web.service
+  - active state for all three services
+  - HTTP health for web (/) and API (/health with bearer token)
+
+Options:
+  --logs LINES   Show last N journal lines for each service on failure (default: 40)
+EOF
+}
+
+log_lines=40
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --logs)
+      shift
+      if [[ $# -lt 1 ]]; then
+        echo "Missing value for --logs" >&2
+        exit 2
+      fi
+      if ! [[ "$1" =~ ^[0-9]+$ ]]; then
+        echo "--logs requires a non-negative integer" >&2
+        exit 2
+      fi
+      log_lines="$1"
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Use --help for usage." >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [[ $# -gt 0 ]]; then
+  echo "Unexpected extra arguments: $*" >&2
+  exit 2
+fi
+
+systemctl_user() {
+  local uid
+  uid=$(id -u)
+  local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+  local bus="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
+
+  if [[ -S "${runtime_dir}/bus" ]]; then
+    XDG_RUNTIME_DIR="${runtime_dir}" DBUS_SESSION_BUS_ADDRESS="${bus}" systemctl --user "$@"
+    return
+  fi
+
+  systemctl --user "$@"
+}
+
+journalctl_user() {
+  local uid
+  uid=$(id -u)
+  local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+  local bus="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
+
+  if [[ -S "${runtime_dir}/bus" ]]; then
+    XDG_RUNTIME_DIR="${runtime_dir}" DBUS_SESSION_BUS_ADDRESS="${bus}" journalctl --user "$@"
+    return
+  fi
+
+  journalctl --user "$@"
+}
+
+services=(ccatv.service ccatv-api.service ccatv-web.service)
+
+uid=$(id -u)
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+if [[ ! -S "${runtime_dir}/bus" ]]; then
+  echo "WARN: user bus socket not found at ${runtime_dir}/bus; relying on inherited session bus" >&2
+fi
+
+if [[ ! -f "${HOME}/.config/ccatv/web.env" ]]; then
+  echo "FAIL: missing ${HOME}/.config/ccatv/web.env" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "${HOME}/.config/ccatv/web.env"
+
+auth_token="${CCATV_SERVICE_AUTH_TOKEN:-}"
+api_bind_host="${CCATV_API_BIND_HOST:-127.0.0.1}"
+api_port="${CCATV_API_PORT:-8787}"
+web_listen_host="${CCATV_WEB_LISTEN_HOST:-127.0.0.1}"
+web_listen_port="${CCATV_WEB_LISTEN_PORT:-5000}"
+
+if [[ -z "${auth_token}" ]]; then
+  echo "FAIL: CCATV_SERVICE_AUTH_TOKEN is missing in ${HOME}/.config/ccatv/web.env" >&2
+  exit 1
+fi
+
+failed=0
+for svc in "${services[@]}"; do
+  load_state="$(systemctl_user show -p LoadState --value "$svc" 2>/dev/null || true)"
+  enabled_state="$(systemctl_user is-enabled "$svc" 2>/dev/null || true)"
+  active_state="$(systemctl_user is-active "$svc" 2>/dev/null || true)"
+
+  printf '%-18s load=%-8s enabled=%-8s active=%s\n' "$svc" "${load_state:-unknown}" "${enabled_state:-unknown}" "${active_state:-unknown}"
+
+  if [[ "${load_state}" != "loaded" ]]; then
+    failed=1
+  fi
+  if [[ "${enabled_state}" != "enabled" ]]; then
+    failed=1
+  fi
+  if [[ "${active_state}" != "active" ]]; then
+    failed=1
+  fi
+done
+
+web_url="http://${web_listen_host}:${web_listen_port}/"
+api_url="http://${api_bind_host}:${api_port}/health"
+
+if curl -fsS --max-time 8 "$web_url" >/dev/null; then
+  echo "WEB_OK ${web_url}"
+else
+  echo "FAIL: web health failed at ${web_url}" >&2
+  failed=1
+fi
+
+if curl -fsS --max-time 8 -H "Authorization: Bearer ${auth_token}" "$api_url" >/dev/null; then
+  echo "API_OK ${api_url}"
+else
+  echo "FAIL: api health failed at ${api_url}" >&2
+  failed=1
+fi
+
+linger_state="$(loginctl show-user "${USER}" -p Linger --value 2>/dev/null || true)"
+if [[ "${linger_state}" == "yes" ]]; then
+  echo "LINGER_OK ${USER}"
+else
+  echo "WARN: linger disabled for ${USER}; services stop on logout" >&2
+fi
+
+if [[ "${failed}" -ne 0 ]]; then
+  echo
+  echo "Failure diagnostics (last ${log_lines} lines per service):" >&2
+  for svc in "${services[@]}"; do
+    echo "--- ${svc} ---" >&2
+    journalctl_user -u "$svc" -n "$log_lines" --no-pager >&2 || true
+  done
+  exit 1
+fi
+
+echo "PASS: ccatv systemd --user first-boot checks passed"

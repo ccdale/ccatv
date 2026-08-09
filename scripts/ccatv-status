@@ -2,7 +2,106 @@
 
 set -euo pipefail
 
-REPO_DIR="${HOME}/src/ccatv"
+usage() {
+	cat <<'EOF'
+Usage: ccatv-status [--logs [LINES]]
 
-cd "${REPO_DIR}"
-exec uv run ccatv status "$@"
+Show enabled/active state for ccatv user services.
+
+Options:
+	--logs [LINES]  Also show recent journal lines per service (default 20).
+EOF
+}
+
+show_logs=0
+log_lines=20
+
+if [[ $# -gt 0 ]]; then
+	case "$1" in
+		--help|-h)
+			usage
+			exit 0
+			;;
+		--logs)
+			show_logs=1
+			shift
+			if [[ $# -gt 0 ]]; then
+				if [[ "$1" =~ ^[0-9]+$ ]]; then
+					log_lines="$1"
+					shift
+				else
+					echo "--logs optional value must be a non-negative integer" >&2
+					exit 2
+				fi
+			fi
+			;;
+		*)
+			echo "Unknown option: $1" >&2
+			echo "Use --help for usage." >&2
+			exit 2
+			;;
+	esac
+fi
+
+if [[ $# -gt 0 ]]; then
+	echo "Unexpected extra arguments: $*" >&2
+	exit 2
+fi
+
+systemctl_user() {
+	local uid
+	uid=$(id -u)
+	local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+	local bus="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
+
+	if [[ -S "${runtime_dir}/bus" ]]; then
+		XDG_RUNTIME_DIR="${runtime_dir}" DBUS_SESSION_BUS_ADDRESS="${bus}" systemctl --user "$@"
+		return
+	fi
+
+	systemctl --user "$@"
+}
+
+journalctl_user() {
+	local uid
+	uid=$(id -u)
+	local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+	local bus="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
+
+	if [[ -S "${runtime_dir}/bus" ]]; then
+		XDG_RUNTIME_DIR="${runtime_dir}" DBUS_SESSION_BUS_ADDRESS="${bus}" journalctl --user "$@"
+		return
+	fi
+
+	journalctl --user "$@"
+}
+
+services=(ccatv.service ccatv-api.service ccatv-web.service)
+status=0
+
+for svc in "${services[@]}"; do
+	enabled="$(systemctl_user is-enabled "$svc" 2>/dev/null || true)"
+	active="$(systemctl_user is-active "$svc" 2>/dev/null || true)"
+	if [[ -z "${enabled}" ]]; then
+		enabled="unknown"
+	fi
+	if [[ -z "${active}" ]]; then
+		active="unknown"
+	fi
+
+	printf '%-18s enabled=%-8s active=%s\n' "$svc" "$enabled" "$active"
+	if [[ "${active}" != "active" ]]; then
+		status=1
+	fi
+done
+
+if [[ "${show_logs}" -eq 1 ]]; then
+	echo
+	for svc in "${services[@]}"; do
+		echo "--- ${svc} journal (last ${log_lines}) ---"
+		journalctl_user -u "$svc" -n "$log_lines" --no-pager || true
+		echo
+	done
+fi
+
+exit "${status}"
