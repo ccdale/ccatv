@@ -26,8 +26,7 @@ fi
 
 CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG="${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}"
 CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG="${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}"
-CCATV_API_START_DELAY_SECONDS_FLAG="${CCATV_API_START_DELAY_SECONDS:-0}"
-CCATV_API_READY_TIMEOUT_SECONDS_FLAG="${CCATV_API_READY_TIMEOUT_SECONDS:-60}"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --debug-dvbstreamer-output)
@@ -46,32 +45,17 @@ while [[ $# -gt 0 ]]; do
       CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG="0.0.0.0"
       shift
       ;;
-    --api-start-delay-seconds)
-      if [[ $# -lt 2 ]]; then
-        echo "Missing value for --api-start-delay-seconds" >&2
-        exit 2
-      fi
-      CCATV_API_START_DELAY_SECONDS_FLAG="$2"
-      shift 2
-      ;;
-    --api-ready-timeout-seconds)
-      if [[ $# -lt 2 ]]; then
-        echo "Missing value for --api-ready-timeout-seconds" >&2
-        exit 2
-      fi
-      CCATV_API_READY_TIMEOUT_SECONDS_FLAG="$2"
-      shift 2
-      ;;
     --help|-h)
       cat <<'EOF'
-Usage: ccatv-start [--debug-dvbstreamer-output] [--dvbstreamer-bind-address ADDRESS] [--dvbstreamer-bind-all] [--api-start-delay-seconds SECONDS] [--api-ready-timeout-seconds SECONDS]
+Usage: ccatv-provision [--debug-dvbstreamer-output] [--dvbstreamer-bind-address ADDRESS] [--dvbstreamer-bind-all]
+
+Write systemd user units and web.env, sync the venv, reload and enable all ccatv services.
+Run once after first checkout or to apply unit/env changes.
 
 Options:
-  --debug-dvbstreamer-output  Set CCATV_DVBSTREAMER_DEBUG_OUTPUT=1 for services.
-  --dvbstreamer-bind-address  Set CCATV_DVBSTREAMER_BIND_ADDRESS for services.
+  --debug-dvbstreamer-output  Persist CCATV_DVBSTREAMER_DEBUG_OUTPUT=1 to web.env.
+  --dvbstreamer-bind-address  Persist CCATV_DVBSTREAMER_BIND_ADDRESS to web.env.
   --dvbstreamer-bind-all      Shortcut for --dvbstreamer-bind-address 0.0.0.0.
-  --api-start-delay-seconds   Stored for backward compatibility (unused in systemd mode).
-  --api-ready-timeout-seconds Stored for backward compatibility (unused in systemd mode).
 EOF
       exit 0
       ;;
@@ -82,16 +66,6 @@ EOF
       ;;
   esac
 done
-
-if ! [[ "${CCATV_API_START_DELAY_SECONDS_FLAG}" =~ ^[0-9]+$ ]]; then
-  echo "--api-start-delay-seconds must be a non-negative integer" >&2
-  exit 2
-fi
-
-if ! [[ "${CCATV_API_READY_TIMEOUT_SECONDS_FLAG}" =~ ^[0-9]+$ ]]; then
-  echo "--api-ready-timeout-seconds must be a non-negative integer" >&2
-  exit 2
-fi
 
 ensure_web_env() {
   local service_token=""
@@ -230,7 +204,6 @@ Wants=network-online.target ccatv.service
 
 [Service]
 Type=simple
-Environment=CCATV_API_BIND_HOST=127.0.0.1
 Environment=CCATV_API_PORT=8787
 EnvironmentFile=${WEB_ENV}
 ExecStart=/usr/bin/env bash -lc 'cd %h/src/ccatv && exec env CCATV_LOG_LEVEL="\${CCATV_LOG_LEVEL:-INFO}" CCATV_DVBSTREAMER_BIND_ADDRESS="\${CCATV_DVBSTREAMER_BIND_ADDRESS:-127.0.0.1}" CCATV_DVBSTREAMER_DEBUG_OUTPUT="\${CCATV_DVBSTREAMER_DEBUG_OUTPUT:-0}" CCATV_DVBSTREAMER_MANAGE_PROCESS="0" ${uv_bin_escaped} run ccatv-service --http-bind-host "\${CCATV_API_BIND_HOST}" --http-port "\${CCATV_API_PORT}" --http-auth-token "\${CCATV_SERVICE_AUTH_TOKEN}"'
@@ -274,34 +247,8 @@ EOF
 ensure_web_env
 load_web_env
 
-print_active_script_paths() {
-  local start_cmd=""
-  local stop_cmd=""
-  local start_real=""
-  local stop_real=""
-
-  start_cmd=$(command -v ccatv-start 2>/dev/null || true)
-  stop_cmd=$(command -v ccatv-stop 2>/dev/null || true)
-
-  if [[ -n "${start_cmd}" ]]; then
-    start_real=$(readlink -f "${start_cmd}" 2>/dev/null || echo "${start_cmd}")
-  fi
-  if [[ -n "${stop_cmd}" ]]; then
-    stop_real=$(readlink -f "${stop_cmd}" 2>/dev/null || echo "${stop_cmd}")
-  fi
-
-  echo "Active commands:"
-  echo "  ccatv-start: ${start_real:-<not found>}"
-  echo "  ccatv-stop:  ${stop_real:-<not found>}"
-  echo "  repo start:  ${REPO_DIR}/scripts/ccatv-start"
-  echo "  repo stop:   ${REPO_DIR}/scripts/ccatv-stop"
-}
-
-print_active_script_paths
 echo "dvbstreamer debug output: ${CCATV_DVBSTREAMER_DEBUG_OUTPUT_FLAG}"
 echo "dvbstreamer bind address: ${CCATV_DVBSTREAMER_BIND_ADDRESS_FLAG}"
-echo "api start delay seconds: ${CCATV_API_START_DELAY_SECONDS_FLAG}"
-echo "api ready timeout seconds: ${CCATV_API_READY_TIMEOUT_SECONDS_FLAG}"
 
 # Persist service overrides to shared env so all units see the same values.
 python3 - <<PY
@@ -355,7 +302,7 @@ stop_legacy_ccatv_processes
 systemctl_user daemon-reload
 systemctl_user enable --now ccatv.service ccatv-api.service ccatv-web.service
 
-echo "Services started under systemd --user."
+echo "Units provisioned and enabled."
 echo "Shared env: ${WEB_ENV}"
-echo "Web URL: http://$(hostname):${CCATV_WEB_LISTEN_PORT}"
+echo "Manage lifecycle with: systemctl --user {start|stop|restart|status} ccatv.service"
 echo "Follow logs with: journalctl --user-unit ccatv.service -f"
